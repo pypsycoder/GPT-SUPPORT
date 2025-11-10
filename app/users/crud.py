@@ -9,7 +9,10 @@ from bots.shared.utils import logger
 
 
 # 📌 Получение пользователя по Telegram ID
-async def get_user_by_telegram_id(session: AsyncSession, telegram_id: str):
+async def get_user_by_telegram_id(
+    session: AsyncSession,
+    telegram_id: str,
+) -> User | None:
     stmt = select(User).where(User.telegram_id == telegram_id)
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
@@ -17,7 +20,11 @@ async def get_user_by_telegram_id(session: AsyncSession, telegram_id: str):
 
 # ✅ Сохранить пользователя (если нет — создать)
 # ВАЖНО: сюда уже передаём session, не открываем новую
-async def save_user(session: AsyncSession, telegram_id: str, full_name: str) -> User:
+async def save_user(
+    session: AsyncSession,
+    telegram_id: str,
+    full_name: str,
+) -> User:
     user = await get_user_by_telegram_id(session, telegram_id)
     if user:
         return user
