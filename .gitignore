@@ -1,0 +1,86 @@
+.env
+# 🧠 Python general
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 🔧 Environment / virtualenv
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 🧩 IDEs and editors
+.idea/
+.vscode/
+*.iml
+
+# 📦 Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 🧪 Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# 🔒 Security / credentials
+*.pem
+*.key
+*.crt
+*.env.secret
+secret.json
+
+# 📊 Logs and temporary files
+*.log
+*.out
+*.tmp
+*.bak
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 🤖 Machine learning / data science
+.ipynb_checkpoints
+__results__/
+models/
+data/
+*.pkl
+*.joblib
+*.h5
+
+# 🌐 Local server stuff
+instance/
+*.db
+*.sqlite3
+
+# 🧰 Custom for GPT Health Support
+# (если ты используешь OpenAI API или другие ключи — держи их вне Git)
+config.yaml
+settings_local.py
