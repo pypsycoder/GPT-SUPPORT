@@ -32,8 +32,8 @@ async def save_user(
     user = User(
         telegram_id=telegram_id,
         full_name=full_name,
-        consent_bot_use=False,        # пока не нажал кнопку
-        consent_personal_data=False,
+        consent_bot_use=False,        # /start не выдаёт согласие автоматически
+        consent_personal_data=False,  # согласие появится только после нажатия кнопки
     )
     session.add(user)
     try:
@@ -44,14 +44,14 @@ async def save_user(
     return user
 
 
-# 🔄 Обновить согласие пользователя
-async def update_user_consent(session: AsyncSession, telegram_id: str, consent: bool) -> None:
+# 🔄 Выдать согласие пользователю (только по кнопке)
+async def grant_user_consent(session: AsyncSession, telegram_id: str) -> None:
     result = await session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
     user = result.scalar_one_or_none()
     if user:
-        user.consent_bot_use = consent
-        user.consent_personal_data = consent
+        user.consent_bot_use = True
+        user.consent_personal_data = True
         await session.commit()
-        logger.info(f"[consent] Обновлено согласие для {telegram_id}: {consent}")
+        logger.info(f"[consent] Обновлено согласие для {telegram_id}: True")

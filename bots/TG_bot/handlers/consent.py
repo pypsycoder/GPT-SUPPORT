@@ -4,7 +4,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery
 import asyncio
 
-from app.users.crud import update_user_consent
+from app.users.crud import grant_user_consent
 from core.db.session import async_session_factory
 from bots.TG_bot.keyboards.start_keyboard import start_keyboard
 from bots.shared.utils import logger
@@ -17,7 +17,7 @@ async def handle_consent_yes(callback: CallbackQuery):
     telegram_id = str(callback.from_user.id)
 
     async with async_session_factory() as session:
-        await update_user_consent(session, telegram_id, True)
+        await grant_user_consent(session, telegram_id)
 
     await callback.message.edit_text("Спасибо за согласие ✅")
     await callback.message.answer("Добро пожаловать!", reply_markup=start_keyboard())
