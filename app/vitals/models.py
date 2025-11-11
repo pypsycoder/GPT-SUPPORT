@@ -5,6 +5,7 @@ from app.models import Base
 
 
 class VitalMeasurement(Base):
+    """Хранит витальные показатели пользователей (давление, пульс, гидратация)."""
     __tablename__ = "measurements"
     __table_args__ = {"schema": "vitals"}
 
