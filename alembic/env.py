@@ -1,78 +1,77 @@
 """Настройка окружения Alembic для проекта."""
-
 import os
+import sys
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
 from alembic import context
+from sqlalchemy import engine_from_config, pool
+from dotenv import load_dotenv
 
+# --- пути и .env ---
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
+
+# грузим .env из корня
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+# --- модели проекта ---
 from app.models import Base
 import app.users.models  # noqa: F401
 import app.scales.models  # noqa: F401
+# import app.vitals.models  # noqa: F401  # на будущее
 
-# Этот блок считывает настройки логирования Alembic из ini-файла.
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Целевое метаданные — общая база моделей, чтобы автогенерация видела все таблицы.
 target_metadata = Base.metadata
 
-# Схемы, с которыми должны работать миграции.
-SCHEMAS = {"users", "scales"}
+SCHEMAS = {"users", "scales"}  # потом добавим "vitals"
 
 
 def get_database_url() -> str:
-    """Возвращает URL подключения к базе из переменной окружения."""
-
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
         raise RuntimeError(
-            "Переменная окружения DATABASE_URL должна быть задана для миграций."
+            "DATABASE_URL не найден. Добавь его в .env или в переменные окружения."
         )
-    return database_url
+    return db_url
 
 
 def include_object(object_, name, type_, reflected, compare_to):
-    """Фильтрует объекты, оставляя только нужные схемы или служебные таблицы."""
-
+    """Фильтруем таблицы по схемам и пропускаем служебную alembic_version."""
     if type_ == "table":
         schema = getattr(object_, "schema", None)
+        current_ctx = context.get_context()
         if schema is None:
-            return name == context.version_table
+            # пропускаем служебную таблицу alembic_version в public
+            return name == current_ctx.version_table
         return schema in SCHEMAS
     return True
 
 
-def configure_context(config_section):
-    """Применяет общие настройки для контекста миграций."""
+def run_migrations_offline() -> None:
+    url = get_database_url()
+    config.set_main_option("sqlalchemy.url", url)
 
     context.configure(
-        config_section=config_section,
+        url=url,
         target_metadata=target_metadata,
-        compare_type=True,
         include_schemas=True,
         version_table_schema="public",
         include_object=include_object,
+        compare_type=True,
     )
-
-
-def run_migrations_offline() -> None:
-    """Выполняет миграции в офлайн-режиме без соединения с БД."""
-
-    url = get_database_url()
-    config.set_main_option("sqlalchemy.url", url)
-    configure_context(config.get_section(config.config_ini_section))
 
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    """Выполняет миграции в онлайне, создавая подключение к БД."""
-
     url = get_database_url()
     config.set_main_option("sqlalchemy.url", url)
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",
@@ -83,10 +82,10 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            compare_type=True,
             include_schemas=True,
             version_table_schema="public",
             include_object=include_object,
+            compare_type=True,
         )
 
         with context.begin_transaction():
