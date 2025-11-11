@@ -1,15 +1,30 @@
-# models.py — SQLAlchemy модели пользователя
-from sqlalchemy import Column, Integer, String, Boolean
-#from sqlalchemy.orm import declarative_base
-from app.models import Base  # 👈 используем общий
+"""SQLAlchemy models for user entities."""
+from sqlalchemy import Boolean, Column, Integer, JSON, String, text
+
+from app.models import Base
 
 
 class User(Base):
+    """User profile stored in the ``users`` schema."""
+
     __tablename__ = "users"
     __table_args__ = {"schema": "users"}
 
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(String, unique=True)
     full_name = Column(String)
-    consent_personal_data = Column(Boolean, default=False)
-    consent_bot_use = Column(Boolean, default=False)
+    age = Column(Integer, nullable=True)
+    gender = Column(String, nullable=True)
+    consent_personal_data = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    consent_bot_use = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    telegram_id = Column(String, unique=True, nullable=False)
+    external_ids = Column(JSON, nullable=True)
