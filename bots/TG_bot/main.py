@@ -16,6 +16,7 @@ async def on_startup():
         # 💡 принудительно создать схему (даже если уже есть — не страшно)
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS scales"))
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS users"))
+        await conn.execute(text("CREATE SCHEMA IF NOT EXISTS vitals"))
 
         # 🔧 теперь создаём все таблицы из объединённого Base
         await conn.run_sync(Base.metadata.create_all)
