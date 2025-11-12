@@ -37,18 +37,27 @@ def _get_required_env(name: str) -> str:
 
 
 # --- Alembic migrations -----------------------------------------------------
-
 @pytest.fixture(scope="session")
 def alembic_upgrade() -> None:
     """Apply all Alembic migrations once before the test session starts."""
 
     database_url = _get_required_env("DATABASE_URL")
 
+    # ⬇️ NEW: Alembic нужен синхронный драйвер
+    sync_url = (
+        database_url.replace("+asyncpg", "+psycopg")
+        if "+asyncpg" in database_url
+        else database_url
+    )
+
     alembic_cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
-    alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    sync_url = (
+        database_url.replace("+asyncpg", "+psycopg")
+        if "+asyncpg" in database_url else database_url
+    )
+    alembic_cfg.set_main_option("sqlalchemy.url", sync_url)  # ⬅️ было: database_url
     alembic_cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
 
-    # Upgrading to ``head`` guarantees the schema matches the latest models.
     command.upgrade(alembic_cfg, "head")
 
 
