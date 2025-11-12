@@ -3,7 +3,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 
 from app.users.crud import get_user_by_telegram_id, save_user
-from app.bot.keyboards.inline import main_menu_ikb
+from app.bot.keyboards.common import main_menu_kb
 from bots.TG_bot.keyboards.consent_keyboard import consent_keyboard
 from bots.shared.utils import logger
 
@@ -40,6 +40,6 @@ async def handle_start(message: Message):
         # сюда попадут только те, кто уже дал согласие
         await message.answer(
             "Главное меню:",
-            reply_markup=main_menu_ikb(),
+            reply_markup=main_menu_kb(),
         )
         logger.info(f"[START] {telegram_id} уже зарегистрирован и дал согласие ✅")

@@ -6,7 +6,7 @@ import asyncio
 
 from app.users.crud import grant_user_consent
 from core.db.session import async_session_factory
-from app.bot.keyboards.inline import main_menu_ikb
+from app.bot.keyboards.common import main_menu_kb
 from bots.shared.utils import logger
 
 router = Router()
@@ -20,7 +20,7 @@ async def handle_consent_yes(callback: CallbackQuery):
         await grant_user_consent(session, telegram_id)
 
     await callback.message.edit_text("Спасибо за согласие ✅")
-    await callback.message.answer("Главное меню:", reply_markup=main_menu_ikb())
+    await callback.message.answer("Главное меню:", reply_markup=main_menu_kb())
     logger.info(f"[CONSENT] {telegram_id} дал согласие ✅")
 
 

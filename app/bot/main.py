@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from config import BOT_TOKEN
 from bots.shared.utils import logger
-from app.bot.routers.menu_inline import menu_router
+from app.bot.routers.menu import menu_router
 from bots.TG_bot.routers.user_router import register_user_routes
 from app.models import Base
 from core.db.engine import engine
