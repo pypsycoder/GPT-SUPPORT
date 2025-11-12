@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -44,17 +45,16 @@ def alembic_upgrade() -> None:
     database_url = _get_required_env("DATABASE_URL")
 
     # ⬇️ NEW: Alembic нужен синхронный драйвер
-    sync_url = (
-        database_url.replace("+asyncpg", "+psycopg")
-        if "+asyncpg" in database_url
-        else database_url
-    )
+    sync_url = database_url
+    if "+asyncpg" in database_url:
+        if importlib.util.find_spec("psycopg") is not None:
+            sync_url = database_url.replace("+asyncpg", "+psycopg")
+        elif importlib.util.find_spec("psycopg2") is not None:
+            sync_url = database_url.replace("+asyncpg", "+psycopg2")
+        else:  # pragma: no cover - exercised only in CI containers without drivers
+            pytest.skip("psycopg driver is required for Alembic migrations")
 
     alembic_cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
-    sync_url = (
-        database_url.replace("+asyncpg", "+psycopg")
-        if "+asyncpg" in database_url else database_url
-    )
     alembic_cfg.set_main_option("sqlalchemy.url", sync_url)  # ⬅️ было: database_url
     alembic_cfg.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
 
