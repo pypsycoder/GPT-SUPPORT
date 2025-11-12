@@ -1,6 +1,6 @@
 """CRUD operations for vital measurements."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.vitals.models import VitalMeasurement
 
 
-# 🆕 Создание новой записи витальных показателей пользователя
 async def create_measurement(
     session: AsyncSession,
     user_id: int,
@@ -19,6 +18,7 @@ async def create_measurement(
 ) -> VitalMeasurement:
     """Создаёт запись витальных показателей для пользователя."""
 
+    # Собираем ORM-объект с показателями, оставляя None для неиспользуемых полей.
     measurement = VitalMeasurement(
         user_id=user_id,
         bp_sys=bp_sys,
@@ -26,17 +26,15 @@ async def create_measurement(
         pulse=pulse,
         fluid_intake=fluid_intake,
     )
-    session.add(measurement)
 
-    # Отправляем INSERT сразу, чтобы получить значения по умолчанию из БД.
-    await session.flush()
-    await session.refresh(measurement)
+    # Добавляем объект в сессию и фиксируем изменения в базе.
+    session.add(measurement)
     await session.commit()
+    await session.refresh(measurement)
 
     return measurement
 
 
-# 📊 Получение последних измерений пользователя за ограниченный период
 async def get_user_measurements(
     session: AsyncSession,
     user_id: int,
@@ -44,7 +42,8 @@ async def get_user_measurements(
 ) -> list[VitalMeasurement]:
     """Возвращает измерения пользователя за последние N дней, отсортированные по времени."""
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    # Рассчитываем нижнюю границу по времени и выбираем данные из БД.
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     stmt = (
         select(VitalMeasurement)
         .where(
@@ -54,18 +53,18 @@ async def get_user_measurements(
         .order_by(VitalMeasurement.measured_at.desc())
     )
 
-    # Скаляры даёт удобный список ORM-объектов вместо Row.
+    # Получаем ORM-объекты из результата запроса.
     result = await session.execute(stmt)
     return result.scalars().all()
 
 
-# ⏱ Получение самого свежего измерения
 async def get_latest_measurement(
     session: AsyncSession,
     user_id: int,
 ) -> VitalMeasurement | None:
     """Возвращает последнее измерение пользователя (по времени)."""
 
+    # Берём самую свежую запись по времени измерения.
     stmt = (
         select(VitalMeasurement)
         .where(VitalMeasurement.user_id == user_id)
@@ -73,17 +72,15 @@ async def get_latest_measurement(
         .limit(1)
     )
 
-    # first() вернёт None, если записей нет.
     result = await session.execute(stmt)
     return result.scalars().first()
 
 
-# 🗑 Удаление измерения (под админ-панель или отладку)
 async def delete_measurement(session: AsyncSession, measurement_id: int) -> None:
     """Удаляет запись по ID (если потребуется админ-панель)."""
 
+    # Формируем DELETE и фиксируем изменения, чтобы удалить запись окончательно.
     stmt = delete(VitalMeasurement).where(VitalMeasurement.id == measurement_id)
 
-    # Используем execute + commit, чтобы каскады и триггеры отработали в БД.
     await session.execute(stmt)
     await session.commit()
