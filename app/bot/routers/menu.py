@@ -35,6 +35,11 @@ async def open_diary(message: types.Message):
     await message.answer("Дневник показателей:", reply_markup=diary_menu_kb())
 
 
+@menu_router.message(F.text == "❓ Помощь")
+async def open_help(message: types.Message):
+    await message.answer("Помощь: FAQ и контакты поддержки.", reply_markup=back_home_kb())
+
+
 @menu_router.message(F.text == "HADS")
 async def go_hads(message: types.Message, state: FSMContext):
     await message.answer("Открываю HADS… (подключим FSM)", reply_markup=back_home_kb())
