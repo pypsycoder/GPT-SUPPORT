@@ -31,7 +31,7 @@ async def create_measurement(
     # Отправляем INSERT сразу, чтобы получить значения по умолчанию из БД.
     await session.flush()
     await session.refresh(measurement)
-    await session.commit()
+    # Коммит оставляем вызывающему коду, чтобы тестовые транзакции могли делать rollback.
 
     return measurement
 
@@ -84,6 +84,7 @@ async def delete_measurement(session: AsyncSession, measurement_id: int) -> None
 
     stmt = delete(VitalMeasurement).where(VitalMeasurement.id == measurement_id)
 
-    # Используем execute + commit, чтобы каскады и триггеры отработали в БД.
+    # Используем execute, чтобы каскады и триггеры отработали в БД.
     await session.execute(stmt)
-    await session.commit()
+    # Flush гарантирует, что удаление попадёт в текущую транзакцию без явного commit.
+    await session.flush()
