@@ -1,4 +1,3 @@
-import asyncio
 import pytest
 from types import SimpleNamespace
 
@@ -21,15 +20,17 @@ class DummyMessage:
 
 async def call(handler, text):
     msg = DummyMessage(text=text)
-    await handler(msg)
+    # эмулируем вызов без реального dispatcher: напрямую
+    await handler(msg)  # хендлеры меню не требуют session, кроме заглушек
     return msg
 
 
 def import_menu():
+    # локальный импорт внутри теста, чтобы не требовать запуска бота
     from app.bot.routers.menu import (
-        cmd_menu, open_scales, open_profile, open_learning, open_diary, diary_add_pulse
+        cmd_menu, open_scales, open_profile, open_learning, open_diary, open_help, diary_add_pulse
     )
-    return cmd_menu, open_scales, open_profile, open_learning, open_diary, diary_add_pulse
+    return cmd_menu, open_scales, open_profile, open_learning, open_diary, open_help, diary_add_pulse
 
 
 async def _assert_contains(msg, needle):
@@ -43,7 +44,7 @@ async def test_cmd_menu():
 
 
 async def test_open_sections():
-    _, open_scales, open_profile, open_learning, open_diary, _ = import_menu()
+    _, open_scales, open_profile, open_learning, open_diary, open_help, _ = import_menu()
     msg = await call(open_scales, "🧪 Шкалы")
     await _assert_contains(msg, "Шкалы")
     msg = await call(open_profile, "👤 Профиль")
@@ -52,6 +53,8 @@ async def test_open_sections():
     await _assert_contains(msg, "Обучение")
     msg = await call(open_diary, "📒 Дневник")
     await _assert_contains(msg, "Дневник")
+    msg = await call(open_help, "❓ Помощь")
+    await _assert_contains(msg, "Помощь")
 
 
 async def test_diary_add_pulse():
