@@ -4,7 +4,6 @@ from aiogram.types import Message
 
 from app.users.crud import get_user_by_telegram_id, save_user
 from app.bots.tg_bot.keyboards.inline import main_menu_ikb
-from app.bots.tg_bot.keyboards.reply_start import reply_start_keyboard
 from app.bots.tg_bot.keyboards.consent_keyboard import consent_keyboard
 from bots.shared.utils import logger
 
@@ -36,8 +35,4 @@ async def handle_start(message: Message):
             return
 
     await message.answer("Главное меню:", reply_markup=main_menu_ikb())
-    await message.answer(
-        "Быстрые действия:",
-        reply_markup=reply_start_keyboard(),
-    )
     logger.info(f"[START] {telegram_id} уже зарегистрирован и дал согласие ✅")
