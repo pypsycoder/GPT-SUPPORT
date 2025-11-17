@@ -1,3 +1,4 @@
+# DEPRECATED: старое reply-меню. Не подключается и не должно использоваться.
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession

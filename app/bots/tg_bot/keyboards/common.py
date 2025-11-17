@@ -1,3 +1,4 @@
+# DEPRECATED: старые reply-клавиатуры для меню. Не используются.
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 
