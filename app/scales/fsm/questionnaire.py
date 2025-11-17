@@ -141,10 +141,60 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(current=current + 1, answers=answers)
         await show_question(callback.message, next_item)
     else:
-        # Завершение
+        # Завершение: сохраняем в БД
         await finalize_response(user_id, schema, answers)
         await delete_draft(draft_id)
 
+        # 🧮 Считаем баллы по подшкалам (A — тревога, D — депрессия)
+        scores: dict[str, int] = {}
+        for item in schema["items"]:
+            item_id = item["id"]
+            scale_code = item.get("scale")  # "A" или "D"
+            if not scale_code:
+                continue
+            value = answers.get(item_id)
+            if value is None:
+                continue
+            scores[scale_code] = scores.get(scale_code, 0) + int(value)
+
+        # 🧾 Готовим человекочитаемую интерпретацию
+        lines: list[str] = []
+        output_cfg = schema.get("output", {})
+
+        for scale_code, total in scores.items():
+            cfg = output_cfg.get(scale_code)
+            if not cfg:
+                continue
+
+            name = cfg.get("name", scale_code)
+            cutoffs = cfg.get("cutoffs", [])
+            labels = cfg.get("interpretation", [])
+
+            # По умолчанию: одна граница -> 2 категории, две границы -> 3
+            if len(cutoffs) == 2 and len(labels) >= 3:
+                if total < cutoffs[0]:
+                    level = labels[0]
+                elif total < cutoffs[1]:
+                    level = labels[1]
+                else:
+                    level = labels[2]
+            elif len(cutoffs) == 1 and len(labels) >= 2:
+                if total < cutoffs[0]:
+                    level = labels[0]
+                else:
+                    level = labels[1]
+            else:
+                # fallback, если вдруг что-то изменится в схеме
+                level = labels[0] if labels else "без интерпретации"
+
+            lines.append(f"{name}: {total} баллов — {level}")
+
+        result_text = "✅ Спасибо! Шкала завершена."
+
+        if lines:
+            result_text += "\n\nРезультаты:\n" + "\n".join(lines)
+
+        # 🔘 Кнопки навигации (назад / меню)
         finish_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -155,8 +205,9 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
         )
 
         await callback.message.answer(
-            "✅ Спасибо! Шкала завершена.",
+            result_text,
             reply_markup=finish_kb,
         )
         logger.info(f"[HADS] {user_id} завершил прохождение")
         await state.clear()
+
