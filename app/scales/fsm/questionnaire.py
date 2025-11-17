@@ -97,14 +97,15 @@ async def start_hads_for_user(
         draft_id=draft["id"],
     )
 
-    # показываем первый/текущий вопрос
+    # показываем первый/текущий вопрос (как отдельное новое сообщение)
     await show_question(message, schema["items"][current_index])
 
 
-# # показать вопрос
+# # показать вопрос (для первого вопроса и fallback-сценариев)
 async def show_question(message: Message, item: dict) -> None:
     """
-    Показывает один вопрос шкалы с вариантами ответов.
+    Показывает один вопрос шкалы с вариантами ответов
+    как отдельное сообщение бота.
     """
     await message.answer(
         text=item["text"],
@@ -119,7 +120,8 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
     Обрабатывает клик по варианту ответа:
     - сохраняет ответ в черновик
     - двигает индекс вперёд
-    - показывает следующий вопрос или завершает шкалу
+    - показывает следующий вопрос в том же сообщении (edit_text)
+      или завершает шкалу
     """
     data = await state.get_data()
     schema = data["schema"]
@@ -139,7 +141,20 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
     if current + 1 < len(schema["items"]):
         next_item = schema["items"][current + 1]
         await state.update_data(current=current + 1, answers=answers)
-        await show_question(callback.message, next_item)
+
+        # 🧩 Пытаемся показать следующий вопрос в том же сообщении (edit_text)
+        try:
+            await callback.message.edit_text(
+                text=next_item["text"],
+                reply_markup=build_options_keyboard(next_item["options"]),
+            )
+        except Exception as e:
+            # fallback: если редактирование не удалось — шлём новый вопрос
+            logger.warning(
+                f"[Questionnaire] Не удалось отредактировать сообщение с вопросом, "
+                f"отправляем новое. Ошибка: {e}"
+            )
+            await show_question(callback.message, next_item)
     else:
         # Завершение: сохраняем в БД
         await finalize_response(user_id, schema, answers)
@@ -147,9 +162,9 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
 
         # 🧮 Считаем баллы по подшкалам (A — тревога, D — депрессия)
         scores: dict[str, int] = {}
-        for item in schema["items"]:
-            item_id = item["id"]
-            scale_code = item.get("scale")  # "A" или "D"
+        for q_item in schema["items"]:
+            item_id = q_item["id"]
+            scale_code = q_item.get("scale")  # "A" или "D"
             if not scale_code:
                 continue
             value = answers.get(item_id)
@@ -210,4 +225,3 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
         )
         logger.info(f"[HADS] {user_id} завершил прохождение")
         await state.clear()
-
