@@ -1,5 +1,6 @@
 # Актуальное inline-меню бота. Используется как единственный источник правды для меню.
 from aiogram import Router, types, F
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.tg_bot.keyboards.inline import (
@@ -10,6 +11,7 @@ from app.bots.tg_bot.keyboards.inline import (
     learning_menu_ikb,
     diary_menu_ikb,
 )
+from app.scales.fsm.questionnaire import start_hads
 
 menu_router = Router()
 
@@ -65,12 +67,11 @@ async def open_help(cb: types.CallbackQuery):
 
 
 @menu_router.callback_query(F.data == "scales:hads")
-async def go_hads(cb: types.CallbackQuery):
-    await cb.message.edit_text(
-        "Открываю HADS… (подключим FSM)",
-        reply_markup=back_home_ikb(),
-    )
+async def go_hads(cb: types.CallbackQuery, state: FSMContext):
+    # отвечаем на callback, чтобы Telegram не крутил "часики"
     await cb.answer()
+    # запускаем существующий FSM HADS, передавая message и state
+    await start_hads(cb.message, state)
 
 
 @menu_router.callback_query(F.data == "profile:consent")
