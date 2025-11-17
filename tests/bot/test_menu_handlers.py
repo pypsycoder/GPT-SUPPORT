@@ -20,17 +20,30 @@ class DummyMessage:
 
 async def call(handler, text):
     msg = DummyMessage(text=text)
-    # эмулируем вызов без реального dispatcher: напрямую
-    await handler(msg)  # хендлеры меню не требуют session, кроме заглушек
+    await handler(msg)
     return msg
 
 
 def import_menu():
-    # локальный импорт внутри теста, чтобы не требовать запуска бота
-    from app.bot.routers.menu import (
-        cmd_menu, open_scales, open_profile, open_learning, open_diary, open_help, diary_add_pulse
+    from app.bots.tg_bot.routers.menu import (
+        cmd_menu,
+        open_scales,
+        open_profile,
+        open_learning,
+        open_diary,
+        open_help,
+        diary_add_pulse,
     )
-    return cmd_menu, open_scales, open_profile, open_learning, open_diary, open_help, diary_add_pulse
+
+    return (
+        cmd_menu,
+        open_scales,
+        open_profile,
+        open_learning,
+        open_diary,
+        open_help,
+        diary_add_pulse,
+    )
 
 
 async def _assert_contains(msg, needle):
@@ -39,7 +52,7 @@ async def _assert_contains(msg, needle):
 
 async def test_cmd_menu():
     cmd_menu, *_ = import_menu()
-    msg = await call(cmd_menu, "/menu")
+    msg = await call(cmd_menu, "/menu_reply")
     await _assert_contains(msg, "Главное меню:")
 
 
@@ -58,6 +71,7 @@ async def test_open_sections():
 
 
 async def test_diary_add_pulse():
-    from app.bot.routers.menu import diary_add_pulse
+    from app.bots.tg_bot.routers.menu import diary_add_pulse
+
     msg = await call(diary_add_pulse, "➕ Ввести пульс")
     await _assert_contains(msg, "Введите пульс")

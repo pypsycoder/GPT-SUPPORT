@@ -1,16 +1,21 @@
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.bot.keyboards.common import (
-    main_menu_kb, back_home_kb, scales_menu_kb, profile_menu_kb,
-    learning_menu_kb, diary_menu_kb
+
+from app.bots.tg_bot.keyboards.common import (
+    main_menu_kb,
+    back_home_kb,
+    scales_menu_kb,
+    profile_menu_kb,
+    learning_menu_kb,
+    diary_menu_kb,
 )
 from app.scales.fsm.questionnaire import start_hads
 
 menu_router = Router()
 
 
-@menu_router.message(F.text == "/menu")
+@menu_router.message(F.text == "/menu_reply")
 async def cmd_menu(message: types.Message):
     await message.answer("Главное меню:", reply_markup=main_menu_kb())
 
