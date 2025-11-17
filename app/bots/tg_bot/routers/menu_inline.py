@@ -1,3 +1,4 @@
+# Актуальное inline-меню бота. Используется как единственный источник правды для меню.
 from aiogram import Router, types, F
 from sqlalchemy.ext.asyncio import AsyncSession
 
