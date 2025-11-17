@@ -1,4 +1,4 @@
-"""Telegram bot entrypoint for aiogram 3.x MVP."""
+"""Telegram bot entrypoint for aiogram 3.x."""
 
 import asyncio
 from aiogram import Bot, Dispatcher
@@ -7,10 +7,9 @@ from sqlalchemy import text
 
 from config import BOT_TOKEN
 from bots.shared.utils import logger
-from app.bot.routers.menu import menu_router
-from bots.TG_bot.routers.user_router import register_user_routes
 from app.models import Base
 from core.db.engine import engine
+from app.bots.tg_bot.routers import menu_inline, user_router
 
 
 async def on_startup():
@@ -26,8 +25,9 @@ async def on_startup():
 async def main():
     bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
     dp = Dispatcher()
-    dp.include_router(menu_router)
-    register_user_routes(dp)
+
+    dp.include_router(menu_inline.menu_router)
+    user_router.register_user_routes(dp)
 
     await on_startup()
     await dp.start_polling(bot)

@@ -36,7 +36,8 @@ class DummyCallback:
 
 
 def import_menu():
-    from app.bot.routers.menu_inline import cmd_menu, open_scales, nav_home
+    from app.bots.tg_bot.routers.menu_inline import cmd_menu, open_scales, nav_home
+
     return cmd_menu, open_scales, nav_home
 
 

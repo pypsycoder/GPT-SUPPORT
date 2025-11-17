@@ -3,11 +3,11 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 
 from app.users.crud import get_user_by_telegram_id, save_user
-from app.bot.keyboards.common import main_menu_kb
-from bots.TG_bot.keyboards.consent_keyboard import consent_keyboard
+from app.bots.tg_bot.keyboards.inline import main_menu_ikb
+from app.bots.tg_bot.keyboards.reply_start import reply_start_keyboard
+from app.bots.tg_bot.keyboards.consent_keyboard import consent_keyboard
 from bots.shared.utils import logger
 
-# подключаем фабрику сессий
 from core.db.session import async_session_factory
 
 router = Router()
@@ -23,12 +23,10 @@ async def handle_start(message: Message):
     async with async_session_factory() as session:
         user = await get_user_by_telegram_id(session, telegram_id)
 
-        # если нет — создаём с флагами consent=False
         if not user:
             user = await save_user(session, telegram_id, full_name)
             await session.commit()
 
-        # если он есть, но не дал согласие → показываем клавиатуру согласия
         if not user.consent_bot_use:
             await message.answer(
                 "Перед началом работы необходимо дать согласие на обработку персональных данных "
@@ -37,9 +35,9 @@ async def handle_start(message: Message):
             )
             return
 
-        # сюда попадут только те, кто уже дал согласие
-        await message.answer(
-            "Главное меню:",
-            reply_markup=main_menu_kb(),
-        )
-        logger.info(f"[START] {telegram_id} уже зарегистрирован и дал согласие ✅")
+    await message.answer("Главное меню:", reply_markup=main_menu_ikb())
+    await message.answer(
+        "Быстрые действия:",
+        reply_markup=reply_start_keyboard(),
+    )
+    logger.info(f"[START] {telegram_id} уже зарегистрирован и дал согласие ✅")
