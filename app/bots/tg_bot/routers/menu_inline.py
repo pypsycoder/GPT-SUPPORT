@@ -2,6 +2,7 @@
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.scales.fsm.questionnaire import start_hads_for_user
 
 from app.bots.tg_bot.keyboards.inline import (
     main_menu_ikb,
@@ -68,10 +69,12 @@ async def open_help(cb: types.CallbackQuery):
 
 @menu_router.callback_query(F.data == "scales:hads")
 async def go_hads(cb: types.CallbackQuery, state: FSMContext):
-    # отвечаем на callback, чтобы Telegram не крутил "часики"
+    # закрываем "часики" на кнопке
     await cb.answer()
-    # запускаем существующий FSM HADS, передавая message и state
-    await start_hads(cb.message, state)
+    # ВАЖНО: берем ID пользователя, а не бота
+    telegram_id = str(cb.from_user.id)
+    # запускаем общий хелпер FSM
+    await start_hads_for_user(telegram_id, cb.message, state)
 
 
 @menu_router.callback_query(F.data == "profile:consent")
