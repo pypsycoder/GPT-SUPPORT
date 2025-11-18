@@ -1,44 +1,56 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String
-from sqlalchemy.sql import func
+from uuid import uuid4
+
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import declared_attr
 
 from app.models import Base
 
 
-# Измерения артериального давления и пульса
-class BpMeasurement(Base):
-    __tablename__ = "bp_measurement"
-    __table_args__ = {"schema": "vitals"}
+class VitalsBase(Base):
+    __abstract__ = True
 
-    id = Column(Integer, primary_key=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     user_id = Column(Integer, ForeignKey("users.users.id"), nullable=False)
-    systolic_mm_hg = Column(Integer, nullable=False)
-    diastolic_mm_hg = Column(Integer, nullable=False)
-    pulse_bpm = Column(Integer)
-    measured_at = Column(DateTime, nullable=False, server_default=func.now())
-    context = Column(String)
+    session_id = Column(UUID(as_uuid=True), nullable=True)
+    measured_at = Column(DateTime(timezone=True), nullable=False, default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    @declared_attr
+    def __table_args__(cls):  # type: ignore[override]
+        return (
+            Index(f"ix_{cls.__tablename__}_session_id", "session_id"),
+            Index(f"ix_{cls.__tablename__}_measured_at", "measured_at"),
+            {"schema": "vitals"},
+        )
 
 
-# События приёма жидкости
-class FluidIntakeEvent(Base):
-    __tablename__ = "fluid_intake_event"
-    __table_args__ = {"schema": "vitals"}
+class BPMeasurement(VitalsBase):
+    __tablename__ = "bp_measurements"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.users.id"), nullable=False)
-    volume_ml = Column(Integer, nullable=False)
-    intake_type = Column(String)
-    recorded_at = Column(DateTime, nullable=False, server_default=func.now())
+    systolic = Column(Integer, nullable=False)
+    diastolic = Column(Integer, nullable=False)
+    pulse = Column(Integer, nullable=True)
 
 
-# Измерения массы тела
-class WeightMeasurement(Base):
-    __tablename__ = "weight_measurement"
-    __table_args__ = {"schema": "vitals"}
+class PulseMeasurement(VitalsBase):
+    __tablename__ = "pulse_measurements"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.users.id"), nullable=False)
-    weight_kg = Column(Numeric(5, 2), nullable=False)
-    measured_at = Column(DateTime, nullable=False, server_default=func.now())
-    context = Column(String)
+    bpm = Column(Integer, nullable=False)
+
+
+class WeightMeasurement(VitalsBase):
+    __tablename__ = "weight_measurements"
+
+    weight = Column(Numeric(6, 2), nullable=False)
+
+
+class TemperatureMeasurement(VitalsBase):
+    __tablename__ = "temperature_measurements"
+
+    temperature = Column(Float, nullable=False)
