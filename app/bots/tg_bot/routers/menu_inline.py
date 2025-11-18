@@ -10,7 +10,7 @@ from app.bots.tg_bot.keyboards.inline import (
     scales_menu_ikb,
     profile_menu_ikb,
     learning_menu_ikb,
-    diary_menu_ikb,
+    vitals_menu_ikb,
 )
 from app.scales.fsm.questionnaire import start_hads
 
@@ -49,11 +49,11 @@ async def open_learning(cb: types.CallbackQuery):
     await cb.answer()
 
 
-@menu_router.callback_query(F.data == "menu:diary")
+@menu_router.callback_query(F.data == "menu:vitals")
 async def open_diary(cb: types.CallbackQuery):
     await cb.message.edit_text(
         "Дневник показателей:",
-        reply_markup=diary_menu_ikb(),
+        reply_markup=vitals_menu_ikb(),
     )
     await cb.answer()
 

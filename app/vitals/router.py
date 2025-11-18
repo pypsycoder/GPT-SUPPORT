@@ -121,35 +121,3 @@ async def list_weight(
     )
     return records
 
-
-@router.post("/temperature", response_model=schemas.TemperatureMeasurementRead)
-async def create_temperature(
-    payload: schemas.TemperatureMeasurementCreate, session: AsyncSession = Depends(get_session)
-):
-    prepared = service.VitalsService.prepare_temperature_data(**payload.model_dump())
-    measurement = await crud.temperature_crud.create(session, prepared)
-    await session.commit()
-    return measurement
-
-
-@router.get("/temperature", response_model=list[schemas.TemperatureMeasurementRead])
-async def list_temperature(
-    *,
-    session: AsyncSession = Depends(get_session),
-    user_id: Optional[int] = None,
-    limit: int = Query(100, le=200),
-    offset: int = 0,
-    order_by: Optional[str] = Query("measured_at desc"),
-    date_from: Optional[datetime] = Query(None, alias="from"),
-    date_to: Optional[datetime] = Query(None, alias="to"),
-):
-    records = await crud.temperature_crud.list(
-        session,
-        user_id=user_id,
-        limit=limit,
-        offset=offset,
-        order_by=_parse_order(order_by),
-        date_from=date_from,
-        date_to=date_to,
-    )
-    return records

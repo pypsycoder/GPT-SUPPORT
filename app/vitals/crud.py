@@ -106,17 +106,8 @@ class WeightMeasurementsCRUD(
     pass
 
 
-class TemperatureMeasurementsCRUD(
-    VitalsCRUDBase[
-        models.TemperatureMeasurement,
-        schemas.TemperatureMeasurementCreate,
-        schemas.TemperatureMeasurementUpdate,
-    ]
-):
-    pass
-
 
 bp_crud = BPMeasurementsCRUD(models.BPMeasurement)
 pulse_crud = PulseMeasurementsCRUD(models.PulseMeasurement)
 weight_crud = WeightMeasurementsCRUD(models.WeightMeasurement)
-temperature_crud = TemperatureMeasurementsCRUD(models.TemperatureMeasurement)
+

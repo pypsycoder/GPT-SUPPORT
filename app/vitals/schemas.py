@@ -85,21 +85,3 @@ class WeightMeasurementRead(WeightMeasurementBase, VitalsReadSchema):
     pass
 
 
-class TemperatureMeasurementBase(BaseVitalsSchema):
-    temperature: float
-
-
-class TemperatureMeasurementCreate(TemperatureMeasurementBase):
-    pass
-
-
-class TemperatureMeasurementUpdate(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    temperature: Optional[float] = None
-    session_id: Optional[UUID] = None
-    measured_at: Optional[datetime] = None
-
-
-class TemperatureMeasurementRead(TemperatureMeasurementBase, VitalsReadSchema):
-    pass

@@ -26,5 +26,5 @@ class User(Base):
         default=False,
         server_default=text("false"),
     )
-    telegram_id = Column(String, unique=True, nullable=False)
+    telegram_id = Column(String, unique=True, index=True, nullable=False)
     external_ids = Column(JSON, nullable=True)

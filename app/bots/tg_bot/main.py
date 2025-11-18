@@ -10,6 +10,7 @@ from bots.shared.utils import logger
 from app.models import Base
 from core.db.engine import engine
 from app.bots.tg_bot.routers import menu_inline, user_router
+from app.bots.tg_bot.handlers import vitals
 
 
 async def on_startup():
@@ -26,6 +27,10 @@ async def main():
     bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
     dp = Dispatcher()
 
+    # 🔹 Подключаем vitals-хендлеры
+    dp.include_router(vitals.router)
+
+    # 🔹 Остальные роутеры бота (как было)
     dp.include_router(menu_inline.menu_router)
     user_router.register_user_routes(dp)
 

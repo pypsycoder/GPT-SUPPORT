@@ -9,11 +9,10 @@ from bots.shared.utils import logger
 
 
 # 📌 Получение пользователя по Telegram ID
-async def get_user_by_telegram_id(
-    session: AsyncSession,
-    telegram_id: str,
-) -> User | None:
-    stmt = select(User).where(User.telegram_id == telegram_id)
+async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int | str):
+    telegram_id_str = str(telegram_id)
+
+    stmt = select(User).where(User.telegram_id == telegram_id_str)
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 

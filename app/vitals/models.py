@@ -49,8 +49,3 @@ class WeightMeasurement(VitalsBase):
 
     weight = Column(Numeric(6, 2), nullable=False)
 
-
-class TemperatureMeasurement(VitalsBase):
-    __tablename__ = "temperature_measurements"
-
-    temperature = Column(Float, nullable=False)

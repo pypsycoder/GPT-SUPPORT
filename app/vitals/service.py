@@ -35,10 +35,6 @@ class VitalsService:
         if not 2 <= weight <= 500:
             raise ValueError("Недопустимое значение веса")
 
-    @staticmethod
-    def validate_temperature(temperature: float) -> None:
-        if not 30 <= temperature <= 45:
-            raise ValueError("Недопустимое значение температуры")
 
     @classmethod
     def prepare_bp_data(
@@ -94,24 +90,6 @@ class VitalsService:
         return schemas.WeightMeasurementCreate(
             user_id=user_id,
             weight=weight,
-            session_id=session_id,
-            measured_at=normalized_measured_at,
-        )
-
-    @classmethod
-    def prepare_temperature_data(
-        cls,
-        *,
-        user_id: int,
-        temperature: float,
-        session_id: Optional[UUID] = None,
-        measured_at: Optional[datetime] = None,
-    ) -> schemas.TemperatureMeasurementCreate:
-        cls.validate_temperature(temperature)
-        normalized_measured_at = cls.normalize_measured_at(measured_at)
-        return schemas.TemperatureMeasurementCreate(
-            user_id=user_id,
-            temperature=temperature,
             session_id=session_id,
             measured_at=normalized_measured_at,
         )
