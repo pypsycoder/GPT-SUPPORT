@@ -1,90 +1,109 @@
 """CRUD operations for vital measurements."""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.vitals.models import VitalMeasurement
+from app.vitals.models import BpMeasurement, FluidIntakeEvent, WeightMeasurement
 
 
-# 🆕 Создание новой записи витальных показателей пользователя
-async def create_measurement(
+# 🩺 Создание записи артериального давления
+async def create_bp_measurement(
     session: AsyncSession,
     user_id: int,
-    bp_sys: int | None = None,
-    bp_dia: int | None = None,
-    pulse: int | None = None,
-    fluid_intake: float | None = None,
-) -> VitalMeasurement:
-    """Создаёт запись витальных показателей для пользователя."""
-
-    measurement = VitalMeasurement(
+    systolic_mm_hg: int,
+    diastolic_mm_hg: int,
+    pulse_bpm: int | None,
+    measured_at: datetime,
+    context: str | None = None,
+) -> BpMeasurement:
+    measurement = BpMeasurement(
         user_id=user_id,
-        bp_sys=bp_sys,
-        bp_dia=bp_dia,
-        pulse=pulse,
-        fluid_intake=fluid_intake,
+        systolic_mm_hg=systolic_mm_hg,
+        diastolic_mm_hg=diastolic_mm_hg,
+        pulse_bpm=pulse_bpm,
+        measured_at=measured_at,
+        context=context,
     )
     session.add(measurement)
-
-    # Отправляем INSERT сразу, чтобы получить значения по умолчанию из БД.
     await session.flush()
-    await session.refresh(measurement)
-    # Коммит оставляем вызывающему коду, чтобы тестовые транзакции могли делать rollback.
-
     return measurement
 
 
-# 📊 Получение последних измерений пользователя за ограниченный период
-async def get_user_measurements(
+# 💧 Событие приёма жидкости
+async def create_fluid_intake_event(
     session: AsyncSession,
     user_id: int,
-    days: int = 7,
-) -> list[VitalMeasurement]:
-    """Возвращает измерения пользователя за последние N дней, отсортированные по времени."""
+    volume_ml: int,
+    intake_type: str | None,
+    recorded_at: datetime,
+) -> FluidIntakeEvent:
+    intake_event = FluidIntakeEvent(
+        user_id=user_id,
+        volume_ml=volume_ml,
+        intake_type=intake_type,
+        recorded_at=recorded_at,
+    )
+    session.add(intake_event)
+    await session.flush()
+    return intake_event
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
+
+# ⚖️ Измерение массы тела
+async def create_weight_measurement(
+    session: AsyncSession,
+    user_id: int,
+    weight_kg: Decimal | float,
+    measured_at: datetime,
+    context: str | None = None,
+) -> WeightMeasurement:
+    weight_measurement = WeightMeasurement(
+        user_id=user_id,
+        weight_kg=weight_kg,
+        measured_at=measured_at,
+        context=context,
+    )
+    session.add(weight_measurement)
+    await session.flush()
+    return weight_measurement
+
+
+# 📈 Суточная сумма приёма жидкости
+async def get_daily_fluid_total(
+    session: AsyncSession, user_id: int, for_date: date
+) -> int:
+    start = datetime.combine(for_date, datetime.min.time())
+    end = start + timedelta(days=1)
+
     stmt = (
-        select(VitalMeasurement)
+        select(func.coalesce(func.sum(FluidIntakeEvent.volume_ml), 0))
         .where(
-            VitalMeasurement.user_id == user_id,
-            VitalMeasurement.measured_at >= cutoff,
+            FluidIntakeEvent.user_id == user_id,
+            FluidIntakeEvent.recorded_at >= start,
+            FluidIntakeEvent.recorded_at < end,
         )
-        .order_by(VitalMeasurement.measured_at.desc())
     )
-
-    # Скаляры даёт удобный список ORM-объектов вместо Row.
     result = await session.execute(stmt)
-    return result.scalars().all()
+    total = result.scalar_one()
+    return int(total)
 
 
-# ⏱ Получение самого свежего измерения
-async def get_latest_measurement(
-    session: AsyncSession,
-    user_id: int,
-) -> VitalMeasurement | None:
-    """Возвращает последнее измерение пользователя (по времени)."""
-
-    stmt = (
-        select(VitalMeasurement)
-        .where(VitalMeasurement.user_id == user_id)
-        .order_by(VitalMeasurement.measured_at.desc())
-        .limit(1)
-    )
-
-    # first() вернёт None, если записей нет.
-    result = await session.execute(stmt)
-    return result.scalars().first()
-
-
-# 🗑 Удаление измерения (под админ-панель или отладку)
-async def delete_measurement(session: AsyncSession, measurement_id: int) -> None:
-    """Удаляет запись по ID (если потребуется админ-панель)."""
-
-    stmt = delete(VitalMeasurement).where(VitalMeasurement.id == measurement_id)
-
-    # Используем execute, чтобы каскады и триггеры отработали в БД.
+# 🗑 Удаление записей (для тестов/отладки)
+async def delete_bp_measurement(session: AsyncSession, measurement_id: int) -> None:
+    stmt = delete(BpMeasurement).where(BpMeasurement.id == measurement_id)
     await session.execute(stmt)
-    # Flush гарантирует, что удаление попадёт в текущую транзакцию без явного commit.
+    await session.flush()
+
+
+async def delete_fluid_intake_event(session: AsyncSession, event_id: int) -> None:
+    stmt = delete(FluidIntakeEvent).where(FluidIntakeEvent.id == event_id)
+    await session.execute(stmt)
+    await session.flush()
+
+
+async def delete_weight_measurement(session: AsyncSession, measurement_id: int) -> None:
+    stmt = delete(WeightMeasurement).where(WeightMeasurement.id == measurement_id)
+    await session.execute(stmt)
     await session.flush()
