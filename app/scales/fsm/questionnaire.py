@@ -5,11 +5,11 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 
-from app.scales.crud import (
-    get_or_create_draft,
-    update_draft_answer,
-    delete_draft,
-    finalize_response,
+from core.db.session import async_session_factory
+from app.scales.engine.questionnaire_service import (
+    build_result,
+    process_answer,
+    start_questionnaire_for_user,
 )
 from app.users.crud import get_user_by_telegram_id
 from bots.shared.utils import logger
@@ -66,8 +66,6 @@ async def start_hads_for_user(
     - из inline-меню (через callback, где есть cb.from_user.id)
     """
     from app.scales.schemas.hads import hads_schema
-    from core.db.session import async_session_factory
-
     async with async_session_factory() as session:
         user = await get_user_by_telegram_id(session, telegram_id)
 
@@ -78,14 +76,9 @@ async def start_hads_for_user(
             return
 
         schema = hads_schema
-        draft = await get_or_create_draft(
-            user.id,
-            schema["code"],
-            schema["version"],
-            session,
-        )
-        current_index = draft["current_index"]
-        answers = draft["answers"]
+        engine_data = await start_questionnaire_for_user(session, user, schema)
+        current_index = engine_data["current_index"]
+        answers = engine_data["answers"]
 
     # выставляем состояние и сохраняем данные в FSM
     await state.set_state(QuestionnaireFSM.answering)
@@ -94,7 +87,7 @@ async def start_hads_for_user(
         current=current_index,
         answers=answers,
         user_id=user.id,
-        draft_id=draft["id"],
+        draft_id=engine_data["draft_id"],
     )
 
     # показываем первый/текущий вопрос (как отдельное новое сообщение)
@@ -130,17 +123,25 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
     user_id = data["user_id"]
     draft_id = data["draft_id"]
 
-    item = schema["items"][current]
     selected_value = int(callback.data)
-    answers[item["id"]] = selected_value
 
-    # сохраняем ответ в черновик
-    await update_draft_answer(draft_id, item["id"], selected_value)
+    async with async_session_factory() as session:
+        engine_result = await process_answer(
+            session,
+            draft_id=draft_id,
+            user_id=user_id,
+            schema=schema,
+            answers=answers,
+            current_index=current,
+            selected_value=selected_value,
+        )
 
-    # есть ещё вопросы — идём дальше
-    if current + 1 < len(schema["items"]):
-        next_item = schema["items"][current + 1]
-        await state.update_data(current=current + 1, answers=answers)
+    if not engine_result.get("finished"):
+        next_item = engine_result["next_item"]
+        next_index = engine_result["next_index"]
+        updated_answers = engine_result["answers"]
+
+        await state.update_data(current=next_index, answers=updated_answers)
 
         # 🧩 Пытаемся показать следующий вопрос в том же сообщении (edit_text)
         try:
@@ -156,58 +157,13 @@ async def handle_answer(callback: CallbackQuery, state: FSMContext) -> None:
             )
             await show_question(callback.message, next_item)
     else:
-        # Завершение: сохраняем в БД
-        await finalize_response(user_id, schema, answers)
-        await delete_draft(draft_id)
-
-        # 🧮 Считаем баллы по подшкалам (A — тревога, D — депрессия)
-        scores: dict[str, int] = {}
-        for q_item in schema["items"]:
-            item_id = q_item["id"]
-            scale_code = q_item.get("scale")  # "A" или "D"
-            if not scale_code:
-                continue
-            value = answers.get(item_id)
-            if value is None:
-                continue
-            scores[scale_code] = scores.get(scale_code, 0) + int(value)
-
-        # 🧾 Готовим человекочитаемую интерпретацию
-        lines: list[str] = []
-        output_cfg = schema.get("output", {})
-
-        for scale_code, total in scores.items():
-            cfg = output_cfg.get(scale_code)
-            if not cfg:
-                continue
-
-            name = cfg.get("name", scale_code)
-            cutoffs = cfg.get("cutoffs", [])
-            labels = cfg.get("interpretation", [])
-
-            # По умолчанию: одна граница -> 2 категории, две границы -> 3
-            if len(cutoffs) == 2 and len(labels) >= 3:
-                if total < cutoffs[0]:
-                    level = labels[0]
-                elif total < cutoffs[1]:
-                    level = labels[1]
-                else:
-                    level = labels[2]
-            elif len(cutoffs) == 1 and len(labels) >= 2:
-                if total < cutoffs[0]:
-                    level = labels[0]
-                else:
-                    level = labels[1]
-            else:
-                # fallback, если вдруг что-то изменится в схеме
-                level = labels[0] if labels else "без интерпретации"
-
-            lines.append(f"{name}: {total} баллов — {level}")
+        final_answers = engine_result.get("answers", answers)
+        result_payload = build_result(schema, final_answers)
 
         result_text = "✅ Спасибо! Шкала завершена."
 
-        if lines:
-            result_text += "\n\nРезультаты:\n" + "\n".join(lines)
+        if result_payload["lines"]:
+            result_text += "\n\nРезультаты:\n" + "\n".join(result_payload["lines"])
 
         # 🔘 Кнопки навигации (назад / меню)
         finish_kb = InlineKeyboardMarkup(
