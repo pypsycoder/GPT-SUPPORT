@@ -1,15 +1,15 @@
 # session.py — сессии для работы с БД
 from typing import AsyncIterator
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from .engine import engine
 
 # асинхронный sessionmaker
-async_session_factory = sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
+async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
+    engine,
     expire_on_commit=False,
+    class_=AsyncSession,
 )
 
 

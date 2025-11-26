@@ -32,4 +32,4 @@ async def get_patient_by_token(
             detail="Пациент с таким токеном не найден",
         )
 
-    return user
+    return UserPublic.model_validate(user)
