@@ -57,6 +57,13 @@ async def startup() -> None:
 
     logger.info("✅ GPT Support API запущен, соединение с БД установлено.")
 
+    for route in app.router.routes:
+        logger.info(
+            "ROUTE %s %s",
+            getattr(route, "methods", None),
+            getattr(route, "path", None),
+        )
+
 
 # # эндпоинт здоровья сервиса
 @app.get("/health")
