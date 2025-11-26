@@ -1,7 +1,7 @@
 # app/users/schemas.py
 # Pydantic-схемы для работы с пользователями.
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # UserPublic
@@ -20,5 +20,4 @@ class UserPublic(BaseModel):
     telegram_id: str
     patient_token: str
 
-    class Config:
-        from_attributes = True  # pydantic v2: подтягивать данные из ORM-модели
+    model_config = ConfigDict(from_attributes=True)

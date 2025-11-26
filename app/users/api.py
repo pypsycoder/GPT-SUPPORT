@@ -8,12 +8,7 @@ from app.users import crud
 from app.users.schemas import UserPublic
 
 # 👉 ВАЖНО: используем тот же dependency, что и vitals
-from core.db.session import async_session_factory
-
-
-async def get_session() -> AsyncSession:
-    async with async_session_factory() as session:
-        yield session
+from core.db.session import get_async_session
 
 
 router = APIRouter(
@@ -25,7 +20,7 @@ router = APIRouter(
 @router.get("/by-token/{patient_token}", response_model=UserPublic)
 async def get_patient_by_token(
     patient_token: str,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_async_session),
 ):
     """
     Найти пациента по patient_token.
