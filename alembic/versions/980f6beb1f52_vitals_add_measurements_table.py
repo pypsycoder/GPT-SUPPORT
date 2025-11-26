@@ -42,7 +42,7 @@ def upgrade() -> None:
     )
 
     # 3) правки таблицы users.users — ВАЖНО: указываем schema="users"
-    op.add_column("users", sa.Column("external_ids", sa.JSON(), nullable=True), schema="users")
+    ## op.add_column("users", sa.Column("external_ids", sa.JSON(), nullable=True), schema="users")
     op.alter_column("users", "full_name", existing_type=sa.VARCHAR(), nullable=True, schema="users")
     op.alter_column("users", "consent_personal_data", existing_type=sa.BOOLEAN(), nullable=False, schema="users")
     op.alter_column("users", "consent_bot_use", existing_type=sa.BOOLEAN(), nullable=False, schema="users")
@@ -85,7 +85,7 @@ def downgrade() -> None:
     op.alter_column("users", "consent_bot_use", existing_type=sa.BOOLEAN(), nullable=True, schema="users")
     op.alter_column("users", "consent_personal_data", existing_type=sa.BOOLEAN(), nullable=True, schema="users")
     op.alter_column("users", "full_name", existing_type=sa.VARCHAR(), nullable=False, schema="users")
-    op.drop_column("users", "external_ids", schema="users")
+    ## op.drop_column("users", "external_ids", schema="users")
 
     # 3) дроп таблицы vitals.measurements
     op.drop_table("measurements", schema="vitals")

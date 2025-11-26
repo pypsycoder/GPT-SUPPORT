@@ -72,7 +72,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     schema='vitals'
     )
-    op.drop_table('alembic_version')
     # ### end Alembic commands ###
 
 

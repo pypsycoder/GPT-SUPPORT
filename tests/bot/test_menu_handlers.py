@@ -25,7 +25,7 @@ async def call(handler, text):
 
 
 def import_menu():
-    from app.bots.tg_bot.routers.menu import (
+    from app.bots.tg_bot.routers.old_menu import (
         cmd_menu,
         open_scales,
         open_profile,
@@ -71,7 +71,7 @@ async def test_open_sections():
 
 
 async def test_diary_add_pulse():
-    from app.bots.tg_bot.routers.menu import diary_add_pulse
+    from app.bots.tg_bot.routers.old_menu import diary_add_pulse
 
     msg = await call(diary_add_pulse, "➕ Ввести пульс")
     await _assert_contains(msg, "Введите пульс")

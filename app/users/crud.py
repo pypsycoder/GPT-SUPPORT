@@ -1,56 +1,116 @@
-# app/users/crud.py — работа с пользователями
+"""CRUD-функции для работы с пользователями."""
+
+from __future__ import annotations
+
+from typing import Optional
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.users.models import User
 from bots.shared.utils import logger
+from app.users.utils import generate_patient_token
 
 
-# 📌 Получение пользователя по Telegram ID
-async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int | str):
-    telegram_id_str = str(telegram_id)
-
-    stmt = select(User).where(User.telegram_id == telegram_id_str)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
-
-
-# ✅ Сохранить пользователя (если нет — создать)
-# ВАЖНО: сюда уже передаём session, не открываем новую
-async def save_user(
+# get_user_by_telegram_id
+async def get_user_by_telegram_id(
     session: AsyncSession,
     telegram_id: str,
-    full_name: str,
-) -> User:
-    user = await get_user_by_telegram_id(session, telegram_id)
-    if user:
-        return user
+) -> Optional[User]:
+    """
+    Найти пользователя по telegram_id.
 
-    user = User(
-        telegram_id=telegram_id,
-        full_name=full_name,
-        consent_bot_use=False,        # /start не выдаёт согласие автоматически
-        consent_personal_data=False,  # согласие появится только после нажатия кнопки
+    Ничего не коммитит — просто читает из БД.
+    """
+    stmt = select(User).where(User.telegram_id == telegram_id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    logger.debug("[users][crud] get_user_by_telegram_id(%s) -> %s", telegram_id, user.id if user else None)
+    return user
+
+# get_user_by_patient_token
+async def get_user_by_patient_token(
+    session: AsyncSession,
+    patient_token: str,
+) -> Optional[User]:
+    """
+    Найти пользователя по patient_token.
+
+    Ничего не коммитит — просто читает из БД.
+    """
+    stmt = select(User).where(User.patient_token == patient_token)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    logger.debug(
+        "[users][crud] get_user_by_patient_token(%s) -> %s",
+        patient_token,
+        user.id if user else None,
     )
-    session.add(user)
-    try:
-        await session.flush()  # пусть БД присвоит id
-        logger.info(f"[save_user] Зарегистрирован: {telegram_id} | {full_name}")
-    except IntegrityError as e:
-        logger.warning(f"[save_user] Ошибка вставки {telegram_id}: {e}")
     return user
 
 
-# 🔄 Выдать согласие пользователю (только по кнопке)
-async def grant_user_consent(session: AsyncSession, telegram_id: str) -> None:
-    result = await session.execute(
-        select(User).where(User.telegram_id == telegram_id)
+# save_user
+async def save_user(
+    session: AsyncSession,
+    *,
+    telegram_id: str,
+    full_name: Optional[str] = None,
+) -> User:
+    """
+    Получить или создать пользователя по telegram_id.
+
+    ⚙ Поведение:
+    - если пользователь уже есть — при необходимости обновляет full_name и коммитит изменения;
+    - если пользователя нет — создаёт, коммитит и возвращает.
+
+    Важно: функция САМА делает commit и refresh,
+    чтобы работать нормально в сценарии с `async_session_factory()` внутри хендлеров бота.
+    """
+    # 1) пробуем найти существующего пользователя
+    user = await get_user_by_telegram_id(session, telegram_id=telegram_id)
+    if user is not None:
+        updated = False
+
+        # мягко обновляем ФИО, если оно поменялось
+        if full_name and user.full_name != full_name:
+            user.full_name = full_name
+            updated = True
+
+        if updated:
+            await session.commit()
+            await session.refresh(user)
+            logger.info(
+                "[users][crud] updated user %s (telegram_id=%s, full_name=%r)",
+                user.id,
+                telegram_id,
+                full_name,
+            )
+        else:
+            logger.debug(
+                "[users][crud] user %s (telegram_id=%s) already up-to-date",
+                user.id,
+                telegram_id,
+            )
+
+        return user
+
+    # 2) пользователя нет — создаём нового
+    user = User(
+        telegram_id=telegram_id,
+        full_name=full_name,
+        patient_token=generate_patient_token(),  # генерация токена для пациента
+
     )
-    user = result.scalar_one_or_none()
-    if user:
-        user.consent_bot_use = True
-        user.consent_personal_data = True
-        await session.commit()
-        logger.info(f"[consent] Обновлено согласие для {telegram_id}: True")
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    logger.info(
+        "[users][crud] created user %s (telegram_id=%s, full_name=%r)",
+        user.id,
+        telegram_id,
+        full_name,
+    )
+    return user

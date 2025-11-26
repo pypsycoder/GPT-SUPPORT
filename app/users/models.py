@@ -1,5 +1,5 @@
 """SQLAlchemy models for user entities."""
-from sqlalchemy import Boolean, Column, Integer, JSON, String, text
+from sqlalchemy import Boolean, Column, Integer, JSON, String, text, BOOLEAN
 
 from app.models import Base
 
@@ -28,3 +28,6 @@ class User(Base):
     )
     telegram_id = Column(String, unique=True, index=True, nullable=False)
     external_ids = Column(JSON, nullable=True)
+
+    # новый веб-токен пациента для доступа к формам
+    patient_token = Column(String(64), unique=True, index=True, nullable=True)
