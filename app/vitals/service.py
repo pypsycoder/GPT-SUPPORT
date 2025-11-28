@@ -35,7 +35,9 @@ class VitalsService:
         if not 2 <= weight <= 500:
             raise ValueError("Недопустимое значение веса")
 
-
+    # =========================
+    #  Подготовка данных АД
+    # =========================
     @classmethod
     def prepare_bp_data(
         cls,
@@ -46,6 +48,7 @@ class VitalsService:
         pulse: Optional[int] = None,
         session_id: Optional[UUID] = None,
         measured_at: Optional[datetime] = None,
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
     ) -> schemas.BPMeasurementCreate:
         cls.validate_bp(systolic, diastolic, pulse)
         normalized_measured_at = cls.normalize_measured_at(measured_at)
@@ -56,8 +59,12 @@ class VitalsService:
             pulse=pulse,
             session_id=session_id,
             measured_at=normalized_measured_at,
+            context=context,
         )
 
+    # =========================
+    #  Подготовка данных пульса
+    # =========================
     @classmethod
     def prepare_pulse_data(
         cls,
@@ -66,6 +73,7 @@ class VitalsService:
         bpm: int,
         session_id: Optional[UUID] = None,
         measured_at: Optional[datetime] = None,
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
     ) -> schemas.PulseMeasurementCreate:
         cls.validate_pulse(bpm)
         normalized_measured_at = cls.normalize_measured_at(measured_at)
@@ -74,8 +82,12 @@ class VitalsService:
             bpm=bpm,
             session_id=session_id,
             measured_at=normalized_measured_at,
+            context=context,
         )
 
+    # =========================
+    #  Подготовка данных веса
+    # =========================
     @classmethod
     def prepare_weight_data(
         cls,
@@ -84,6 +96,7 @@ class VitalsService:
         weight: float,
         session_id: Optional[UUID] = None,
         measured_at: Optional[datetime] = None,
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
     ) -> schemas.WeightMeasurementCreate:
         cls.validate_weight(weight)
         normalized_measured_at = cls.normalize_measured_at(measured_at)
@@ -92,8 +105,12 @@ class VitalsService:
             weight=weight,
             session_id=session_id,
             measured_at=normalized_measured_at,
+            context=context,
         )
 
+    # =========================
+    #  Парсеры текстовых значений
+    # =========================
     @staticmethod
     def parse_bp_text(text: str) -> tuple[int, int]:
         cleaned = text.replace(",", ".").strip()

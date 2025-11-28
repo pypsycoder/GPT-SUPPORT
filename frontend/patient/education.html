@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Обучение — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Общие стили пациента (те же, что и для vitals) -->
+    <link rel="stylesheet" href="/frontend/patient/css/style.css?v=2">
+</head>
+<body>
+
+<div class="page">
+    <div class="layout">
+
+        <!-- 🔹 Сайдбар (как в vitals, но активен раздел Обучение) -->
+        <nav class="sidebar">
+            <div class="sidebar-header">Мой кабинет</div>
+            <div class="sidebar-sub">Навигация</div>
+
+            <div class="sidebar-nav">
+                <button class="sidebar-item">
+                    <span class="sidebar-item-icon">📊</span>
+                    <span>
+                        <span class="sidebar-item-label-main">Показатели</span>
+                        <span class="sidebar-item-label-sub">АД, пульс, вес</span>
+                    </span>
+                </button>
+
+                <button class="sidebar-item active">
+                    <span class="sidebar-item-icon">🎓</span>
+                    <span>
+                        <span class="sidebar-item-label-main">Обучение</span>
+                        <span class="sidebar-item-label-sub">Стресс, копинг и др.</span>
+                    </span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- 🔹 Основной контент -->
+        <main class="content">
+            <!-- Хедер -->
+            <header class="header">
+                <div class="header-title">🎓 Обучающие материалы</div>
+                <div class="header-sub">
+                    Короткие карточки о стрессе, копинге и уходе за собой.
+                </div>
+            </header>
+
+            <!-- Статус-зона (загрузка / ошибки) -->
+            <section id="education-status" class="status-banner status-hidden"></section>
+
+            <!-- Корневая область для списка обучающих материалов -->
+            <section id="education-root" class="edu-root">
+                <!-- Сюда JS подставит карточки -->
+            </section>
+
+            <!-- Футер -->
+            <footer class="footer">
+                GPT Health Support • модуль education • экспериментальный интерфейс
+            </footer>
+        </main>
+    </div>
+</div>
+
+<script>
+    // ===== Отображение статуса (загрузка / ошибка) =====
+    function setEducationStatus(type, message) {
+        const banner = document.getElementById('education-status');
+        if (!banner) return;
+
+        banner.textContent = message || '';
+        banner.classList.remove('status-hidden', 'status-success', 'status-error');
+
+        if (!type || type === 'none') {
+            banner.classList.add('status-hidden');
+            return;
+        }
+        if (type === 'error') {
+            banner.classList.add('status-error');
+        } else if (type === 'success') {
+            banner.classList.add('status-success');
+        }
+    }
+
+    // ===== Простейший Markdown -> HTML (bold + параграфы + переносы) =====
+    function markdownToHtml(md) {
+        if (!md) return '';
+        let html = md;
+
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');  // **bold**
+        html = html.replace(/\r\n/g, '\n');
+        html = html.replace(/\n{2,}/g, '</p><p>'); // двойные переносы -> новый абзац
+        html = html.replace(/\n/g, '<br>');        // одинарные -> <br>
+
+        return '<p>' + html + '</p>';
+    }
+
+    // ===== Группировка материалов по topic =====
+    function groupByTopic(items) {
+        const groups = {};
+        items.forEach((item) => {
+            const key = item.topic || 'other';
+            if (!groups[key]) {
+                groups[key] = [];
+            }
+            groups[key].push(item);
+        });
+        return groups;
+    }
+
+    function humanTopicName(topic) {
+        switch (topic) {
+            case 'stress':
+                return 'Стресс и напряжение';
+            case 'coping':
+                return 'Копинг-стратегии';
+            case 'sleep':
+                return 'Сон и восстановление';
+            default:
+                return 'Другое';
+        }
+    }
+
+    // ===== Рендер одной темы и её карточек =====
+    function renderTopicBlock(topic, items) {
+        const wrapper = document.createElement('article');
+        wrapper.className = 'edu-topic-card';
+
+        const header = document.createElement('div');
+        header.className = 'edu-topic-header';
+
+        const title = document.createElement('div');
+        title.className = 'edu-topic-title';
+        title.textContent = humanTopicName(topic);
+
+        const count = document.createElement('div');
+        count.className = 'edu-topic-count';
+        count.textContent = `${items.length} материал(ов)`;
+
+        header.appendChild(title);
+        header.appendChild(count);
+
+        const body = document.createElement('div');
+        body.className = 'edu-topic-body';
+
+        items.forEach((item) => {
+            const card = document.createElement('div');
+            card.className = 'edu-item-card';
+
+            const content = document.createElement('div');
+            content.className = 'edu-item-content';
+            content.innerHTML = markdownToHtml(item.content);
+
+            card.appendChild(content);
+            body.appendChild(card);
+        });
+
+        wrapper.appendChild(header);
+        wrapper.appendChild(body);
+        return wrapper;
+    }
+
+    // ===== Основная функция загрузки и рендера =====
+    async function loadEducation() {
+        const root = document.getElementById('education-root');
+        if (!root) return;
+
+        setEducationStatus('none', '');
+        root.innerHTML = '';
+
+        try {
+            const response = await fetch('/api/v1/education/list');
+
+            if (!response.ok) {
+                throw new Error('Сервер вернул ошибку при загрузке обучения');
+            }
+
+            const data = await response.json();
+
+            if (!Array.isArray(data) || data.length === 0) {
+                setEducationStatus('error', 'Обучающие материалы пока недоступны.');
+                return;
+            }
+
+            const groups = groupByTopic(data);
+            const topics = Object.keys(groups);
+
+            topics.forEach((topic) => {
+                const block = renderTopicBlock(topic, groups[topic]);
+                root.appendChild(block);
+            });
+
+            setEducationStatus('none', '');
+        } catch (error) {
+            console.error(error);
+            setEducationStatus('error', 'Не удалось загрузить обучающие материалы. Попробуйте позже.');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadEducation();
+    });
+</script>
+
+</body>
+</html>

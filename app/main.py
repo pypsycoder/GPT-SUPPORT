@@ -2,18 +2,23 @@ from __future__ import annotations
 
 # stdlib
 import logging
+from pathlib import Path
 
 # сторонние библиотеки
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 # наше
 from app.models import Base  # общий Base, если понадобится metadata
 from app.vitals.router import router as vitals_router
-from core.db.engine import engine
-from app.users.api import router as users_api_router            #FastApi роутер
+from app.users.api import router as users_api_router
+from app.pages.router import router as pages_router
 
+from core.db.engine import engine
+from app.education.router import router as education_router
 
 # --- настройка логгера ---
 
@@ -23,16 +28,34 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
+# === БАЗОВЫЕ ПУТИ ===
+# BASE_DIR -> D:\PROJECT\GPT-SUPPORT (корень проекта)
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-# # инициализация FastAPI-приложения
+# FRONTEND_DIR -> D:\PROJECT\GPT-SUPPORT\frontend
+FRONTEND_DIR = BASE_DIR / "frontend"
+
+
+# === Инициализация FastAPI-приложения ===
 app = FastAPI(title="GPT Support API")
 
-# # регистрация роутеров
+
+# === Статика (общий фронтенд) ===
+# Всё, что лежит в папке frontend/, доступно по /frontend/...
+app.mount(
+    "/frontend",
+    StaticFiles(directory=str(FRONTEND_DIR)),
+    name="frontend",
+)
+
+
+# === Регистрация роутеров API ===
 app.include_router(vitals_router)
-app.include_router(users_api_router, prefix="/api/v1")         # FastApi
+app.include_router(users_api_router, prefix="/api/v1")
+app.include_router(pages_router)
+app.include_router(education_router, prefix="/api/v1")  # добавить эту строку
 
-
-# # событие старта приложения
+# === Cобытие старта приложения ===
 @app.on_event("startup")
 async def startup() -> None:
     """
@@ -40,9 +63,9 @@ async def startup() -> None:
 
     Здесь:
     - проверяем подключение к БД;
-    - при необходимости можем создавать схемы (идемпотентно).
-    Таблицы мы теперь создаём отдельно через scripts/init_db_from_models.py,
-    чтобы не мешать Alembic и не плодить разносы между средами.
+    - создаём схемы (идемпотентно).
+    Таблицы создаём отдельно через scripts/init_db_from_models.py,
+    чтобы не мешать Alembic.
     """
     db: AsyncEngine = engine
 
@@ -51,12 +74,13 @@ async def startup() -> None:
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "vitals"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "users"'))
 
-        # Можно добавить лёгкий health-check, чтобы поймать проблемы
+        # лёгкий health-check
         result = await conn.execute(text("SELECT 1"))
         _ = result.scalar_one_or_none()
 
     logger.info("✅ GPT Support API запущен, соединение с БД установлено.")
 
+    # выведем все маршруты в лог, чтобы видеть, что /p/... появились
     for route in app.router.routes:
         logger.info(
             "ROUTE %s %s",
@@ -65,7 +89,7 @@ async def startup() -> None:
         )
 
 
-# # эндпоинт здоровья сервиса
+# === Эндпоинт здоровья сервиса ===
 @app.get("/health")
 async def healthcheck() -> dict[str, str]:
     """
@@ -74,7 +98,7 @@ async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
-# # функция запуска через python -m / прямой вызов файла
+# === Функция локального запуска через python -m app.main ===
 def run() -> None:
     """
     Локальный запуск приложения через uvicorn.

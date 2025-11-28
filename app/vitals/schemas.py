@@ -3,8 +3,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
+
+
+class MeasurementContext(str, Enum):
+    PRE_HD = "pre_hd"
+    POST_HD = "post_hd"
+    HOME = "home"
+    CLINIC = "clinic"
+    HOME_MORNING = "home_morning"
+    HOME_EVENING = "home_evening"
+    NA = "na"
 
 
 class BaseVitalsSchema(BaseModel):
@@ -13,6 +24,7 @@ class BaseVitalsSchema(BaseModel):
     user_id: int
     session_id: Optional[UUID] = None
     measured_at: Optional[datetime] = None
+    context: MeasurementContext = MeasurementContext.NA
 
 
 class VitalsReadSchema(BaseVitalsSchema):
@@ -20,6 +32,10 @@ class VitalsReadSchema(BaseVitalsSchema):
     created_at: datetime
     updated_at: datetime
 
+
+# =========================
+#  АД
+# =========================
 
 class BPMeasurementBase(BaseVitalsSchema):
     systolic: int
@@ -39,11 +55,16 @@ class BPMeasurementUpdate(BaseModel):
     pulse: Optional[int] = None
     session_id: Optional[UUID] = None
     measured_at: Optional[datetime] = None
+    context: Optional[MeasurementContext] = None
 
 
 class BPMeasurementRead(BPMeasurementBase, VitalsReadSchema):
     pass
 
+
+# =========================
+#  Пульс
+# =========================
 
 class PulseMeasurementBase(BaseVitalsSchema):
     bpm: int
@@ -59,11 +80,16 @@ class PulseMeasurementUpdate(BaseModel):
     bpm: Optional[int] = None
     session_id: Optional[UUID] = None
     measured_at: Optional[datetime] = None
+    context: Optional[MeasurementContext] = None
 
 
 class PulseMeasurementRead(PulseMeasurementBase, VitalsReadSchema):
     pass
 
+
+# =========================
+#  Вес
+# =========================
 
 class WeightMeasurementBase(BaseVitalsSchema):
     weight: float
@@ -79,9 +105,8 @@ class WeightMeasurementUpdate(BaseModel):
     weight: Optional[float] = None
     session_id: Optional[UUID] = None
     measured_at: Optional[datetime] = None
+    context: Optional[MeasurementContext] = None
 
 
 class WeightMeasurementRead(WeightMeasurementBase, VitalsReadSchema):
     pass
-
-
