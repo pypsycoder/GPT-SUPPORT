@@ -7,44 +7,42 @@
 
     <!-- Подключаем стили виталов -->
     <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <!-- Общий сайдбар для всех страниц пациента -->
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <!-- Общий header для всех страниц пациента -->
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+
 </head>
-<body>
+<!-- важно: data-page для подсветки пункта меню -->
+<body data-page="vitals">
 
 <div class="page">
+
+    <!-- Глобальный хедер -->
+    <div id="global-header"></div>
+
+    <!-- ОСНОВНАЯ СЕТКА -->
     <div class="layout">
 
-        <!-- 🔹 Сайдбар-заглушка (навигацию доделаем позже) -->
-        <nav class="sidebar">
-            <div class="sidebar-header">Мой кабинет</div>
-            <div class="sidebar-sub">Навигация (в разработке)</div>
+        <!-- Сайдбар -->
+        <div id="sidebar-container"></div>
 
-            <div class="sidebar-nav">
-                <button class="sidebar-item active">
-                    <span class="sidebar-item-icon">📊</span>
-                    <span>
-                        <span class="sidebar-item-label-main">Показатели</span>
-                        <span class="sidebar-item-label-sub">АД, пульс, вес</span>
-                    </span>
-                </button>
-            </div>
-        </nav>
-
-        <!-- 🔹 Основной контент -->
+        <!-- Контент -->
         <main class="content">
-            <!-- Хедер -->
-            <header class="header">
-                <div class="header-title">📊 Показатели</div>
-                <div class="header-sub">
+
+            <!-- Заголовок раздела -->
+            <section class="page-header">
+                <div class="page-title">
+                    📊 Показатели
+                </div>
+
+                <div class="page-subtitle">
                     Введите ваши сегодняшние показатели.
                 </div>
-                <div id="header-token" class="header-token">
+
+                <div id="header-token" class="page-token">
                     Токен пациента: …
                 </div>
-            </header>
-
-            <!-- Баннер статуса (успех / ошибка) -->
-            <section id="status-banner" class="status-banner status-hidden">
-                <!-- Текст подставляется из JS -->
             </section>
 
             <!-- Кнопки выбора показателя + контекст + формы -->
@@ -243,40 +241,29 @@
                     </form>
                 </section>
             </section>
-
-            <!-- Футер -->
-            <footer class="footer">
-                GPT Health Support • модуль vitals • экспериментальный интерфейс
-            </footer>
         </main>
     </div>
+
+    <!-- 🔹 ФУТЕР НА ВСЮ ШИРИНУ -->
+    <footer class="footer">
+        GPT Health Support • модуль vitals • экспериментальный интерфейс
+    </footer>
 </div>
 
 <script>
     // Текущий выбранный контекст измерения
     let selectedContext = 'na';
 
-    // =========================
-    // Получение patient_token из URL
-    // Ожидаемый формат: https://domain.com/p/<token>/vitals
-    // =========================
     function getPatientTokenFromUrl() {
         const path = window.location.pathname;
-        const parts = path.split('/').filter(Boolean); // убираем пустые элементы
-
-        // Ищем сегмент 'p' и берём следующий как токен
+        const parts = path.split('/').filter(Boolean);
         const pIndex = parts.indexOf('p');
         if (pIndex !== -1 && parts.length > pIndex + 1) {
             return parts[pIndex + 1];
         }
-
-        // fallback: если структура другая — можно подправить логику тут
         return null;
     }
 
-    // =========================
-    // Работа с баннером статуса
-    // =========================
     function setStatus(type, message) {
         const banner = document.getElementById('status-banner');
         banner.textContent = message || '';
@@ -292,9 +279,6 @@
         }
     }
 
-    // =========================
-    // Выбор контекста измерения (до/после диализа, дома и т.д.)
-    // =========================
     function initContextSelector() {
         const buttons = document.querySelectorAll('.context-button');
 
@@ -303,19 +287,14 @@
                 const ctx = btn.getAttribute('data-context') || 'na';
                 selectedContext = ctx;
 
-                // Подсветка активной кнопки
                 buttons.forEach((b) => b.classList.remove('active'));
                 btn.classList.add('active');
 
-                // Убираем сообщения об ошибках/успехе при смене контекста
                 setStatus('none', '');
             });
         });
     }
 
-    // =========================
-    // Переключение форм (АД / Пульс / Вес)
-    // =========================
     function initTabs() {
         const buttons = document.querySelectorAll('.vitals-button');
         const forms = {
@@ -327,74 +306,50 @@
 
         buttons.forEach((btn) => {
             btn.addEventListener('click', () => {
-                const target = btn.getAttribute('data-target'); // bp | pulse | weight
+                const target = btn.getAttribute('data-target');
 
-                // Активная кнопка
                 buttons.forEach((b) => b.classList.remove('active'));
                 btn.classList.add('active');
 
-                // Показ нужной формы
                 Object.keys(forms).forEach((key) => {
-                    if (key === target) {
-                        forms[key].classList.remove('hidden');
-                    } else {
-                        forms[key].classList.add('hidden');
-                    }
+                    forms[key].classList.toggle('hidden', key !== target);
                 });
 
-                // Дополнительные варианты контекста только для веса
                 if (weightExtraRow) {
                     if (target === 'weight') {
                         weightExtraRow.classList.remove('hidden');
                     } else {
                         weightExtraRow.classList.add('hidden');
 
-                        // Если до этого была выбрана "утро/вечер" для веса —
-                        // при переключении на АД/Пульс вернёмся к "Не важно"
                         if (selectedContext === 'home_morning' || selectedContext === 'home_evening') {
                             selectedContext = 'na';
                             const allCtxButtons = document.querySelectorAll('.context-button');
                             allCtxButtons.forEach((b) => b.classList.remove('active'));
                             const defaultBtn = document.querySelector('.context-button[data-context="na"]');
-                            if (defaultBtn) {
-                                defaultBtn.classList.add('active');
-                            }
+                            if (defaultBtn) defaultBtn.classList.add('active');
                         }
                     }
                 }
 
-                // Сбрасываем статус при переключении
                 setStatus('none', '');
             });
         });
     }
 
-    // =========================
-    // Отправка запросов на backend
-    // =========================
     function initForms(patientToken) {
-        // Если токена нет — формы блокируем
         if (!patientToken) {
             setStatus('error', 'Не удалось определить токен пациента из адреса страницы. Обратитесь к врачу.');
             const allInputs = document.querySelectorAll('input, textarea, button.submit-button');
-            allInputs.forEach((el) => {
-                el.disabled = true;
-            });
+            allInputs.forEach((el) => { el.disabled = true; });
             return;
         }
 
-        // Если vitals живут не в корне, можно поменять на '/api/v1'
         const API_BASE = '';
 
-        // Вспомогательная функция: безопасно получить текущий контекст
         function getCurrentContext() {
-            if (typeof selectedContext !== 'undefined' && selectedContext) {
-                return selectedContext;
-            }
-            return 'na';
+            return selectedContext || 'na';
         }
 
-        // --- АД ---
         const bpForm = document.getElementById('bp-form');
         if (bpForm) {
             bpForm.addEventListener('submit', async (event) => {
@@ -419,16 +374,12 @@
                         `${API_BASE}/vitals/bp/by-token/${encodeURIComponent(patientToken)}`,
                         {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
+                            headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         }
                     );
 
-                    if (!response.ok) {
-                        throw new Error('Ошибка при отправке данных давления');
-                    }
+                    if (!response.ok) throw new Error('Ошибка при отправке данных давления');
 
                     setStatus('success', 'Давление успешно отправлено. Спасибо!');
                     bpForm.reset();
@@ -439,7 +390,6 @@
             });
         }
 
-        // --- Пульс ---
         const pulseForm = document.getElementById('pulse-form');
         if (pulseForm) {
             pulseForm.addEventListener('submit', async (event) => {
@@ -462,16 +412,12 @@
                         `${API_BASE}/vitals/pulse/by-token/${encodeURIComponent(patientToken)}`,
                         {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
+                            headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         }
                     );
 
-                    if (!response.ok) {
-                        throw new Error('Ошибка при отправке данных пульса');
-                    }
+                    if (!response.ok) throw new Error('Ошибка при отправке данных пульса');
 
                     setStatus('success', 'Пульс успешно отправлен. Спасибо!');
                     pulseForm.reset();
@@ -482,7 +428,6 @@
             });
         }
 
-        // --- Вес ---
         const weightForm = document.getElementById('weight-form');
         if (weightForm) {
             weightForm.addEventListener('submit', async (event) => {
@@ -505,16 +450,12 @@
                         `${API_BASE}/vitals/weight/by-token/${encodeURIComponent(patientToken)}`,
                         {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
+                            headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         }
                     );
 
-                    if (!response.ok) {
-                        throw new Error('Ошибка при отправке данных веса');
-                    }
+                    if (!response.ok) throw new Error('Ошибка при отправке данных веса');
 
                     setStatus('success', 'Вес успешно отправлен. Спасибо!');
                     weightForm.reset();
@@ -526,9 +467,6 @@
         }
     }
 
-    // =========================
-    // Инициализация страницы
-    // =========================
     document.addEventListener('DOMContentLoaded', () => {
         const token = getPatientTokenFromUrl();
         const headerToken = document.getElementById('header-token');
@@ -545,5 +483,9 @@
     });
 </script>
 
+<!-- общий сайдбар (тот же, что в education / education_test) -->
+<script src="/frontend/patient/js/sidebar.js"></script>
+<!-- общий header (тот же, что в education / education_test) -->
+<script src="/frontend/patient/js/global_header.js"></script>
 </body>
 </html>

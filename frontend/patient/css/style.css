@@ -1,3 +1,7 @@
+/* ====================================== */
+/* ============= BASE =================== */
+/* ====================================== */
+
 :root {
     font-size: 16px;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -10,6 +14,10 @@ body {
     color: #111827;
 }
 
+/* ====================================== */
+/* ============= LAYOUT ================= */
+/* ====================================== */
+
 /* Общий контейнер страницы */
 .page {
     max-width: 960px;
@@ -17,130 +25,87 @@ body {
     padding: 1.5rem 1rem 2.5rem;
 }
 
-/* Лейаут: слева навигация, справа контент */
+/* Лейаут: слева сайдбар (из sidebar.css), справа контент */
 .layout {
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
-    gap: 1.5rem;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+    column-gap: 20px;
 }
 
-/* На мобильном — навигация сверху, контент под ней */
-@media (max-width: 720px) {
+/* Мобильные правки — не меняем порядок, только уплотняем отступы */
+@media (max-width: 768px) {
+    .page {
+        max-width: 100%;
+        padding: 8px 8px 24px;
+    }
+
     .layout {
-        grid-template-columns: 1fr;
+        grid-template-columns: auto minmax(0, 1fr);
+        column-gap: 12px;
     }
 }
 
-/* Сайдбар (заглушка на будущее) */
-.sidebar {
-    background: #ffffff;
-    border-radius: 1rem;
-    padding: 1rem 0.75rem;
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
-    position: sticky;
-    top: 0.75rem;
-    align-self: flex-start;
+/* Контентный столбец */
+.content {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    box-sizing: border-box;
 }
 
-.sidebar-header {
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-    padding: 0 0.25rem;
-}
-
-.sidebar-sub {
-    font-size: 0.8rem;
-    color: #9ca3af;
-    margin-bottom: 0.75rem;
-    padding: 0 0.25rem;
-}
-
-.sidebar-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.sidebar-item {
-    border: none;
-    background: transparent;
-    text-align: left;
-    padding: 0.55rem 0.6rem;
-    border-radius: 0.7rem;
-    font-size: 0.9rem;
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    cursor: default; /* пока не кликабельно */
-    color: #374151;
-}
-
-.sidebar-item-icon {
-    font-size: 1.1rem;
-    width: 1.4rem;
+/* Footer */
+.footer {
     text-align: center;
-}
-
-.sidebar-item-label-main {
-    font-weight: 500;
-}
-
-.sidebar-item-label-sub {
-    display: block;
     font-size: 0.75rem;
     color: #9ca3af;
+    margin-top: 1.5rem;
 }
 
-.sidebar-item.active {
-    background: #dbeafe;
-    color: #1d4ed8;
+/* ====================================== */
+/* ========= GLOBAL / PAGE HEADER ======= */
+/* ====================================== */
+
+/* Глобальный хедер (верхняя панель на всю ширину) */
+.global-header {
+    width: 100%;
+    height: 70px;
+    background: #ffffff90;
+    backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    margin-bottom: 16px;
 }
 
-.sidebar-item.active .sidebar-item-label-sub {
-    color: #60a5fa;
+/* Заголовок раздела внутри main (новый вариант) */
+.page-header {
+    margin-bottom: 20px;
 }
 
-/* На узком экране — сайдбар как верхняя панель */
-@media (max-width: 540px) {
-    .sidebar {
-        position: static;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.5rem;
-        overflow-x: auto;
-    }
-
-    .sidebar-header,
-    .sidebar-sub {
-        display: none;
-    }
-
-    .sidebar-nav {
-        flex-direction: row;
-        gap: 0.4rem;
-        width: 100%;
-    }
-
-    .sidebar-item {
-        flex: 1 0 auto;
-        justify-content: center;
-        padding: 0.45rem 0.4rem;
-    }
-
-    .sidebar-item-label-sub {
-        display: none;
-    }
+.page-title {
+    font-size: 28px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
-/* Контент */
-.content {
-    max-width: 540px;
+.page-subtitle {
+    margin-top: 4px;
+    font-size: 15px;
+    color: #666;
 }
 
-/* Хедер */
+.page-token {
+    margin-top: 6px;
+    color: #9ca3af;
+    font-size: 14px;
+    user-select: all;
+}
+
+/* Старый хедер (education.html / education_test.html) */
 .header {
     margin-bottom: 1rem;
 }
@@ -156,13 +121,10 @@ body {
     color: #6b7280;
 }
 
-.header-token {
-    font-size: 0.8rem;
-    color: #9ca3af;
-    margin-top: 0.4rem;
-}
+/* ====================================== */
+/* ========= STATUS BANNERS ============= */
+/* ====================================== */
 
-/* Баннер статуса */
 .status-banner {
     margin-bottom: 1rem;
     font-size: 0.9rem;
@@ -188,6 +150,10 @@ body {
 .status-hidden {
     display: none;
 }
+
+/* ====================================== */
+/* ============= VITALS ================= */
+/* ====================================== */
 
 /* Блок с кнопками выбора показателя */
 .vitals-section {
@@ -217,8 +183,12 @@ body {
     background: #f9fafb;
     color: #1f2933;
     cursor: pointer;
-    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease,
-        border-color 0.15s ease, color 0.15s ease;
+    transition:
+        background 0.15s ease,
+        transform 0.1s ease,
+        box-shadow 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
 }
 
 .vitals-button:hover {
@@ -257,7 +227,7 @@ body {
     margin-bottom: 0.6rem;
 }
 
-/* Кнопки контекста — слегка меньше, но в том же стиле */
+/* Кнопки контекста */
 .context-buttons {
     display: flex;
     flex-wrap: wrap;
@@ -271,8 +241,11 @@ body {
     padding: 0.4rem 0.85rem;
     font-size: 0.85rem;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease,
-        border-color 0.15s ease, transform 0.08s ease;
+    transition:
+        background 0.15s ease,
+        color 0.15s ease,
+        border-color 0.15s ease,
+        transform 0.08s ease;
 }
 
 .context-button:hover {
@@ -291,7 +264,6 @@ body {
 .context-weight-extra {
     margin-top: 0.4rem;
 }
-
 
 /* Карточки форм */
 .form-card {
@@ -348,7 +320,273 @@ body {
     resize: vertical;
 }
 
-/* Кнопка отправки */
+/* ====================================== */
+/* ============= EDUCATION ============= */
+/* ====================================== */
+
+/* Общий контейнер модуля education */
+.edu-root {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+/* Белый бокс для карточки урока (панель как слева) */
+.edu-topic-card {
+    background: #ffffff;
+    border-radius: 1rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    padding: 1rem 1.25rem 1rem;
+}
+
+/* Одиночная карточка урока */
+.edu-topic-card.edu-single-card {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* Заголовок урока "Урок: Стресс и напряжение" */
+.edu-lesson-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 0.35rem;
+}
+
+/* Заголовок карточки (из первого "##") */
+.edu-card-title {
+    font-size: 1.15rem;
+    margin: 0 0 0.5rem;
+    color: #111827;
+}
+
+/* Текст карточки (Markdown) */
+.edu-item-content h1,
+.edu-item-content h2,
+.edu-item-content h3 {
+    margin: 0.75rem 0 0.4rem;
+    font-weight: 600;
+}
+
+.edu-item-content p {
+    margin: 0.25rem 0;
+    line-height: 1.5;
+    font-size: 0.95rem;
+}
+
+.edu-item-content ul {
+    margin: 0.25rem 0 0.35rem 1.25rem;
+    padding-left: 0;
+}
+
+.edu-item-content li {
+    margin: 0.15rem 0;
+}
+
+.edu-item-content a {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+/* Прогресс-бар по карточкам урока */
+.edu-progress-bar {
+    margin-top: 0.75rem;
+    display: flex;
+    gap: 4px;
+}
+
+.edu-progress-segment {
+    flex: 1;
+    height: 6px;
+    border-radius: 999px;
+    background: #e5f5eb;
+}
+
+.edu-progress-segment--active {
+    background: #34d399;
+}
+
+.edu-progress-text {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+
+/* Кнопки навигации по карточкам */
+.edu-nav {
+    margin-top: 0.7rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.edu-nav-btn {
+    flex: 1;
+    padding: 0.5rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid #e5e7eb;
+    font-size: 0.9rem;
+    font-weight: 500;
+    background: #f9fafb;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        box-shadow 0.15s ease,
+        transform 0.05s ease;
+}
+
+.edu-nav-btn:hover:enabled {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+    box-shadow: 0 3px 8px rgba(37, 99, 235, 0.25);
+    transform: translateY(-1px);
+}
+
+.edu-nav-btn:active:enabled {
+    transform: translateY(0);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+}
+
+.edu-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+    box-shadow: none;
+}
+
+.edu-test-block {
+    margin-top: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* ====================================== */
+/* ========= EDUCATION: TESTS =========== */
+/* ====================================== */
+
+/* Прогресс-бар для теста */
+.progress-container {
+    margin: 0.5rem 0 0.75rem;
+}
+
+.progress-label {
+    font-size: 0.85rem;
+    color: #6b7280;
+    margin-bottom: 0.25rem;
+}
+
+.progress-bar-outer {
+    width: 100%;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: #e5e7eb;
+    overflow: hidden;
+}
+
+.progress-bar-inner {
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #22c55e, #a3e635);
+    transition: width 0.25s ease;
+}
+
+/* Варианты ответов */
+.options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.option-btn {
+    padding: 0.7rem 1rem;
+    border-radius: 0.7rem;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    font-size: 1rem;
+    cursor: pointer;
+    text-align: left;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        box-shadow 0.15s ease,
+        transform 0.05s ease;
+}
+
+.option-btn:hover {
+    background: #e5f0ff;
+    border-color: #bfdbfe;
+    box-shadow: 0 3px 8px rgba(37, 99, 235, 0.25);
+    transform: translateY(-1px);
+}
+
+.option-btn.selected {
+    background: #dbeafe;
+    border-color: #60a5fa;
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
+/* Кнопки управления под вопросом */
+.controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.75rem;
+}
+
+/* Подсказки и сообщения */
+.status-message {
+    font-size: 0.8rem;
+    color: #6b7280;
+    margin-top: 0.3rem;
+}
+
+/* Блок результата теста */
+.result-block {
+    padding: 1rem 1rem;
+    border-radius: 0.9rem;
+    margin-top: 1rem;
+}
+
+.result-block.success {
+    background: #DCFCE7;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+}
+
+.result-block.fail {
+    background: #fef6e2;
+    border: 1px solid #feefca;
+    color: #997c1b;
+}
+
+.result-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+}
+
+.result-details {
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+/* Чуть воздуха для экрана результата */
+#resultSection {
+    margin-top: 1.5rem;
+}
+
+/* ====================================== */
+/* ============ BUTTONS / UTILS ========= */
+/* ====================================== */
+
+/* Основная зелёная кнопка (vitals + education tests) */
 .submit-button {
     width: 100%;
     border-radius: 999px;
@@ -360,7 +598,10 @@ body {
     background: #16a34a;
     color: #ffffff;
     box-shadow: 0 4px 10px rgba(22, 163, 74, 0.3);
-    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    transition:
+        background 0.15s ease,
+        transform 0.1s ease,
+        box-shadow 0.15s ease;
 }
 
 .submit-button:hover {
@@ -375,80 +616,35 @@ body {
     box-shadow: none;
 }
 
-/* Скрытие секций */
-.hidden {
-    display: none;
-}
-
-/* Footer */
-.footer {
-    text-align: center;
-    font-size: 0.75rem;
-    color: #9ca3af;
-    margin-top: 1.5rem;
-}
-
-
-
-/* ====================================== */
-/* ===== Education: общий контейнер ===== */
-/* ====================================== */
-
-.edu-root {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-top: 0.5rem;
-}
-
-/* Блок темы (стресс, копинг и т.д.) */
-.edu-topic-card {
-    background: #ffffff;
-    border-radius: 1rem;
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
-    padding: 0.9rem 1rem 1rem;
-}
-
-/* Заголовок темы */
-.edu-topic-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 0.6rem;
-}
-
-.edu-topic-title {
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.edu-topic-count {
-    font-size: 0.8rem;
-    color: #6b7280;
-}
-
-/* Содержимое темы: список карточек */
-.edu-topic-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-}
-
-/* Отдельная обучающая карточка */
-.edu-item-card {
-    border-radius: 0.75rem;
-    border: 1px solid #e5e7eb;
-    padding: 0.7rem 0.75rem;
+/* Вторичные серые кнопки (в т.ч. на экране результата) */
+.secondary-button {
+    display: inline-block;
+    padding: 0.55rem 1.2rem;
+    border-radius: 0.7rem;
     background: #f9fafb;
-}
-
-/* Текст внутри карточки (Markdown-рендер) */
-.edu-item-content p {
-    margin: 0;
+    border: 1px solid #e5e7eb;
+    color: #374151;
     font-size: 0.9rem;
-    line-height: 1.5;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease,
+        box-shadow 0.15s ease;
 }
 
-.edu-item-content strong {
-    font-weight: 600;
+.secondary-button:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.secondary-button:active {
+    background: #e5e7eb;
+    border-color: #cbd5e1;
+}
+
+/* Служебное: скрыть блок */
+.hidden {
+    display: none !important;
 }

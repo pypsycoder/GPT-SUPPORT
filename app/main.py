@@ -53,7 +53,19 @@ app.mount(
 app.include_router(vitals_router)
 app.include_router(users_api_router, prefix="/api/v1")
 app.include_router(pages_router)
-app.include_router(education_router, prefix="/api/v1")  # добавить эту строку
+## app.include_router(education_router, prefix="/api/v1")
+app.include_router(education_router, prefix="/api/v1/education")
+
+from fastapi.routing import APIRoute
+
+for route in app.routes:
+    if isinstance(route, APIRoute):
+        logging.info(
+            "ROUTE %s %s",
+            route.methods,
+            route.path,
+        )
+
 
 # === Cобытие старта приложения ===
 @app.on_event("startup")
@@ -73,6 +85,7 @@ async def startup() -> None:
         # создаём схемы, если вдруг их ещё нет
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "vitals"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "users"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "education"'))  # 👈 добавили
 
         # лёгкий health-check
         result = await conn.execute(text("SELECT 1"))
@@ -96,6 +109,20 @@ async def healthcheck() -> dict[str, str]:
     Простой healthcheck-эндпоинт для проверки, что сервис жив.
     """
     return {"status": "ok"}
+
+# страница прохождения теста по уроку (web)
+@app.get("/p/{patient_token}/education_test.html", include_in_schema=False)
+async def patient_education_test_page(patient_token: str):
+    """
+    Страница теста по уроку для пациента.
+
+    HTML один и тот же для всех пациентов, patient_token нужен только
+    в URL, чтобы фронт знал, для кого грузить данные.
+    lesson берётся из query-параметра (?lesson=01_stress).
+    """
+    # frontend/patient/education_test.html
+    file_path = FRONTEND_DIR / "patient" / "education_test.html"
+    return FileResponse(str(file_path))
 
 
 # === Функция локального запуска через python -m app.main ===

@@ -13,6 +13,7 @@ async def init_db() -> None:
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS users'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS scales'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS vitals'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS education'))
 
         # создаём *все* таблицы из моделей
         await conn.run_sync(Base.metadata.create_all)

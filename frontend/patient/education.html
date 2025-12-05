@@ -6,36 +6,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- Общие стили пациента (те же, что и для vitals) -->
-    <link rel="stylesheet" href="/frontend/patient/css/style.css?v=2">
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css"></link>
 </head>
-<body>
+<body data-page="education">
 
 <div class="page">
+        <!-- Глобальный хедер -->
+    <div id="global-header"></div>
     <div class="layout">
 
-        <!-- 🔹 Сайдбар (как в vitals, но активен раздел Обучение) -->
-        <nav class="sidebar">
-            <div class="sidebar-header">Мой кабинет</div>
-            <div class="sidebar-sub">Навигация</div>
-
-            <div class="sidebar-nav">
-                <button class="sidebar-item">
-                    <span class="sidebar-item-icon">📊</span>
-                    <span>
-                        <span class="sidebar-item-label-main">Показатели</span>
-                        <span class="sidebar-item-label-sub">АД, пульс, вес</span>
-                    </span>
-                </button>
-
-                <button class="sidebar-item active">
-                    <span class="sidebar-item-icon">🎓</span>
-                    <span>
-                        <span class="sidebar-item-label-main">Обучение</span>
-                        <span class="sidebar-item-label-sub">Стресс, копинг и др.</span>
-                    </span>
-                </button>
-            </div>
-        </nav>
+        <!-- 🔹 Сайдбар теперь подставляется из sidebar.html через JS -->
+        <div id="sidebar-container"></div>
 
         <!-- 🔹 Основной контент -->
         <main class="content">
@@ -50,9 +33,9 @@
             <!-- Статус-зона (загрузка / ошибки) -->
             <section id="education-status" class="status-banner status-hidden"></section>
 
-            <!-- Корневая область для списка обучающих материалов -->
+            <!-- Корневая область для карточки урока -->
             <section id="education-root" class="edu-root">
-                <!-- Сюда JS подставит карточки -->
+                <!-- Сюда JS подставит текущую карточку -->
             </section>
 
             <!-- Футер -->
@@ -64,7 +47,40 @@
 </div>
 
 <script>
-    // ===== Отображение статуса (загрузка / ошибка) =====
+    // ============================
+    // API и helpers
+    // ============================
+    const API_BASE = '/api/v1/education';
+
+    function getPatientTokenFromPath() {
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        // ожидаем: /p/{patient_token}/education
+        if (parts[0] === 'p' && parts.length >= 3) {
+            return parts[1];
+        }
+        return null;
+    }
+
+    function getQueryParam(name) {
+        const params = new URLSearchParams(window.location.search);
+        return params.get(name);
+    }
+
+    const patientToken = getPatientTokenFromPath();
+    let lessonCode = getQueryParam('lesson');  // теперь это именно Lesson.code
+
+    // ============================
+    // Глобальное состояние
+    // ============================
+    let lessons = [];
+    let currentLesson = null;
+    let educationItems = [];
+    let currentIndex = 0;
+    let lessonTestId = null;
+
+    // ============================
+    // Статус загрузки / ошибок
+    // ============================
     function setEducationStatus(type, message) {
         const banner = document.getElementById('education-status');
         if (!banner) return;
@@ -76,6 +92,7 @@
             banner.classList.add('status-hidden');
             return;
         }
+
         if (type === 'error') {
             banner.classList.add('status-error');
         } else if (type === 'success') {
@@ -83,85 +100,294 @@
         }
     }
 
-    // ===== Простейший Markdown -> HTML (bold + параграфы + переносы) =====
+    // ============================
+    // Markdown → HTML
+    // ============================
     function markdownToHtml(md) {
         if (!md) return '';
-        let html = md;
 
-        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');  // **bold**
-        html = html.replace(/\r\n/g, '\n');
-        html = html.replace(/\n{2,}/g, '</p><p>'); // двойные переносы -> новый абзац
-        html = html.replace(/\n/g, '<br>');        // одинарные -> <br>
+        let text = md.replace(/\r\n/g, '\n');
 
-        return '<p>' + html + '</p>';
-    }
+        // **жирный**
+        text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-    // ===== Группировка материалов по topic =====
-    function groupByTopic(items) {
-        const groups = {};
-        items.forEach((item) => {
-            const key = item.topic || 'other';
-            if (!groups[key]) {
-                groups[key] = [];
+        // _курсив_  и *курсив*
+        text = text
+            .replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+            .replace(/_(.+?)_/g, '<em>$1</em>');
+
+        // [текст](https://...)
+        text = text.replace(
+            /\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g,
+            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+        );
+
+        const lines = text.split('\n');
+        const htmlParts = [];
+        let inList = false;
+
+        function closeList() {
+            if (inList) {
+                htmlParts.push('</ul>');
+                inList = false;
             }
-            groups[key].push(item);
-        });
-        return groups;
+        }
+
+        for (const rawLine of lines) {
+            const line = rawLine.trimEnd();
+
+            if (!line.trim()) {
+                closeList();
+                continue;
+            }
+
+            // ### заголовки
+            if (line.startsWith('### ')) {
+                closeList();
+                htmlParts.push('<h3>' + line.slice(4).trim() + '</h3>');
+                continue;
+            }
+            if (line.startsWith('## ')) {
+                closeList();
+                htmlParts.push('<h2>' + line.slice(3).trim() + '</h2>');
+                continue;
+            }
+            if (line.startsWith('# ')) {
+                closeList();
+                htmlParts.push('<h1>' + line.slice(2).trim() + '</h1>');
+                continue;
+            }
+
+            // списки
+            if (line.startsWith('* ') || line.startsWith('- ')) {
+                const itemText = line.slice(2).trim();
+                if (!inList) {
+                    htmlParts.push('<ul>');
+                    inList = true;
+                }
+                htmlParts.push('<li>' + itemText + '</li>');
+                continue;
+            }
+
+            // обычный абзац
+            closeList();
+            htmlParts.push('<p>' + line + '</p>');
+        }
+
+        closeList();
+        return htmlParts.join('\n');
     }
 
-    function humanTopicName(topic) {
-        switch (topic) {
-            case 'stress':
-                return 'Стресс и напряжение';
-            case 'coping':
-                return 'Копинг-стратегии';
-            case 'sleep':
-                return 'Сон и восстановление';
-            default:
-                return 'Другое';
+    // ============================
+    // Вытаскиваем заголовок карточки
+    // ============================
+    function getCardTitle(md) {
+        if (!md) return '';
+        const lines = md.split(/\r?\n/);
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('## ')) {
+                let title = trimmed.slice(3).trim();
+                title = title.replace(/^\*\*(.+)\*\*$/, '$1');
+                title = title.replace(/^__(.+)__$/, '$1');
+                return title;
+            }
+        }
+
+        // запасной вариант — первая непустая строка
+        for (const line of lines) {
+            const t = line.trim();
+            if (t) {
+                let title = t.replace(/^\*\*(.+)\*\*$/, '$1')
+                    .replace(/^__(.+)__$/, '$1');
+                return title;
+            }
+        }
+        return '';
+    }
+
+    // ============================
+    // Тело карточки без первого "## ..."
+    // ============================
+    function getCardBodyMd(md) {
+        if (!md) return '';
+        const lines = md.split(/\r?\n/);
+
+        let firstHeadingIndex = -1;
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].trim().startsWith('## ')) {
+                firstHeadingIndex = i;
+                break;
+            }
+        }
+
+        if (firstHeadingIndex === -1) {
+            return md;
+        }
+
+        const rest = lines.slice(firstHeadingIndex + 1);
+        return rest.join('\n').trim();
+    }
+
+    // ============================
+    // Загрузка test_id для урока
+    // ============================
+    async function loadLessonTestInfo() {
+        lessonTestId = null;
+        if (!lessonCode) return;
+
+        try {
+            const resp = await fetch(`${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/test`);
+            if (!resp.ok) {
+                return;
+            }
+            const data = await resp.json();
+            if (data && data.test_id) {
+                lessonTestId = data.test_id;
+            }
+        } catch (err) {
+            console.warn('Не удалось получить информацию о тесте:', err);
         }
     }
 
-    // ===== Рендер одной темы и её карточек =====
-    function renderTopicBlock(topic, items) {
+    // ============================
+    // Рендер текущей карточки
+    // ============================
+    function renderCurrentCard() {
+        const root = document.getElementById('education-root');
+        if (!root) return;
+
+        root.innerHTML = '';
+
+        if (!educationItems || educationItems.length === 0) {
+            setEducationStatus('error', 'Для этого урока пока нет карточек.');
+            return;
+        }
+
+        const item = educationItems[currentIndex];
+        const total = educationItems.length;
+
         const wrapper = document.createElement('article');
-        wrapper.className = 'edu-topic-card';
+        wrapper.className = 'edu-topic-card edu-single-card';
 
-        const header = document.createElement('div');
-        header.className = 'edu-topic-header';
+        // markdown карточки: пытаемся взять из нескольких возможных полей
+        const cardMd =
+            item.content ||
+            item.content_md ||
+            item.markdown ||
+            item.text ||
+            '';
 
-        const title = document.createElement('div');
-        title.className = 'edu-topic-title';
-        title.textContent = humanTopicName(topic);
+        // заголовок урока
+        if (currentLesson) {
+            const lessonTitle = document.createElement('div');
+            lessonTitle.className = 'edu-lesson-title';
+            lessonTitle.textContent = currentLesson.title || 'Урок';
+            wrapper.appendChild(lessonTitle);
+        }
 
-        const count = document.createElement('div');
-        count.className = 'edu-topic-count';
-        count.textContent = `${items.length} материал(ов)`;
+        // заголовок карточки
+        let cardTitleText = '';
+        if (item.title) {
+            cardTitleText = item.title;
+        } else {
+            cardTitleText = getCardTitle(cardMd);
+        }
 
-        header.appendChild(title);
-        header.appendChild(count);
+        if (cardTitleText) {
+            const h2 = document.createElement('h2');
+            h2.className = 'edu-card-title';
+            h2.textContent = cardTitleText;
+            wrapper.appendChild(h2);
+        }
 
-        const body = document.createElement('div');
-        body.className = 'edu-topic-body';
+        // содержимое карточки
+        const bodyMd = getCardBodyMd(cardMd);
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'edu-item-content';
+        contentDiv.innerHTML = markdownToHtml(bodyMd);
+        wrapper.appendChild(contentDiv);
 
-        items.forEach((item) => {
-            const card = document.createElement('div');
-            card.className = 'edu-item-card';
+        // прогресс-бар
+        const progressBar = document.createElement('div');
+        progressBar.className = 'edu-progress-bar';
 
-            const content = document.createElement('div');
-            content.className = 'edu-item-content';
-            content.innerHTML = markdownToHtml(item.content);
+        for (let i = 0; i < total; i++) {
+            const segment = document.createElement('div');
+            segment.className = 'edu-progress-segment';
+            if (i <= currentIndex) {
+                segment.classList.add('edu-progress-segment--active');
+            }
+            progressBar.appendChild(segment);
+        }
+        wrapper.appendChild(progressBar);
 
-            card.appendChild(content);
-            body.appendChild(card);
+        const progressText = document.createElement('div');
+        progressText.className = 'edu-progress-text';
+        progressText.textContent = `Карточка ${currentIndex + 1} из ${total}`;
+        wrapper.appendChild(progressText);
+
+        // навигация по карточкам
+        const nav = document.createElement('div');
+        nav.className = 'edu-nav';
+
+        const prevBtn = document.createElement('button');
+        prevBtn.textContent = '← Назад';
+        prevBtn.className = 'edu-nav-btn';
+        prevBtn.disabled = currentIndex === 0;
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex -= 1;
+                renderCurrentCard();
+            }
         });
 
-        wrapper.appendChild(header);
-        wrapper.appendChild(body);
-        return wrapper;
+        const nextBtn = document.createElement('button');
+        nextBtn.textContent = 'Вперёд →';
+        nextBtn.className = 'edu-nav-btn';
+        nextBtn.disabled = currentIndex >= total - 1;
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < total - 1) {
+                currentIndex += 1;
+                renderCurrentCard();
+            }
+        });
+
+        nav.appendChild(prevBtn);
+        nav.appendChild(nextBtn);
+        wrapper.appendChild(nav);
+
+        // кнопка "Пройти тест" — только на последней карточке и если тест есть
+        const isLastCard = currentIndex === total - 1;
+        if (isLastCard && lessonTestId && patientToken) {
+            const testBlock = document.createElement('div');
+            testBlock.className = 'edu-test-block';
+
+            const testHint = document.createElement('p');
+            testHint.className = 'edu-progress-text';
+            testHint.textContent = 'Готовы пройти короткий тест по этой теме?';
+
+            const testBtn = document.createElement('button');
+            testBtn.className = 'submit-button';
+            testBtn.textContent = 'Пройти тест';
+            testBtn.addEventListener('click', () => {
+                const url = `/p/${encodeURIComponent(patientToken)}/education_test.html?lesson=${encodeURIComponent(lessonCode)}`;
+                window.location.href = url;
+            });
+
+            testBlock.appendChild(testHint);
+            testBlock.appendChild(testBtn);
+            wrapper.appendChild(testBlock);
+        }
+
+        root.appendChild(wrapper);
+        setEducationStatus('none', '');
     }
 
-    // ===== Основная функция загрузки и рендера =====
+    // ============================
+    // Загрузка урока и карточек
+    // ============================
     async function loadEducation() {
         const root = document.getElementById('education-root');
         if (!root) return;
@@ -170,38 +396,90 @@
         root.innerHTML = '';
 
         try {
-            const response = await fetch('/api/v1/education/list');
-
-            if (!response.ok) {
-                throw new Error('Сервер вернул ошибку при загрузке обучения');
+            // 1. грузим список уроков
+            const respLessons = await fetch(`${API_BASE}/lessons`);
+            if (!respLessons.ok) {
+                throw new Error('Сервер вернул ошибку при загрузке списка уроков');
             }
 
-            const data = await response.json();
-
-            if (!Array.isArray(data) || data.length === 0) {
-                setEducationStatus('error', 'Обучающие материалы пока недоступны.');
+            const lessonsData = await respLessons.json();
+            if (!Array.isArray(lessonsData) || lessonsData.length === 0) {
+                setEducationStatus('error', 'Пока нет доступных уроков.');
                 return;
             }
 
-            const groups = groupByTopic(data);
-            const topics = Object.keys(groups);
+            lessons = lessonsData;
 
-            topics.forEach((topic) => {
-                const block = renderTopicBlock(topic, groups[topic]);
-                root.appendChild(block);
-            });
+            // выбираем текущий урок по lessonCode или берём первый
+            if (lessonCode) {
+                currentLesson = lessons.find(l => l.code === lessonCode) || lessons[0];
+                lessonCode = currentLesson.code;
+            } else {
+                currentLesson = lessons[0];
+                lessonCode = currentLesson.code;
+            }
 
-            setEducationStatus('none', '');
+            // 2. грузим карточки этого урока
+            const respCards = await fetch(
+                `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/cards`
+            );
+            if (!respCards.ok) {
+                throw new Error('Ошибка при загрузке карточек урока');
+            }
+            educationItems = await respCards.json();
+            if (!Array.isArray(educationItems) || educationItems.length === 0) {
+                setEducationStatus('error', 'Для этого урока пока нет карточек.');
+                return;
+            }
+
+            // 3. пробуем узнать test_id
+            await loadLessonTestInfo();
+
+            currentIndex = 0;
+            renderCurrentCard();
         } catch (error) {
             console.error(error);
             setEducationStatus('error', 'Не удалось загрузить обучающие материалы. Попробуйте позже.');
         }
     }
 
+    // ============================
+    // Навигация стрелками клавиатуры
+    // ============================
+    function handleKeyboardNavigation(event) {
+        if (!educationItems || educationItems.length === 0) return;
+
+        const target = event.target;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+            return;
+        }
+
+        if (event.key === 'ArrowRight') {
+            if (currentIndex < educationItems.length - 1) {
+                currentIndex += 1;
+                renderCurrentCard();
+            }
+        } else if (event.key === 'ArrowLeft') {
+            if (currentIndex > 0) {
+                currentIndex -= 1;
+                renderCurrentCard();
+            }
+        }
+    }
+
+    // ============================
+    // Инициализация
+    // ============================
     document.addEventListener('DOMContentLoaded', () => {
         loadEducation();
+        document.addEventListener('keydown', handleKeyboardNavigation);
     });
 </script>
+
+<!-- общий сайдбар для всех страниц пациента -->
+<script src="/frontend/patient/js/sidebar.js"></script>
+<!-- общий header (тот же, что в education / education_test) -->
+<script src="/frontend/patient/js/global_header.js"></script>
 
 </body>
 </html>
