@@ -214,6 +214,13 @@ async def submit_kop25a(
 from sqlalchemy import select
 from app.scales.models import ScaleResult  # имя модели проверить
 
+
+def _get_scale_title(scale_code: str) -> str:
+    try:
+        return get_scale_config(scale_code).get("title", scale_code)
+    except ValueError:
+        return scale_code
+
 # Сводка по шкалам для токена
 @router.get("/api/v1/scales/overview")
 async def get_scales_overview(
@@ -241,7 +248,7 @@ async def get_scales_overview(
         overview.append(
             {
                 "scale_code": row.scale_code,
-                "scale_name": row.scale_code,  # можно потом подтянуть красивые имена
+                "scale_name": _get_scale_title(row.scale_code),
                 "last_taken_at": row.measured_at,
                 "total_score": (row.result_json or {}).get("total_score"),
                 "summary": (row.result_json or {}).get("summary"),

@@ -162,12 +162,19 @@
 
     progressText.textContent = 'Сохраняем ответы…';
 
+    const patientToken = getPatientTokenFromPath();
+    if (!patientToken) {
+      showStatus('Не найден токен пациента в адресе.', 'error');
+      isSubmitting = false;
+      return;
+    }
+
     fetch('/api/v1/scales/HADS/submit', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ answers }),
+      body: JSON.stringify({ patient_token: patientToken, answers }),
     })
       .then(async (resp) => {
         if (!resp.ok) {

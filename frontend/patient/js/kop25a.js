@@ -12,6 +12,15 @@
   const submitButton = document.getElementById('submit-kop25a');
   const statusBanner = document.getElementById('kop25a-status');
 
+  function getPatientTokenFromPath() {
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    const pIndex = parts.indexOf('p');
+    if (pIndex !== -1 && parts.length > pIndex + 1) {
+      return parts[pIndex + 1];
+    }
+    return null;
+  }
+
   function showStatus(message, type = 'error') {
     if (!statusBanner) return;
 
@@ -204,6 +213,12 @@
       option_id,
     }));
 
+    const patientToken = getPatientTokenFromPath();
+    if (!patientToken) {
+      alert('Не найден токен пациента в адресе.');
+      return;
+    }
+
     try {
       isSubmitting = true;
       updateNextAndSubmitState();
@@ -211,7 +226,7 @@
       const response = await fetch('/api/v1/scales/KOP25A/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers }),
+        body: JSON.stringify({ patient_token: patientToken, answers }),
       });
 
       if (!response.ok) {

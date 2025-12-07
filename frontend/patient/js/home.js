@@ -147,20 +147,42 @@
     const summaryEl = document.getElementById('scale-main-summary');
     const chartEl = document.getElementById('scale-chart');
 
+    const formatScore = (value) => {
+      if (value === null || value === undefined) return '—';
+      if (typeof value === 'number') {
+        return Number.isInteger(value) ? value : value.toFixed(1);
+      }
+      return value;
+    };
+
+    const setEmptyState = () => {
+      if (selectEl) selectEl.innerHTML = '<option>Нет шкал</option>';
+      if (scoreEl) scoreEl.textContent = '—';
+      if (summaryEl) summaryEl.textContent = 'Нет данных по шкале';
+      buildMiniBarChart(chartEl, []);
+    };
+
     if (selectEl) {
       selectEl.addEventListener('click', (event) => event.stopPropagation());
     }
 
+    if (!patientToken) {
+      setEmptyState();
+      return;
+    }
+
     try {
-      const overview = await safeFetch('/api/v1/scales/overview');
+      const overviewUrl = `/api/v1/scales/overview?patient_token=${encodeURIComponent(
+        patientToken,
+      )}`;
+      const overview = await safeFetch(overviewUrl);
+
       if (!Array.isArray(overview) || overview.length === 0) {
-        selectEl.innerHTML = '<option>Нет шкал</option>';
-        scoreEl.textContent = '—';
-        summaryEl.textContent = 'Нет данных по шкале';
-        buildMiniBarChart(chartEl, []);
+        setEmptyState();
         return;
       }
 
+      selectEl.innerHTML = '';
       overview.forEach((scale) => {
         const option = document.createElement('option');
         option.value = scale.scale_code || scale.code || '';
@@ -170,105 +192,54 @@
 
       const preferred = overview.find((s) => (s.scale_code || s.code) === 'HADS');
       selectEl.value = preferred
-        ? (preferred.scale_code || preferred.code)
+        ? preferred.scale_code || preferred.code
         : selectEl.options[0].value;
 
-      async function loadScales(patientToken) {
-        const selectEl = document.getElementById('scale-select');
-        const scoreEl = document.getElementById('scale-main-score');
-        const summaryEl = document.getElementById('scale-main-summary');
-        const chartEl = document.getElementById('scale-chart');
-
-        if (selectEl) {
-          selectEl.addEventListener('click', (event) => event.stopPropagation());
+      const updateSelectedScale = async () => {
+        const code = selectEl.value;
+        if (!code) {
+          setEmptyState();
+          return;
         }
 
         try {
-          const overviewUrl = `/api/v1/scales/overview${
-            patientToken ? `?patient_token=${encodeURIComponent(patientToken)}` : ''
-          }`;
-          const overview = await safeFetch(overviewUrl);
+          const historyUrl = `/api/v1/scales/${encodeURIComponent(
+            code,
+          )}/history?limit=7&patient_token=${encodeURIComponent(patientToken)}`;
+          const history = await safeFetch(historyUrl);
 
-          if (!Array.isArray(overview) || overview.length === 0) {
-            selectEl.innerHTML = '<option>Нет шкал</option>';
-            scoreEl.textContent = '—';
-            summaryEl.textContent = 'Нет данных по шкале';
+          if (!Array.isArray(history) || history.length === 0) {
+            if (scoreEl) scoreEl.textContent = '—';
+            if (summaryEl) summaryEl.textContent = 'Нет данных по шкале';
             buildMiniBarChart(chartEl, []);
             return;
           }
 
-          selectEl.innerHTML = '';
-          overview.forEach((scale) => {
-            const option = document.createElement('option');
-            option.value = scale.scale_code || scale.code || '';
-            option.textContent = scale.scale_name || scale.name || option.value;
-            selectEl.appendChild(option);
-          });
+          const latest = history[0];
+          const mapped = history
+            .slice(0, 7)
+            .reverse()
+            .map((item) => ({
+              value: item.total_score ?? item.score ?? 0,
+              date: item.measured_at || item.created_at,
+            }));
 
-          const preferred = overview.find(
-            (s) => (s.scale_code || s.code) === 'HADS',
-          );
-          selectEl.value = preferred
-            ? preferred.scale_code || preferred.code
-            : selectEl.options[0].value;
-
-          async function updateSelectedScale() {
-            const code = selectEl.value;
-            try {
-              const historyUrl =
-                `/api/v1/scales/${encodeURIComponent(code)}/history?limit=7` +
-                (patientToken
-                  ? `&patient_token=${encodeURIComponent(patientToken)}`
-                  : '');
-              const history = await safeFetch(historyUrl);
-
-              if (!Array.isArray(history) || history.length === 0) {
-                scoreEl.textContent = '—';
-                summaryEl.textContent = 'Нет данных по шкале';
-                buildMiniBarChart(chartEl, []);
-                return;
-              }
-
-              const latest = history[0];
-              const mapped = history
-                .slice(0, 7)
-                .reverse()
-                .map((item) => ({
-                  value: item.total_score ?? item.score ?? 0,
-                  date: item.measured_at || item.created_at,
-                }));
-
-              scoreEl.textContent = latest.total_score ?? latest.score ?? '—';
-              summaryEl.textContent = latest.summary || latest.status || 'Обновлено';
-              buildMiniBarChart(chartEl, mapped);
-            } catch (err) {
-              console.warn('Не удалось загрузить шкалу', err);
-              scoreEl.textContent = '—';
-              summaryEl.textContent = 'Нет данных по шкале';
-              buildMiniBarChart(chartEl, []);
-            }
-          }
-
-          selectEl.addEventListener('change', updateSelectedScale);
-          await updateSelectedScale();
+          if (scoreEl) scoreEl.textContent = formatScore(latest.total_score ?? latest.score);
+          if (summaryEl) summaryEl.textContent = latest.summary || 'Нет данных по шкале';
+          buildMiniBarChart(chartEl, mapped);
         } catch (err) {
-          console.warn('Не удалось загрузить список шкал', err);
-          if (selectEl) selectEl.innerHTML = '<option>Нет шкал</option>';
-          scoreEl.textContent = '—';
-          summaryEl.textContent = 'Нет данных по шкале';
+          console.warn('Не удалось загрузить шкалу', err);
+          if (scoreEl) scoreEl.textContent = '—';
+          if (summaryEl) summaryEl.textContent = 'Нет данных по шкале';
           buildMiniBarChart(chartEl, []);
         }
-      }
-
+      };
 
       selectEl.addEventListener('change', updateSelectedScale);
       await updateSelectedScale();
     } catch (err) {
       console.warn('Не удалось загрузить список шкал', err);
-      if (selectEl) selectEl.innerHTML = '<option>Нет шкал</option>';
-      scoreEl.textContent = '—';
-      summaryEl.textContent = 'Нет данных по шкале';
-      buildMiniBarChart(chartEl, []);
+      setEmptyState();
     }
   }
 
