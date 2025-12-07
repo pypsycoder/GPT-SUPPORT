@@ -77,6 +77,45 @@
     let educationItems = [];
     let currentIndex = 0;
     let lessonTestId = null;
+    // урок считается "прочитанным", когда пользователь дошёл до последней карточки
+    let lessonMarkedRead = false;
+
+    // ============================
+    // Отметить урок как "прочитанный"
+    // ============================
+    async function markLessonAsRead() {
+        if (!patientToken || !lessonCode) {
+            return;
+        }
+
+        if (lessonMarkedRead) {
+            return;
+        }
+
+        try {
+            const resp = await fetch(
+                `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/mark_read` +
+                `?patient_token=${encodeURIComponent(patientToken)}`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                }
+            );
+
+            if (!resp.ok) {
+                console.warn('Не удалось отметить урок прочитанным:', resp.status);
+                return;
+            }
+
+            lessonMarkedRead = true;
+            console.debug('Урок помечен прочитанным');
+        } catch (error) {
+            console.error('Не удалось отметить урок прочитанным:', error);
+        }
+    }
+
 
     // ============================
     // Статус загрузки / ошибок
@@ -255,135 +294,155 @@
     // Рендер текущей карточки
     // ============================
     function renderCurrentCard() {
-        const root = document.getElementById('education-root');
-        if (!root) return;
+    const root = document.getElementById('education-root');
+    if (!root) return;
 
-        root.innerHTML = '';
+    root.innerHTML = '';
 
-        if (!educationItems || educationItems.length === 0) {
-            setEducationStatus('error', 'Для этого урока пока нет карточек.');
-            return;
-        }
-
-        const item = educationItems[currentIndex];
-        const total = educationItems.length;
-
-        const wrapper = document.createElement('article');
-        wrapper.className = 'edu-topic-card edu-single-card';
-
-        // markdown карточки: пытаемся взять из нескольких возможных полей
-        const cardMd =
-            item.content ||
-            item.content_md ||
-            item.markdown ||
-            item.text ||
-            '';
-
-        // заголовок урока
-        if (currentLesson) {
-            const lessonTitle = document.createElement('div');
-            lessonTitle.className = 'edu-lesson-title';
-            lessonTitle.textContent = currentLesson.title || 'Урок';
-            wrapper.appendChild(lessonTitle);
-        }
-
-        // заголовок карточки
-        let cardTitleText = '';
-        if (item.title) {
-            cardTitleText = item.title;
-        } else {
-            cardTitleText = getCardTitle(cardMd);
-        }
-
-        if (cardTitleText) {
-            const h2 = document.createElement('h2');
-            h2.className = 'edu-card-title';
-            h2.textContent = cardTitleText;
-            wrapper.appendChild(h2);
-        }
-
-        // содержимое карточки
-        const bodyMd = getCardBodyMd(cardMd);
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'edu-item-content';
-        contentDiv.innerHTML = markdownToHtml(bodyMd);
-        wrapper.appendChild(contentDiv);
-
-        // прогресс-бар
-        const progressBar = document.createElement('div');
-        progressBar.className = 'edu-progress-bar';
-
-        for (let i = 0; i < total; i++) {
-            const segment = document.createElement('div');
-            segment.className = 'edu-progress-segment';
-            if (i <= currentIndex) {
-                segment.classList.add('edu-progress-segment--active');
-            }
-            progressBar.appendChild(segment);
-        }
-        wrapper.appendChild(progressBar);
-
-        const progressText = document.createElement('div');
-        progressText.className = 'edu-progress-text';
-        progressText.textContent = `Карточка ${currentIndex + 1} из ${total}`;
-        wrapper.appendChild(progressText);
-
-        // навигация по карточкам
-        const nav = document.createElement('div');
-        nav.className = 'edu-nav';
-
-        const prevBtn = document.createElement('button');
-        prevBtn.textContent = '← Назад';
-        prevBtn.className = 'edu-nav-btn';
-        prevBtn.disabled = currentIndex === 0;
-        prevBtn.addEventListener('click', () => {
-            if (currentIndex > 0) {
-                currentIndex -= 1;
-                renderCurrentCard();
-            }
-        });
-
-        const nextBtn = document.createElement('button');
-        nextBtn.textContent = 'Вперёд →';
-        nextBtn.className = 'edu-nav-btn';
-        nextBtn.disabled = currentIndex >= total - 1;
-        nextBtn.addEventListener('click', () => {
-            if (currentIndex < total - 1) {
-                currentIndex += 1;
-                renderCurrentCard();
-            }
-        });
-
-        nav.appendChild(prevBtn);
-        nav.appendChild(nextBtn);
-        wrapper.appendChild(nav);
-
-        // кнопка "Пройти тест" — только на последней карточке и если тест есть
-        const isLastCard = currentIndex === total - 1;
-        if (isLastCard && lessonTestId && patientToken) {
-            const testBlock = document.createElement('div');
-            testBlock.className = 'edu-test-block';
-
-            const testHint = document.createElement('p');
-            testHint.className = 'edu-progress-text';
-            testHint.textContent = 'Готовы пройти короткий тест по этой теме?';
-
-            const testBtn = document.createElement('button');
-            testBtn.className = 'submit-button';
-            testBtn.textContent = 'Пройти тест';
-            testBtn.addEventListener('click', () => {
-                const url = `/p/${encodeURIComponent(patientToken)}/education_test.html?lesson=${encodeURIComponent(lessonCode)}`;
-                window.location.href = url;
-            });
-
-            testBlock.appendChild(testHint);
-            testBlock.appendChild(testBtn);
-            wrapper.appendChild(testBlock);
-        }
-
-        root.appendChild(wrapper);
-        setEducationStatus('none', '');
+    if (!educationItems || educationItems.length === 0) {
+        setEducationStatus('error', 'Для этого урока пока нет карточек.');
+        return;
     }
+
+    const item = educationItems[currentIndex];
+    const total = educationItems.length;
+
+    const wrapper = document.createElement('article');
+    wrapper.className = 'edu-topic-card edu-single-card';
+
+    // markdown карточки
+    const cardMd =
+        item.content ||
+        item.content_md ||
+        item.markdown ||
+        item.text ||
+        '';
+
+    // заголовок урока
+    if (currentLesson) {
+        const lessonTitle = document.createElement('div');
+        lessonTitle.className = 'edu-lesson-title';
+        lessonTitle.textContent = currentLesson.title || 'Урок';
+        wrapper.appendChild(lessonTitle);
+    }
+
+    // заголовок карточки
+    let cardTitleText = item.title ? item.title : getCardTitle(cardMd);
+    if (cardTitleText) {
+        const h2 = document.createElement('h2');
+        h2.className = 'edu-card-title';
+        h2.textContent = cardTitleText;
+        wrapper.appendChild(h2);
+    }
+
+    // тело карточки
+    const bodyMd = getCardBodyMd(cardMd);
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'edu-item-content';
+    contentDiv.innerHTML = markdownToHtml(bodyMd);
+    wrapper.appendChild(contentDiv);
+
+    // прогресс-бар
+    const progressBar = document.createElement('div');
+    progressBar.className = 'edu-progress-bar';
+
+    for (let i = 0; i < total; i++) {
+        const segment = document.createElement('div');
+        segment.className = 'edu-progress-segment';
+        if (i <= currentIndex) {
+            segment.classList.add('edu-progress-segment--active');
+        }
+        progressBar.appendChild(segment);
+    }
+    wrapper.appendChild(progressBar);
+
+    const progressText = document.createElement('div');
+    progressText.className = 'edu-progress-text';
+    progressText.textContent = `Карточка ${currentIndex + 1} из ${total}`;
+    wrapper.appendChild(progressText);
+
+    // === 🔥 ВАЖНО: отмечаем урок прочитанным только на последней карточке ===
+    const isLastCard = currentIndex === total - 1;
+    if (isLastCard) {
+        // флаг проверяется и выставляется внутри markLessonAsRead
+        markLessonAsRead();
+    }
+
+    // навигация
+    const nav = document.createElement('div');
+    nav.className = 'edu-nav';
+
+    const prevBtn = document.createElement('button');
+    prevBtn.textContent = '← Назад';
+    prevBtn.className = 'edu-nav-btn';
+    prevBtn.disabled = currentIndex === 0;
+    prevBtn.addEventListener('click', () => {
+        if (currentIndex > 0) {
+            currentIndex -= 1;
+            renderCurrentCard();
+        }
+    });
+
+    const nextBtn = document.createElement('button');
+    nextBtn.textContent = 'Вперёд →';
+    nextBtn.className = 'edu-nav-btn';
+    nextBtn.disabled = isLastCard;
+    nextBtn.addEventListener('click', () => {
+        if (!isLastCard) {
+            currentIndex += 1;
+            renderCurrentCard();
+        }
+    });
+
+    nav.appendChild(prevBtn);
+    nav.appendChild(nextBtn);
+    wrapper.appendChild(nav);
+
+    // кнопка "Назад к обучению"
+    const backBlock = document.createElement('div');
+    backBlock.className = 'edu-back-block';
+
+    const backBtn = document.createElement('button');
+    backBtn.textContent = '← Назад к обучению';
+    backBtn.className = 'edu-nav-btn edu-nav-btn--secondary';
+    backBtn.addEventListener('click', () => {
+        if (patientToken) {
+            window.location.href =
+                `/p/${encodeURIComponent(patientToken)}/education_overview`;
+        } else {
+            window.location.href = '/frontend/patient/education_overview.html';
+        }
+    });
+
+    backBlock.appendChild(backBtn);
+    wrapper.appendChild(backBlock);
+
+    // кнопка "Пройти тест" — только на последней карточке и если тест есть
+    if (isLastCard && lessonTestId && patientToken) {
+        const testBlock = document.createElement('div');
+        testBlock.className = 'edu-test-block';
+
+        const testHint = document.createElement('p');
+        testHint.className = 'edu-progress-text';
+        testHint.textContent = 'Готовы пройти короткий тест по этой теме?';
+
+        const testBtn = document.createElement('button');
+        testBtn.className = 'submit-button';
+        testBtn.textContent = 'Пройти тест';
+        testBtn.addEventListener('click', () => {
+            const url =
+                `/p/${encodeURIComponent(patientToken)}/education_test.html?lesson=${encodeURIComponent(lessonCode)}`;
+            window.location.href = url;
+        });
+
+        testBlock.appendChild(testHint);
+        testBlock.appendChild(testBtn);
+        wrapper.appendChild(testBlock);
+    }
+
+    root.appendChild(wrapper);
+    setEducationStatus('none', '');
+}
 
     // ============================
     // Загрузка урока и карточек

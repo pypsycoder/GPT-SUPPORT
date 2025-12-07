@@ -89,7 +89,7 @@
     }
 
     const patientToken = getPatientTokenFromPath();
-    const lessonCode = getQueryParam('lesson');
+    const lessonCode = getQueryParam('lesson');  // Lesson.code, тот же, что в education.html
 
     // ======== Селекторы ========
 
@@ -127,7 +127,6 @@
         );
 
         if (resp.status === 404) {
-            // для единообразия
             return null;
         }
 
@@ -181,7 +180,6 @@
 
         const data = await resp.json();
 
-        // тоже подстрахуемся: либо сам результат, либо обёртка { result: {...} }
         if (data && typeof data === 'object' && data.result) {
             return data.result;
         }
@@ -289,24 +287,39 @@
         const actions = document.createElement('div');
         actions.className = 'result-actions';
 
+        // 🔙 Вернуться к уроку
         const backToLessonBtn = document.createElement('button');
         backToLessonBtn.className = 'secondary-button';
         backToLessonBtn.textContent = 'Вернуться к уроку';
         backToLessonBtn.addEventListener('click', () => {
+            if (!patientToken) {
+                window.location.href = '/';
+                return;
+            }
+
             if (lessonCode) {
+                // возвращаемся в тот же урок, что открывали тест
                 window.location.href =
                     `/p/${encodeURIComponent(patientToken)}/education?lesson=${encodeURIComponent(lessonCode)}`;
             } else {
-                window.location.href = `/p/${encodeURIComponent(patientToken)}/education`;
+                // если по какой-то причине lessonCode нет — в навигатор
+                window.location.href =
+                    `/p/${encodeURIComponent(patientToken)}/education_overview`;
             }
         });
         actions.appendChild(backToLessonBtn);
 
+        // 📚 К другим занятиям (навигатор)
         const backToListBtn = document.createElement('button');
         backToListBtn.className = 'secondary-button';
         backToListBtn.textContent = 'К другим занятиям';
         backToListBtn.addEventListener('click', () => {
-            window.location.href = `/p/${encodeURIComponent(patientToken)}/education`;
+            if (!patientToken) {
+                window.location.href = '/';
+                return;
+            }
+            window.location.href =
+                `/p/${encodeURIComponent(patientToken)}/education_overview`;
         });
         actions.appendChild(backToListBtn);
 
@@ -413,6 +426,7 @@
 
     document.addEventListener('DOMContentLoaded', init);
 </script>
+
 
 <!-- общий сайдбар -->
 <script src="/frontend/patient/js/sidebar.js"></script>

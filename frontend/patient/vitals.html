@@ -11,8 +11,8 @@
     <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
     <!-- Общий header для всех страниц пациента -->
     <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
-
 </head>
+
 <!-- важно: data-page для подсветки пункта меню -->
 <body data-page="vitals">
 
@@ -44,6 +44,9 @@
                     Токен пациента: …
                 </div>
             </section>
+
+            <!-- 🔹 Плашка статуса (ошибки / успех) -->
+            <div id="status-banner" class="status-banner status-hidden"></div>
 
             <!-- Кнопки выбора показателя + контекст + формы -->
             <section class="vitals-section">
@@ -251,9 +254,14 @@
 </div>
 
 <script>
-    // Текущий выбранный контекст измерения
+    // ============================
+    // Глобальное состояние: выбранный контекст
+    // ============================
     let selectedContext = 'na';
 
+    // ============================
+    // Токен пациента из URL: /p/{token}/vitals
+    // ============================
     function getPatientTokenFromUrl() {
         const path = window.location.pathname;
         const parts = path.split('/').filter(Boolean);
@@ -264,8 +272,16 @@
         return null;
     }
 
+    // ============================
+    // Статусная плашка (успех / ошибка / скрыть)
+    // ============================
     function setStatus(type, message) {
         const banner = document.getElementById('status-banner');
+        if (!banner) {
+            console.warn('status-banner не найден, пропускаем сообщение:', type, message);
+            return;
+        }
+
         banner.textContent = message || '';
 
         banner.classList.remove('status-hidden', 'status-success', 'status-error');
@@ -279,6 +295,9 @@
         }
     }
 
+    // ============================
+    // Селектор контекста измерения
+    // ============================
     function initContextSelector() {
         const buttons = document.querySelectorAll('.context-button');
 
@@ -295,6 +314,9 @@
         });
     }
 
+    // ============================
+    // Таб-переключатель между АД / пульсом / весом
+    // ============================
     function initTabs() {
         const buttons = document.querySelectorAll('.vitals-button');
         const forms = {
@@ -308,19 +330,23 @@
             btn.addEventListener('click', () => {
                 const target = btn.getAttribute('data-target');
 
+                // Активная вкладка
                 buttons.forEach((b) => b.classList.remove('active'));
                 btn.classList.add('active');
 
+                // Показать только нужную форму
                 Object.keys(forms).forEach((key) => {
                     forms[key].classList.toggle('hidden', key !== target);
                 });
 
+                // Дополнительные контексты только для веса
                 if (weightExtraRow) {
                     if (target === 'weight') {
                         weightExtraRow.classList.remove('hidden');
                     } else {
                         weightExtraRow.classList.add('hidden');
 
+                        // Если был выбран "утро/вечер", а мы ушли с веса — вернёмся к "Не важно"
                         if (selectedContext === 'home_morning' || selectedContext === 'home_evening') {
                             selectedContext = 'na';
                             const allCtxButtons = document.querySelectorAll('.context-button');
@@ -336,6 +362,9 @@
         });
     }
 
+    // ============================
+    // Инициализация форм отправки Vitals
+    // ============================
     function initForms(patientToken) {
         if (!patientToken) {
             setStatus('error', 'Не удалось определить токен пациента из адреса страницы. Обратитесь к врачу.');
@@ -344,12 +373,17 @@
             return;
         }
 
+        // ВАЖНО: vitals-роуты у тебя без префикса /api/v1, по Swagger:
+        // /vitals/bp/by-token/{patient_token}
+        // /vitals/pulse/by-token/{patient_token}
+        // /vitals/weight/by-token/{patient_token}
         const API_BASE = '';
 
         function getCurrentContext() {
             return selectedContext || 'na';
         }
 
+        // ------ Давление ------
         const bpForm = document.getElementById('bp-form');
         if (bpForm) {
             bpForm.addEventListener('submit', async (event) => {
@@ -390,6 +424,7 @@
             });
         }
 
+        // ------ Пульс ------
         const pulseForm = document.getElementById('pulse-form');
         if (pulseForm) {
             pulseForm.addEventListener('submit', async (event) => {
@@ -428,6 +463,7 @@
             });
         }
 
+        // ------ Вес ------
         const weightForm = document.getElementById('weight-form');
         if (weightForm) {
             weightForm.addEventListener('submit', async (event) => {
@@ -467,6 +503,9 @@
         }
     }
 
+    // ============================
+    // Инициализация страницы
+    // ============================
     document.addEventListener('DOMContentLoaded', () => {
         const token = getPatientTokenFromUrl();
         const headerToken = document.getElementById('header-token');

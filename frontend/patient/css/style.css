@@ -465,6 +465,19 @@ body {
     gap: 0.5rem;
 }
 
+/* ------- Кнопка "Назад в обучение" ------ */
+.edu-back-block {
+    margin-top: 0.75rem;
+    display: flex;
+    justify-content: flex-start;
+}
+
+.edu-nav-btn--secondary {
+    opacity: 0.85;
+    font-size: 0.9rem;
+}
+
+
 /* ====================================== */
 /* ========= EDUCATION: TESTS =========== */
 /* ====================================== */
@@ -647,4 +660,16 @@ body {
 /* Служебное: скрыть блок */
 .hidden {
     display: none !important;
+}
+
+/* ====================================== */
+/* ========= EDUCATION OVERVIEW ========= */
+/* ====================================== */
+
+.edu-lesson-desc {
+    margin-top: 2px;
+    margin-bottom: 0.35rem;
+    font-size: 0.9rem;
+    color: #6b7280;
+    line-height: 1.4;
 }
