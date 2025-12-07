@@ -3,8 +3,15 @@
   const submitButton = document.getElementById('submit-kop25a');
   const statusBanner = document.getElementById('kop25a-status');
   const resultContainer = document.getElementById('result-container');
+  const progressText = document.getElementById('kop25a-progress-text');
+  const progressFill = document.getElementById('kop25a-progress-fill');
+  const prevButton = document.getElementById('kop25a-prev');
+  const nextButton = document.getElementById('kop25a-next');
 
   let definition = null;
+  let questions = [];
+  let currentIndex = 0;
+  const answersMap = {};
   let isSubmitting = false;
 
   function showStatus(message, type = 'error') {
@@ -23,64 +30,105 @@
     statusBanner.classList.remove('status-error', 'status-success');
   }
 
-  function renderQuestions(scaleDefinition) {
+  function updateProgress() {
+    const current = currentIndex + 1;
+    const total = questions.length || 25;
+
+    if (progressText) {
+      progressText.textContent = `Вопрос ${current} из ${total}`;
+    }
+
+    if (progressFill) {
+      const percent = (current / total) * 100;
+      progressFill.style.width = `${percent}%`;
+    }
+  }
+
+  function updateNavButtons() {
+    if (!questions.length) return;
+
+    const lastIndex = questions.length - 1;
+
+    if (prevButton) {
+      prevButton.disabled = currentIndex === 0;
+    }
+
+    if (nextButton) {
+      nextButton.style.display = currentIndex === lastIndex ? 'none' : 'inline-flex';
+    }
+
+    if (submitButton) {
+      submitButton.style.display = currentIndex === lastIndex ? 'inline-flex' : 'none';
+      submitButton.disabled = !answersMap[questions[currentIndex].id];
+    }
+  }
+
+  function updateNextButtonState() {
+    const q = questions[currentIndex];
+    const answered = !!answersMap[q.id];
+
+    if (nextButton && nextButton.style.display !== 'none') {
+      nextButton.disabled = !answered;
+    }
+
+    if (submitButton && submitButton.style.display !== 'none') {
+      submitButton.disabled = !answered;
+    }
+  }
+
+  function renderCurrentQuestion() {
     if (!container) return;
 
     container.innerHTML = '';
 
-    const questions = scaleDefinition?.questions || [];
-    if (!questions.length) {
-      container.innerHTML = '<div class="hads-error-text">Не удалось загрузить вопросы.</div>';
-      return;
-    }
+    const question = questions[currentIndex];
+    if (!question) return;
 
-    questions.forEach((question, index) => {
-      const block = document.createElement('div');
-      block.className = 'scale-question';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'scale-question';
 
-      const title = document.createElement('div');
-      title.className = 'question-title';
-      title.textContent = `Вопрос ${index + 1}`;
+    const title = document.createElement('div');
+    title.className = 'question-title';
+    title.textContent = `Вопрос ${currentIndex + 1}`;
 
-      const text = document.createElement('div');
-      text.className = 'question-text';
-      text.textContent = question.text;
+    const qText = document.createElement('div');
+    qText.className = 'scale-question-text';
+    qText.textContent = question.text;
 
-      const optionsWrap = document.createElement('div');
-      optionsWrap.className = 'scale-options';
+    const options = document.createElement('div');
+    options.className = 'scale-options';
 
-      question.options.forEach((opt) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'scale-option';
-        btn.textContent = opt.text;
-        btn.dataset.questionId = question.id;
-        btn.dataset.optionId = opt.id;
+    question.options.forEach((opt) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'scale-option';
+      btn.textContent = opt.text;
+      btn.dataset.questionId = question.id;
+      btn.dataset.optionId = opt.id;
 
-        btn.addEventListener('click', () => {
-          if (isSubmitting) return;
+      if (answersMap[question.id] === opt.id) {
+        btn.classList.add('selected');
+      }
 
-          const siblings = optionsWrap.querySelectorAll('.scale-option');
-          siblings.forEach((el) => el.classList.remove('selected'));
-          btn.classList.add('selected');
-        });
+      btn.addEventListener('click', () => {
+        if (isSubmitting) return;
 
-        optionsWrap.appendChild(btn);
+        answersMap[question.id] = opt.id;
+        [...options.children].forEach((c) => c.classList.remove('selected'));
+        btn.classList.add('selected');
+
+        updateNextButtonState();
       });
 
-      block.appendChild(title);
-      block.appendChild(text);
-      block.appendChild(optionsWrap);
-
-      container.appendChild(block);
+      options.appendChild(btn);
     });
-  }
 
-  function collectAnswers() {
-    return [...document.querySelectorAll('.scale-option.selected')].map((btn) => ({
-      question_id: btn.dataset.questionId,
-      option_id: btn.dataset.optionId,
-    }));
+    wrapper.appendChild(title);
+    wrapper.appendChild(qText);
+    wrapper.appendChild(options);
+    container.appendChild(wrapper);
+
+    updateNextButtonState();
   }
 
   function formatPercent(value) {
@@ -118,6 +166,13 @@
       submitButton.disabled = true;
       submitButton.textContent = 'Готово';
     }
+  }
+
+  function collectAnswers() {
+    return Object.entries(answersMap).map(([question_id, option_id]) => ({
+      question_id,
+      option_id,
+    }));
   }
 
   function submitAnswers() {
@@ -177,7 +232,11 @@
       })
       .then((data) => {
         definition = data;
-        renderQuestions(definition);
+        questions = data?.questions || [];
+        currentIndex = 0;
+        renderCurrentQuestion();
+        updateProgress();
+        updateNavButtons();
         clearStatus();
       })
       .catch((err) => {
@@ -188,8 +247,31 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     loadDefinition();
+
     if (submitButton) {
       submitButton.addEventListener('click', submitAnswers);
+    }
+
+    if (prevButton) {
+      prevButton.addEventListener('click', () => {
+        if (currentIndex > 0) {
+          currentIndex -= 1;
+          renderCurrentQuestion();
+          updateProgress();
+          updateNavButtons();
+        }
+      });
+    }
+
+    if (nextButton) {
+      nextButton.addEventListener('click', () => {
+        if (currentIndex < questions.length - 1) {
+          currentIndex += 1;
+          renderCurrentQuestion();
+          updateProgress();
+          updateNavButtons();
+        }
+      });
     }
   });
 })();

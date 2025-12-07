@@ -26,9 +26,20 @@
             <div id="kop25a-status" class="status-banner status-hidden"></div>
 
             <section class="scale-card" aria-live="polite">
+                <div class="scale-progress">
+                    <div class="scale-progress-text" id="kop25a-progress-text"></div>
+                    <div class="scale-progress-bar">
+                        <div class="scale-progress-fill" id="kop25a-progress-fill"></div>
+                    </div>
+                </div>
+
                 <div id="kop25a-container" class="scale-questions"></div>
 
                 <div class="scale-actions">
+                    <div class="scale-nav">
+                        <button id="kop25a-prev" type="button" class="scale-nav-button">Назад</button>
+                        <button id="kop25a-next" type="button" class="scale-nav-button primary-button">Далее</button>
+                    </div>
                     <button id="submit-kop25a" type="button" class="primary-button">Завершить</button>
                 </div>
 
