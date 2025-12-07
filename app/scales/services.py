@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Tuple, Union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.scales.config.hads import HADS_CONFIG
-from app.scales.config.kop25a import KOP25A_CONFIG
+from app.scales.config.kop25a import KOP25A_CONFIG, KOP25A_GROUPS
 from app.scales.models import ScaleResult
 
 
@@ -111,9 +111,9 @@ def calculate_kop25a_result(
     questions_map = {question["id"]: question for question in scale_config.get("questions", [])}
     expected_ids = set(questions_map.keys())
 
-    group_scores: Dict[str, int] = {"VT": 0, "VS": 0, "VM": 0, "GT": 0, "GS": 0, "GM": 0}
     answers_log: List[Dict[str, Any]] = []
     seen_questions: set[str] = set()
+    question_scores: Dict[str, int] = {}
 
     for answer in answers:
         question_id = (
@@ -136,14 +136,7 @@ def calculate_kop25a_result(
             raise ValueError(f"Unknown option id: {option_id} for question {question_id}")
 
         score_value = int(option["score"])
-        groups = question.get("groups", [])
-        if not groups:
-            raise ValueError(f"Question {question_id} has no groups configured")
-
-        for group in groups:
-            if group not in group_scores:
-                raise ValueError(f"Unknown group {group} for question {question_id}")
-            group_scores[group] += score_value
+        question_scores[question_id] = score_value
 
         answers_log.append(
             {
@@ -167,15 +160,19 @@ def calculate_kop25a_result(
             message = f"{message} ({'; '.join(details)})"
         raise ValueError(message)
 
-    vt = group_scores.get("VT", 0)
-    vs = group_scores.get("VS", 0)
-    vm = group_scores.get("VM", 0)
-    gt = group_scores.get("GT", 0)
-    gs = group_scores.get("GS", 0)
-    gm = group_scores.get("GM", 0)
+    technical_scores: Dict[str, int] = {}
+    for group_id, question_ids in KOP25A_GROUPS.items():
+        try:
+            technical_scores[group_id] = sum(question_scores[qid] for qid in question_ids)
+        except KeyError as exc:
+            raise ValueError(f"Missing answer for question {exc.args[0]} in group {group_id}") from exc
 
-    if any(value == 0 for value in (vt, vs, vm, gt, gs, gm)):
-        raise ValueError("Technical scores cannot be zero")
+    vt = technical_scores.get("VT", 0)
+    vs = technical_scores.get("VS", 0)
+    vm = technical_scores.get("VM", 0)
+    gt = technical_scores.get("GT", 0)
+    gs = technical_scores.get("GS", 0)
+    gm = technical_scores.get("GM", 0)
 
     pt = 200 / ((30 / vt) * (60 / gt))
     ps = 200 / ((30 / vs) * (60 / gs))

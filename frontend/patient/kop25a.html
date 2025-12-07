@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>КОП-25 А1 — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+    <link rel="stylesheet" href="/frontend/patient/kop25a.css">
+</head>
+<body data-page="kop25a">
+<div class="page">
+    <div id="global-header"></div>
+
+    <div class="layout">
+        <div id="sidebar-container"></div>
+
+        <main class="content">
+            <section class="page-header">
+                <div class="page-title">💊 КОП-25 А1 — Приверженность лечению</div>
+                <div class="page-subtitle">Оцените важность рекомендаций и готовность их выполнять. Всего 25 вопросов.</div>
+            </section>
+
+            <div id="kop25a-status" class="status-banner status-hidden"></div>
+
+            <section class="scale-card" aria-live="polite">
+                <div id="kop25a-container" class="scale-questions"></div>
+
+                <div class="scale-actions">
+                    <button id="submit-kop25a" type="button" class="primary-button">Завершить</button>
+                </div>
+
+                <div id="result-container" class="scale-result hidden"></div>
+            </section>
+        </main>
+    </div>
+
+    <footer class="footer">GPT Health Support · Поддержка пациентов</footer>
+</div>
+
+<script src="/frontend/patient/js/global_header.js"></script>
+<script src="/frontend/patient/js/sidebar.js"></script>
+<script src="/frontend/patient/js/kop25a.js"></script>
+</body>
+</html>
