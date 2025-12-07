@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 # наше
 from app.models import Base  # общий Base, если понадобится metadata
-from app.vitals.router import router as vitals_router
 from app.users.api import router as users_api_router
 from app.pages.router import router as pages_router
 from app.education.router import router as education_router
+from app.vitals.router import router as vitals_router
+from app.scales.routers import router as scales_router
 from core.db.engine import engine
 
 from fastapi.routing import APIRoute
@@ -55,6 +56,7 @@ app.include_router(users_api_router, prefix="/api/v1")
 app.include_router(pages_router)
 # app.include_router(education_router, prefix="/api/v1")
 app.include_router(education_router, prefix="/api/v1/education")
+app.include_router(scales_router, prefix="/api/v1/scales", tags=["scales"])
 
 for route in app.routes:
     if isinstance(route, APIRoute):
@@ -84,6 +86,7 @@ async def startup() -> None:
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "vitals"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "users"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "education"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "scales"'))
 
         # лёгкий health-check
         result = await conn.execute(text("SELECT 1"))
