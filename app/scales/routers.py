@@ -222,7 +222,7 @@ def _get_scale_title(scale_code: str) -> str:
         return scale_code
 
 # Сводка по шкалам для токена
-@router.get("/api/v1/scales/overview")
+@router.get("/overview")
 async def get_scales_overview(
     patient_token: str,
     session: AsyncSession = Depends(get_async_session),
@@ -259,7 +259,7 @@ async def get_scales_overview(
 
 
 # История по одной шкале
-@router.get("/api/v1/scales/{scale_code}/history")
+@router.get("/{scale_code}/history")
 async def get_scale_history(
     scale_code: str,
     patient_token: str,
