@@ -14,6 +14,7 @@ from app.scales.services import (
     get_scale_config,
     save_scale_result,
 )
+from app.users.crud import get_user_by_patient_token
 from core.db.session import get_async_session
 
 router = APIRouter(prefix="", tags=["scales"])
@@ -42,6 +43,7 @@ class ScaleAnswerIn(BaseModel):
 
 
 class ScaleSubmitRequest(BaseModel):
+    patient_token: str
     answers: List[ScaleAnswerIn]
 
 
@@ -51,6 +53,25 @@ class ScaleResultOut(BaseModel):
     scale_version: str | None
     result: dict
     measured_at: datetime
+
+
+async def resolve_user_id_by_patient_token(
+    session: AsyncSession, patient_token: str
+) -> int:
+    """
+    Возвращает внутренний user_id по patient_token.
+
+    Если пользователь не найден — выбрасывает 404.
+    """
+
+    user = await get_user_by_patient_token(session=session, patient_token=patient_token)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пациент с таким токеном не найден",
+        )
+
+    return user.id
 
 
 @router.get("/HADS", response_model=ScaleDefinitionOut)
@@ -82,8 +103,9 @@ async def submit_hads(
 ) -> ScaleResultOut:
     """Принимаем ответы по HADS, считаем результат и логируем в БД."""
 
-    # TODO: заменить на current_user.id после интеграции аутентификации
-    user_id = 1
+    user_id = await resolve_user_id_by_patient_token(
+        session=session, patient_token=payload.patient_token
+    )
 
     try:
         scale_config = get_scale_config("HADS")
@@ -145,8 +167,11 @@ async def submit_kop25a(
     payload: ScaleSubmitRequest,
     session: AsyncSession = Depends(get_async_session),
 ) -> ScaleResultOut:
-    # TODO: заменить на current_user.id после интеграции аутентификации
-    user_id = 1
+    """Принимаем ответы по KOP-25A, считаем результат и логируем в БД."""
+
+    user_id = await resolve_user_id_by_patient_token(
+        session=session, patient_token=payload.patient_token
+    )
 
     try:
         scale_config = get_scale_config("KOP25A")
