@@ -40,14 +40,18 @@
     items.forEach((item) => {
       const section = item.getAttribute('data-section');
 
-      if (section === normalizedPage) {
+      if (section === normalizedPage || (section === 'dashboard' && normalizedPage === 'home')) {
         item.classList.add('active');
       }
 
       item.addEventListener('click', () => {
         let targetUrl = null;
 
-        if (section === 'vitals') {
+        if (section === 'dashboard') {
+          targetUrl = patientToken
+            ? `/p/${encodeURIComponent(patientToken)}/home`
+            : '/frontend/patient/home.html';
+        } else if (section === 'vitals') {
           targetUrl = patientToken
             ? `/p/${encodeURIComponent(patientToken)}/vitals`
             : '/frontend/patient/vitals.html';

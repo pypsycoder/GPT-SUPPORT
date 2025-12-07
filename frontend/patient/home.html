@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Главная — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Общие стили -->
+  <link rel="stylesheet" href="/frontend/patient/css/style.css">
+  <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+  <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+  <!-- Стили главной страницы -->
+  <link rel="stylesheet" href="/frontend/static/css/home.css">
+</head>
+
+<body data-page="dashboard">
+  <div class="page">
+    <div id="global-header"></div>
+
+    <div class="layout">
+      <div id="sidebar-container"></div>
+
+      <main class="content">
+        <section class="page-header">
+          <div class="page-title">🏠 Главная</div>
+          <div class="page-subtitle">Краткая сводка за неделю</div>
+          <div id="header-token" class="page-token">Токен пациента: …</div>
+        </section>
+
+        <div class="main-dashboard">
+          <div class="dashboard-grid">
+            <section class="dashboard-card dashboard-card-vital" id="card-bp">
+              <header class="card-header">
+                <div class="card-title-group">
+                  <span class="card-pill card-pill-bp">АД</span>
+                  <h2 class="card-title">Артериальное давление</h2>
+                </div>
+                <span class="card-time" id="bp-updated-at">—</span>
+              </header>
+              <div class="card-main-row">
+                <div class="card-main-value">
+                  <div class="card-main-number" id="bp-latest">— / —</div>
+                  <div class="card-main-caption" id="bp-trend">Нет данных за неделю</div>
+                </div>
+                <div class="card-mini-chart" id="bp-chart"></div>
+              </div>
+            </section>
+
+            <section class="dashboard-card dashboard-card-vital" id="card-pulse">
+              <header class="card-header">
+                <div class="card-title-group">
+                  <span class="card-pill card-pill-pulse">Пульс</span>
+                  <h2 class="card-title">Пульс</h2>
+                </div>
+                <span class="card-time" id="pulse-updated-at">—</span>
+              </header>
+              <div class="card-main-row">
+                <div class="card-main-value">
+                  <div class="card-main-number" id="pulse-latest">—</div>
+                  <div class="card-main-caption" id="pulse-trend">Нет данных за неделю</div>
+                </div>
+                <div class="card-mini-chart" id="pulse-chart"></div>
+              </div>
+            </section>
+
+            <section class="dashboard-card dashboard-card-vital" id="card-weight">
+              <header class="card-header">
+                <div class="card-title-group">
+                  <span class="card-pill card-pill-weight">Вес</span>
+                  <h2 class="card-title">Вес</h2>
+                </div>
+                <span class="card-time" id="weight-updated-at">—</span>
+              </header>
+              <div class="card-main-row">
+                <div class="card-main-value">
+                  <div class="card-main-number" id="weight-latest">—</div>
+                  <div class="card-main-caption" id="weight-trend">Нет данных за неделю</div>
+                </div>
+                <div class="card-mini-chart" id="weight-chart"></div>
+              </div>
+            </section>
+
+            <section class="dashboard-card dashboard-card-vital" id="card-water">
+              <header class="card-header">
+                <div class="card-title-group">
+                  <span class="card-pill card-pill-water">Вода</span>
+                  <h2 class="card-title">Вода</h2>
+                </div>
+                <span class="card-time" id="water-updated-at">—</span>
+              </header>
+              <div class="card-main-row">
+                <div class="card-main-value">
+                  <div class="card-main-number" id="water-latest">—</div>
+                  <div class="card-main-caption" id="water-trend">Нет данных за неделю</div>
+                </div>
+                <div class="card-mini-chart" id="water-chart"></div>
+              </div>
+            </section>
+
+            <section class="dashboard-card dashboard-card-scales" id="card-scales">
+              <header class="card-header">
+                <div class="card-title-group">
+                  <span class="card-pill card-pill-scales">Scales</span>
+                  <h2 class="card-title">Психологические шкалы</h2>
+                </div>
+                <div class="card-controls">
+                  <select id="scale-select"></select>
+                </div>
+              </header>
+              <div class="card-main-column">
+                <div class="card-main-value">
+                  <div class="card-main-number" id="scale-main-score">—</div>
+                  <div class="card-main-caption" id="scale-main-summary">Нет данных по шкале</div>
+                </div>
+                <div class="card-mini-chart" id="scale-chart"></div>
+              </div>
+            </section>
+
+            <section class="dashboard-card dashboard-card-education" id="card-education">
+              <header class="card-header">
+                <div class="card-title-group">
+                  <span class="card-pill card-pill-education">Edu</span>
+                  <h2 class="card-title">Обучение</h2>
+                </div>
+              </header>
+              <div class="card-main-column">
+                <div class="education-progress-row">
+                  <div class="education-progress-bar">
+                    <div class="education-progress-fill" id="education-progress-fill"></div>
+                  </div>
+                  <span class="education-progress-label" id="education-progress-label">0% завершено</span>
+                </div>
+                <div class="education-last-topic">
+                  <div class="education-last-title" id="education-last-title">Нет активных тем</div>
+                  <div class="education-last-caption" id="education-last-caption">Все доступные темы пройдены.</div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="/frontend/patient/js/global_header.js"></script>
+  <script src="/frontend/patient/js/sidebar.js"></script>
+  <script src="/frontend/static/js/home.js"></script>
+</body>
+</html>
