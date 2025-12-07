@@ -85,8 +85,8 @@ def calculate_hads_result(
             message = f"{message} ({'; '.join(details)})"
         raise ValueError(message)
 
-    # применяем cutoffs и формируем результат
-    result_json: Dict[str, Any] = {}
+    # применяем cutoffs и формируем результат по субшкалам
+    subscales: Dict[str, Dict[str, Any]] = {}
     cutoffs = scale_config.get("cutoffs", {})
     for subscale, score in subscale_scores.items():
         ranges = cutoffs.get(subscale, [])
@@ -94,14 +94,14 @@ def calculate_hads_result(
         if not matched:
             raise ValueError(f"No cutoff matched for subscale {subscale} and score {score}")
 
-        result_json[subscale] = {
+        subscales[subscale] = {
             "score": score,
             "level": matched["level"],
             "label": matched["label"],
         }
 
-    anxiety = result_json.get("ANX", {})
-    depression = result_json.get("DEP", {})
+    anxiety = subscales.get("ANX", {})
+    depression = subscales.get("DEP", {})
     total_score = subscale_scores.get("ANX", 0) + subscale_scores.get("DEP", 0)
 
     # Определяем общий уровень по наихудшему из субшкал
@@ -121,26 +121,37 @@ def calculate_hads_result(
         else depression.get("label")
         or anxiety.get("label")
     )
+    # Формируем компактное представление: итоговый балл + текстовая сводка для фронта.
     summary = (
-        f"Общий уровень: {worst_label or 'нет данных'}. "
-        f"Тревога: {anxiety.get('label', 'нет данных')} ("
-        f"{subscale_scores.get('ANX', 0)} б.). "
-        f"Депрессия: {depression.get('label', 'нет данных')} ("
-        f"{subscale_scores.get('DEP', 0)} б.)"
+        f"Тревога: {anxiety.get('label', 'нет данных')} "
+        f"({subscale_scores.get('ANX', 0)} б.), "
+        f"депрессия: {depression.get('label', 'нет данных')} "
+        f"({subscale_scores.get('DEP', 0)} б.)"
     )
 
-    result_json.update(
-        {
-            "total_score": total_score,
-            "anxiety_score": subscale_scores.get("ANX"),
-            "depression_score": subscale_scores.get("DEP"),
-            "anxiety_level": anxiety_level,
-            "depression_level": depression_level,
-            "total_level": total_level_code,
-            "total_label": worst_label,
-            "summary": summary,
-        }
-    )
+    result_json: Dict[str, Any] = {
+        "total_score": total_score,
+        "summary": summary,
+        "subscales": {
+            "anxiety": {
+                "score": subscale_scores.get("ANX", 0),
+                "level": anxiety_level,
+                "label": anxiety.get("label"),
+            },
+            "depression": {
+                "score": subscale_scores.get("DEP", 0),
+                "level": depression_level,
+                "label": depression.get("label"),
+            },
+        },
+        # Дополнительные поля для совместимости с существующими потребителями API.
+        "anxiety_score": subscale_scores.get("ANX"),
+        "depression_score": subscale_scores.get("DEP"),
+        "anxiety_level": anxiety_level,
+        "depression_level": depression_level,
+        "total_level": total_level_code,
+        "total_label": worst_label,
+    }
 
     return result_json, answers_log
 
