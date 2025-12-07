@@ -28,7 +28,11 @@
   function sidebarInitNav(root) {
     const bodyPage = document.body.getAttribute('data-page') || '';
     const normalizedPage =
-      bodyPage === 'education_test' ? 'education' : bodyPage;
+      bodyPage === 'education_test'
+        ? 'education'
+        : bodyPage === 'hads'
+          ? 'scales_overview'
+          : bodyPage;
 
     const items = root.querySelectorAll('.sidebar-item[data-section]');
     const patientToken = sidebarGetPatientTokenFromPath();
@@ -56,6 +60,10 @@
           targetUrl = patientToken
             ? `/p/${encodeURIComponent(patientToken)}/hads`
             : '/frontend/patient/hads.html';
+        } else if (section === 'scales_overview') {
+          targetUrl = patientToken
+            ? `/p/${encodeURIComponent(patientToken)}/scales`
+            : '/frontend/patient/scales_overview.html';
         }
 
         if (targetUrl && targetUrl !== window.location.pathname + window.location.search) {
