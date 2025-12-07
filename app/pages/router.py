@@ -14,6 +14,12 @@ router = APIRouter(
 )
 
 
+@router.get("/{patient_token}/home", include_in_schema=False)
+async def serve_home_page(patient_token: str):
+    """Главная страница пациента с карточками-сводками."""
+    return FileResponse(FRONTEND_DIR / "patient" / "home.html")
+
+
 @router.get("/{patient_token}/vitals", include_in_schema=False)
 async def serve_vitals_page(patient_token: str):
     """
