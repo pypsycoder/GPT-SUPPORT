@@ -134,3 +134,89 @@
 .hidden {
     display: none !important;
 }
+
+
+.result-score {
+    font-size: 2.4rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.result-text {
+    margin-top: 6px;
+    color: #4b5563;
+    font-size: 0.95rem;
+    line-height: 1.35rem;
+}
+
+/* === ЦВЕТНЫЕ КАРТОЧКИ ДЛЯ РЕЗУЛЬТАТОВ === */
+
+/* Общая итоговая карточка */
+.result-main {
+    padding: 18px 16px;
+    border-radius: 14px;
+    margin-bottom: 18px;
+}
+
+/* Низкая приверженность — тыквенный фон */
+.result-box-low {
+    background: rgba(255, 117, 24, 0.12);
+    border-left: 6px solid #ff7518;
+}
+
+/* Умеренная приверженность — солнечный жёлтый */
+.result-box-moderate {
+    background: rgba(251, 191, 36, 0.15);
+    border-left: 6px solid #fbbf24;
+}
+
+/* Высокая приверженность — зелёный */
+.result-box-high {
+    background: rgba(34, 197, 94, 0.15);
+    border-left: 6px solid #22c55e;
+}
+
+/* Сетка мини-карточек по направлениям */
+.mini-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+@media (min-width: 640px) {
+    .mini-grid {
+        flex-direction: row;
+    }
+}
+
+/* Одна мини-карточка (ПТ / ПС / ПМ) */
+.result-mini-box {
+    padding: 14px 12px;
+    border-radius: 12px;
+}
+
+/* Заголовок мини-карточки */
+.mini-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 4px;
+}
+
+/* Значение в мини-карточке */
+.mini-value {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.result-line {
+    margin-top: 6px;
+    font-size: 0.95rem;
+    color: #111827;
+}
+
+.hidden {
+    display: none !important;
+}

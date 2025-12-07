@@ -66,6 +66,13 @@ async def serve_education_test_page(patient_token: str):
     """
     return FileResponse(FRONTEND_DIR / "patient" / "education_test.html")
 
+@router.get("/{patient_token}/hads", include_in_schema=False)
+async def serve_hads_page(patient_token: str):
+    """
+    Страница шкалы HADS.
+    """
+    return FileResponse(FRONTEND_DIR / "patient" / "hads.html")
+
 
 @router.get("/{patient_token}/hads", include_in_schema=False)
 async def serve_hads_page(patient_token: str):
@@ -81,3 +88,12 @@ async def serve_scales_overview_page(patient_token: str):
     Страница обзора шкал (scales_overview).
     """
     return FileResponse(FRONTEND_DIR / "patient" / "scales_overview.html")
+
+@router.get("/{patient_token}/kop25a", include_in_schema=False)
+async def serve_kop25a_page(patient_token: str):
+    """
+    Страница анкеты КОП-25 А1 для пациента.
+
+    HTML берёт patient_token из URL через JS.
+    """
+    return FileResponse(FRONTEND_DIR / "patient" / "kop25a.html")

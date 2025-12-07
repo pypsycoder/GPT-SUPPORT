@@ -707,9 +707,11 @@ body {
 .hads-progress-fill {
     height: 100%;
     width: 0;
-    background: linear-gradient(90deg, #3b82f6, #2563eb);
-    transition: width 0.2s ease;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #22c55e, #a3e635);
+    transition: width 0.25s ease;
 }
+
 
 .hads-question-container {
     min-height: 220px;

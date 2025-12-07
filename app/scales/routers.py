@@ -208,3 +208,82 @@ async def submit_kop25a(
         result=result_json,
         measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
     )
+
+
+
+from sqlalchemy import select
+from app.scales.models import ScaleResult  # имя модели проверить
+
+# Сводка по шкалам для токена
+@router.get("/api/v1/scales/overview")
+async def get_scales_overview(
+    patient_token: str,
+    session: AsyncSession = Depends(get_async_session),
+) -> list[dict[str, Any]]:
+    user_id = await resolve_user_id_by_patient_token(session, patient_token)
+
+    stmt = (
+        select(ScaleResult)
+        .where(ScaleResult.user_id == user_id)
+        .order_by(ScaleResult.scale_code, ScaleResult.measured_at.desc())
+    )
+    res = await session.execute(stmt)
+    rows = res.scalars().all()
+
+    latest_by_scale = {}
+    for row in rows:
+        code = row.scale_code
+        if code not in latest_by_scale:
+            latest_by_scale[code] = row
+
+    overview: list[dict[str, Any]] = []
+    for code, row in latest_by_scale.items():
+        overview.append(
+            {
+                "scale_code": row.scale_code,
+                "scale_name": row.scale_code,  # можно потом подтянуть красивые имена
+                "last_taken_at": row.measured_at,
+                "total_score": (row.result_json or {}).get("total_score"),
+                "summary": (row.result_json or {}).get("summary"),
+            }
+        )
+
+    return overview
+
+
+# История по одной шкале
+@router.get("/api/v1/scales/{scale_code}/history")
+async def get_scale_history(
+    scale_code: str,
+    patient_token: str,
+    limit: int = 20,
+    session: AsyncSession = Depends(get_async_session),
+) -> list[dict[str, Any]]:
+    user_id = await resolve_user_id_by_patient_token(session, patient_token)
+
+    stmt = (
+        select(ScaleResult)
+        .where(
+            ScaleResult.user_id == user_id,
+            ScaleResult.scale_code == scale_code,
+        )
+        .order_by(ScaleResult.measured_at.desc())
+        .limit(limit)
+    )
+    res = await session.execute(stmt)
+    rows = res.scalars().all()
+
+    history: list[dict[str, Any]] = []
+    for row in rows:
+        result = row.result_json or {}
+        history.append(
+            {
+                "id": row.id,
+                "scale_code": row.scale_code,
+                "measured_at": row.measured_at,
+                "total_score": result.get("total_score"),
+                "summary": result.get("summary"),
+            }
+        )
+
+    return history

@@ -33,25 +33,45 @@
       return {
         level: 'low',
         color: '#ff7518',
+        boxClass: 'result-box-low',
         label: 'Низкая приверженность',
         text: 'Похоже, что сейчас выполнять рекомендации бывает непросто. Это нормальная ситуация — многие пациенты сталкиваются с похожими трудностями. Можно обсудить с врачом, как упростить лечение и подобрать более удобный режим.',
       };
     }
+
     if (value < 75) {
       return {
         level: 'moderate',
         color: '#fbbf24',
+        boxClass: 'result-box-moderate',
         label: 'Умеренная приверженность',
         text: 'Вы в целом стараетесь следовать рекомендациям, но временами это сложно. Небольшие изменения в режиме лечения могут заметно облегчить выполнение рекомендаций.',
       };
     }
+
     return {
       level: 'high',
       color: '#22c55e',
+      boxClass: 'result-box-high',
       label: 'Высокая приверженность',
       text: 'Вы хорошо справляетесь с выполнением рекомендаций. Это помогает поддерживать стабильное состояние. Продолжайте в комфортном для вас темпе.',
     };
   }
+
+  function getMiniBoxHtml(value, title) {
+  if (value == null || Number.isNaN(value)) {
+    return '';
+  }
+
+  const info = interpretAdherence(value);
+
+  return `
+    <div class="result-mini-box ${info.boxClass}">
+      <div class="mini-title">${title}</div>
+      <div class="mini-value">${value.toFixed(1)}%</div>
+    </div>
+  `;
+}
 
   async function initKop25a() {
     if (!container) return;
@@ -219,6 +239,7 @@
     const progress = document.querySelector('.scale-progress');
     const nav = document.querySelector('.scale-nav');
 
+    // прячем вопросы, прогресс и навигацию
     if (container) container.innerHTML = '';
     if (progress) progress.classList.add('hidden');
     if (nav) nav.classList.add('hidden');
@@ -236,30 +257,38 @@
     const interp = PL != null ? interpretAdherence(PL) : null;
 
     resultBlock.innerHTML = `
-        <div class="kop25a-result-window">
-            <h2>Ваш результат</h2>
-
-            ${
-              interp
-                ? `
-            <div class="result-main">
-                <div class="result-score">${PL.toFixed(1)}%</div>
-                <div class="result-label" style="color: ${interp.color}">
-                    ${interp.label}
-                </div>
-                <div class="result-text">${interp.text}</div>
-            </div>
-            `
-                : ''
-            }
-
-            <h3>Подробности</h3>
-            <div class="result-line">Лекарственная терапия: ${PT?.toFixed ? PT.toFixed(1) : '-'}%</div>
-            <div class="result-line">Медицинское сопровождение: ${PS?.toFixed ? PS.toFixed(1) : '-'}%</div>
-            <div class="result-line">Образ жизни: ${PM?.toFixed ? PM.toFixed(1) : '-'}%</div>
+      <div class="kop25a-result-window">
+        <h2>Ваш результат</h2>
+  
+        ${
+          interp
+            ? `
+        <div class="result-main ${interp.boxClass}">
+          <div class="result-score">${PL.toFixed(1)}%</div>
+          <div class="result-label" style="color: ${interp.color}">
+            ${interp.label}
+          </div>
+          <div class="result-text">${interp.text}</div>
         </div>
+        `
+            : ''
+        }
+  
+        <h3>Подробности по направлениям</h3>
+        <div class="mini-grid">
+          ${PT != null && PT.toFixed ? getMiniBoxHtml(PT, 'Лекарственная терапия') : ''}
+          ${PS != null && PS.toFixed ? getMiniBoxHtml(PS, 'Медицинское сопровождение') : ''}
+          ${PM != null && PM.toFixed ? getMiniBoxHtml(PM, 'Образ жизни') : ''}
+        </div>
+  
+        <h3>Числовые значения</h3>
+        <div class="result-line">Лекарственная терапия: ${PT?.toFixed ? PT.toFixed(1) : '-'}%</div>
+        <div class="result-line">Медицинское сопровождение: ${PS?.toFixed ? PS.toFixed(1) : '-'}%</div>
+        <div class="result-line">Образ жизни: ${PM?.toFixed ? PM.toFixed(1) : '-'}%</div>
+      </div>
     `;
   }
+
 
   document.addEventListener('DOMContentLoaded', () => {
     initKop25a();

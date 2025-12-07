@@ -27,15 +27,20 @@
     }
 
     const maxValue = Math.max(...values.map((v) => v.value || 0)) || 1;
+
     values.forEach((item) => {
       const bar = document.createElement('div');
       bar.className = 'chart-bar';
-      const heightPct = Math.max(8, Math.round(((item.value || 0) / maxValue) * 100));
+      const heightPct = Math.max(
+        8,
+        Math.round(((item.value || 0) / maxValue) * 100),
+      );
       bar.style.height = `${heightPct}%`;
       bar.title = `${item.value ?? '—'} • ${formatDateLabel(item.date)}`;
       container.appendChild(bar);
     });
   }
+
 
   function trendText(last, avg, suffix = '') {
     if (last === null || last === undefined || avg === null || avg === undefined) {
@@ -107,28 +112,28 @@
     await Promise.all([
       loadVitalsCard({
         idPrefix: 'bp',
-        endpoint: `/api/v1/vitals/bp/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
+        endpoint: `/vitals/bp/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
         formatValue: (item) => `${item.systolic ?? '—'} / ${item.diastolic ?? '—'}`,
         trendSuffix: '',
         chartMapper: (item) => ({ value: item.systolic || 0, date: item.measured_at }),
       }),
       loadVitalsCard({
         idPrefix: 'pulse',
-        endpoint: `/api/v1/vitals/pulse/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
+        endpoint: `/vitals/pulse/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
         formatValue: (item) => `${item.bpm ?? '—'} уд/мин`,
         trendSuffix: '',
         chartMapper: (item) => ({ value: item.bpm || 0, date: item.measured_at }),
       }),
       loadVitalsCard({
         idPrefix: 'weight',
-        endpoint: `/api/v1/vitals/weight/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
+        endpoint: `/vitals/weight/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
         formatValue: (item) => `${item.weight ?? '—'} кг`,
         trendSuffix: '',
         chartMapper: (item) => ({ value: item.weight || 0, date: item.measured_at }),
       }),
       loadVitalsCard({
         idPrefix: 'water',
-        endpoint: `/api/v1/vitals/water/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
+        endpoint: `/vitals/water/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
         formatValue: (item) => `${item.volume ?? '—'} мл`,
         trendSuffix: '',
         chartMapper: (item) => ({ value: item.volume || 0, date: item.measured_at }),
@@ -168,33 +173,93 @@
         ? (preferred.scale_code || preferred.code)
         : selectEl.options[0].value;
 
-      async function updateSelectedScale() {
-        const code = selectEl.value;
+      async function loadScales(patientToken) {
+        const selectEl = document.getElementById('scale-select');
+        const scoreEl = document.getElementById('scale-main-score');
+        const summaryEl = document.getElementById('scale-main-summary');
+        const chartEl = document.getElementById('scale-chart');
+
+        if (selectEl) {
+          selectEl.addEventListener('click', (event) => event.stopPropagation());
+        }
+
         try {
-          const history = await safeFetch(`/api/v1/scales/${encodeURIComponent(code)}/history?limit=7${patientToken ? `&patient_token=${encodeURIComponent(patientToken)}` : ''}`);
-          if (!Array.isArray(history) || history.length === 0) {
+          const overviewUrl = `/api/v1/scales/overview${
+            patientToken ? `?patient_token=${encodeURIComponent(patientToken)}` : ''
+          }`;
+          const overview = await safeFetch(overviewUrl);
+
+          if (!Array.isArray(overview) || overview.length === 0) {
+            selectEl.innerHTML = '<option>Нет шкал</option>';
             scoreEl.textContent = '—';
             summaryEl.textContent = 'Нет данных по шкале';
             buildMiniBarChart(chartEl, []);
             return;
           }
 
-          const latest = history[0];
-          const mapped = history
-            .slice(0, 7)
-            .reverse()
-            .map((item) => ({ value: item.total_score ?? item.score ?? 0, date: item.measured_at || item.created_at }));
+          selectEl.innerHTML = '';
+          overview.forEach((scale) => {
+            const option = document.createElement('option');
+            option.value = scale.scale_code || scale.code || '';
+            option.textContent = scale.scale_name || scale.name || option.value;
+            selectEl.appendChild(option);
+          });
 
-          scoreEl.textContent = latest.total_score ?? latest.score ?? '—';
-          summaryEl.textContent = latest.summary || latest.status || 'Обновлено';
-          buildMiniBarChart(chartEl, mapped);
+          const preferred = overview.find(
+            (s) => (s.scale_code || s.code) === 'HADS',
+          );
+          selectEl.value = preferred
+            ? preferred.scale_code || preferred.code
+            : selectEl.options[0].value;
+
+          async function updateSelectedScale() {
+            const code = selectEl.value;
+            try {
+              const historyUrl =
+                `/api/v1/scales/${encodeURIComponent(code)}/history?limit=7` +
+                (patientToken
+                  ? `&patient_token=${encodeURIComponent(patientToken)}`
+                  : '');
+              const history = await safeFetch(historyUrl);
+
+              if (!Array.isArray(history) || history.length === 0) {
+                scoreEl.textContent = '—';
+                summaryEl.textContent = 'Нет данных по шкале';
+                buildMiniBarChart(chartEl, []);
+                return;
+              }
+
+              const latest = history[0];
+              const mapped = history
+                .slice(0, 7)
+                .reverse()
+                .map((item) => ({
+                  value: item.total_score ?? item.score ?? 0,
+                  date: item.measured_at || item.created_at,
+                }));
+
+              scoreEl.textContent = latest.total_score ?? latest.score ?? '—';
+              summaryEl.textContent = latest.summary || latest.status || 'Обновлено';
+              buildMiniBarChart(chartEl, mapped);
+            } catch (err) {
+              console.warn('Не удалось загрузить шкалу', err);
+              scoreEl.textContent = '—';
+              summaryEl.textContent = 'Нет данных по шкале';
+              buildMiniBarChart(chartEl, []);
+            }
+          }
+
+          selectEl.addEventListener('change', updateSelectedScale);
+          await updateSelectedScale();
         } catch (err) {
-          console.warn('Не удалось загрузить шкалу', err);
+          console.warn('Не удалось загрузить список шкал', err);
+          if (selectEl) selectEl.innerHTML = '<option>Нет шкал</option>';
           scoreEl.textContent = '—';
           summaryEl.textContent = 'Нет данных по шкале';
           buildMiniBarChart(chartEl, []);
         }
       }
+
 
       selectEl.addEventListener('change', updateSelectedScale);
       await updateSelectedScale();
