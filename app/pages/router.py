@@ -59,3 +59,19 @@ async def serve_education_test_page(patient_token: str):
     для привязки результатов к пациенту.
     """
     return FileResponse(FRONTEND_DIR / "patient" / "education_test.html")
+
+
+@router.get("/{patient_token}/hads", include_in_schema=False)
+async def serve_hads_page(patient_token: str):
+    """
+    Страница прохождения шкалы HADS.
+    """
+    return FileResponse(FRONTEND_DIR / "patient" / "hads.html")
+
+
+@router.get("/{patient_token}/scales", include_in_schema=False)
+async def serve_scales_overview_page(patient_token: str):
+    """
+    Страница обзора шкал (scales_overview).
+    """
+    return FileResponse(FRONTEND_DIR / "patient" / "scales_overview.html")

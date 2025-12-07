@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.scales.config.hads import HADS_CONFIG
+from app.scales.config.kop25a import KOP25A_CONFIG
 from app.scales.models import ScaleResult
 
 
 def get_scale_config(scale_code: str) -> dict:
     """Возвращаем конфиг шкалы по её коду."""
 
-    if scale_code.upper() == "HADS":
+    code = scale_code.upper()
+    if code == "HADS":
         return HADS_CONFIG
+    if code == "KOP25A":
+        return KOP25A_CONFIG
     raise ValueError(f"Unknown scale code: {scale_code}")
 
 
@@ -95,6 +99,105 @@ def calculate_hads_result(
             "level": matched["level"],
             "label": matched["label"],
         }
+
+    return result_json, answers_log
+
+
+def calculate_kop25a_result(
+    scale_config: dict, answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Подсчёт показателей приверженности для шкалы КОП-25 А1."""
+
+    questions_map = {question["id"]: question for question in scale_config.get("questions", [])}
+    expected_ids = set(questions_map.keys())
+
+    group_scores: Dict[str, int] = {"VT": 0, "VS": 0, "VM": 0, "GT": 0, "GS": 0, "GM": 0}
+    answers_log: List[Dict[str, Any]] = []
+    seen_questions: set[str] = set()
+
+    for answer in answers:
+        question_id = (
+            answer.get("question_id") if isinstance(answer, dict) else getattr(answer, "question_id", None)
+        )
+        option_id = (
+            answer.get("option_id") if isinstance(answer, dict) else getattr(answer, "option_id", None)
+        )
+
+        if question_id in seen_questions:
+            raise ValueError(f"Duplicate answer for question {question_id}")
+        seen_questions.add(question_id)
+
+        question = questions_map.get(question_id)
+        if not question:
+            raise ValueError(f"Unknown question id: {question_id}")
+
+        option = next((opt for opt in question.get("options", []) if opt["id"] == option_id), None)
+        if not option:
+            raise ValueError(f"Unknown option id: {option_id} for question {question_id}")
+
+        score_value = int(option["score"])
+        groups = question.get("groups", [])
+        if not groups:
+            raise ValueError(f"Question {question_id} has no groups configured")
+
+        for group in groups:
+            if group not in group_scores:
+                raise ValueError(f"Unknown group {group} for question {question_id}")
+            group_scores[group] += score_value
+
+        answers_log.append(
+            {
+                "question_id": question_id,
+                "option_id": option_id,
+                "score_value": score_value,
+            }
+        )
+
+    answered_ids = seen_questions
+    if answered_ids != expected_ids:
+        missing = expected_ids - answered_ids
+        extra = answered_ids - expected_ids
+        details = []
+        if missing:
+            details.append(f"missing: {sorted(missing)}")
+        if extra:
+            details.append(f"extra: {sorted(extra)}")
+        message = "Not all questions are answered"
+        if details:
+            message = f"{message} ({'; '.join(details)})"
+        raise ValueError(message)
+
+    vt = group_scores.get("VT", 0)
+    vs = group_scores.get("VS", 0)
+    vm = group_scores.get("VM", 0)
+    gt = group_scores.get("GT", 0)
+    gs = group_scores.get("GS", 0)
+    gm = group_scores.get("GM", 0)
+
+    if any(value == 0 for value in (vt, vs, vm, gt, gs, gm)):
+        raise ValueError("Technical scores cannot be zero")
+
+    pt = 200 / ((30 / vt) * (60 / gt))
+    ps = 200 / ((30 / vs) * (60 / gs))
+    pm = 200 / ((30 / vm) * (60 / gm))
+    pl = (ps + 2 * pm + 3 * pt) / 6
+
+    result_json: Dict[str, Any] = {
+        "technical": {
+            "VT": vt,
+            "VS": vs,
+            "VM": vm,
+            "GT": gt,
+            "GS": gs,
+            "GM": gm,
+        },
+        "adherence": {
+            "PT": round(pt, 1),
+            "PS": round(ps, 1),
+            "PM": round(pm, 1),
+            "PL": round(pl, 1),
+        },
+    }
 
     return result_json, answers_log
 

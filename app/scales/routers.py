@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.scales.services import (
     calculate_hads_result,
+    calculate_kop25a_result,
     get_scale_config,
     save_scale_result,
 )
@@ -99,6 +100,73 @@ async def submit_hads(
         ) from exc
 
     # сохраняем результат в БД
+    saved = await save_scale_result(
+        session=session,
+        user_id=user_id,
+        scale_code=scale_config["code"],
+        scale_version=scale_config.get("version", ""),
+        result_json=result_json,
+        answers_log=answers_log,
+    )
+
+    return ScaleResultOut(
+        id=saved.id,
+        scale_code=saved.scale_code,
+        scale_version=saved.scale_version,
+        result=result_json,
+        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
+    )
+
+
+@router.get("/KOP25A", response_model=ScaleDefinitionOut)
+async def get_kop25a_definition() -> ScaleDefinitionOut:
+    scale_config = get_scale_config("KOP25A")
+
+    questions_for_output: List[ScaleQuestionOut] = []
+    for question in scale_config.get("questions", []):
+        options = [ScaleOptionOut(id=opt["id"], text=opt["text"]) for opt in question["options"]]
+        questions_for_output.append(
+            ScaleQuestionOut(
+                id=question["id"],
+                text=question["text"],
+                options=options,
+            )
+        )
+
+    return ScaleDefinitionOut(
+        code=scale_config["code"],
+        title=scale_config["title"],
+        questions=questions_for_output,
+    )
+
+
+@router.post("/KOP25A/submit", response_model=ScaleResultOut)
+async def submit_kop25a(
+    payload: ScaleSubmitRequest,
+    session: AsyncSession = Depends(get_async_session),
+) -> ScaleResultOut:
+    # TODO: заменить на current_user.id после интеграции аутентификации
+    user_id = 1
+
+    try:
+        scale_config = get_scale_config("KOP25A")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    try:
+        result_json, answers_log = calculate_kop25a_result(
+            scale_config,
+            payload.answers,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
     saved = await save_scale_result(
         session=session,
         user_id=user_id,
