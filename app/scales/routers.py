@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, List
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.scales.services import (
@@ -44,9 +45,9 @@ class ScaleSubmitRequest(BaseModel):
 
 
 class ScaleResultOut(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
+    id: UUID
     scale_code: str
+    scale_version: str | None
     result: dict
     measured_at: datetime
 
@@ -80,7 +81,7 @@ async def submit_hads(
 ) -> ScaleResultOut:
     """Принимаем ответы по HADS, считаем результат и логируем в БД."""
 
-    # TODO: заменить на реальную аутентификацию/авторизацию
+    # TODO: заменить на current_user.id после интеграции аутентификации
     user_id = 1
 
     try:
@@ -89,7 +90,13 @@ async def submit_hads(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # считаем баллы по субшкалам
-    result_json, answers_log = calculate_hads_result(scale_config, payload.answers)
+    try:
+        result_json, answers_log = calculate_hads_result(scale_config, payload.answers)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     # сохраняем результат в БД
     saved = await save_scale_result(
@@ -102,7 +109,9 @@ async def submit_hads(
     )
 
     return ScaleResultOut(
+        id=saved.id,
         scale_code=saved.scale_code,
+        scale_version=saved.scale_version,
         result=result_json,
         measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
     )
