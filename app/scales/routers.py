@@ -6,8 +6,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.scales.models import ScaleResult
 from app.scales.services import (
     calculate_hads_result,
     calculate_kop25a_result,
@@ -17,7 +19,7 @@ from app.scales.services import (
 from app.users.crud import get_user_by_patient_token
 from core.db.session import get_async_session
 
-router = APIRouter(prefix="", tags=["scales"])
+router = APIRouter(tags=["scales"])
 
 
 class ScaleOptionOut(BaseModel):
@@ -53,6 +55,22 @@ class ScaleResultOut(BaseModel):
     scale_version: str | None
     result: dict
     measured_at: datetime
+
+
+class ScaleOverviewItem(BaseModel):
+    scale_code: str
+    scale_name: str
+    last_taken_at: datetime | None
+    total_score: int | float | None
+    summary: str | None
+
+
+class ScaleHistoryItem(BaseModel):
+    id: UUID
+    scale_code: str
+    measured_at: datetime
+    total_score: int | float | None
+    summary: str | None
 
 
 async def resolve_user_id_by_patient_token(
@@ -210,11 +228,6 @@ async def submit_kop25a(
     )
 
 
-
-from sqlalchemy import select
-from app.scales.models import ScaleResult  # имя модели проверить
-
-
 def _get_scale_title(scale_code: str) -> str:
     try:
         return get_scale_config(scale_code).get("title", scale_code)
@@ -222,11 +235,11 @@ def _get_scale_title(scale_code: str) -> str:
         return scale_code
 
 # Сводка по шкалам для токена
-@router.get("/overview")
+@router.get("/overview", response_model=list[ScaleOverviewItem])
 async def get_scales_overview(
     patient_token: str,
     session: AsyncSession = Depends(get_async_session),
-) -> list[dict[str, Any]]:
+) -> list[ScaleOverviewItem]:
     user_id = await resolve_user_id_by_patient_token(session, patient_token)
 
     stmt = (
@@ -243,7 +256,7 @@ async def get_scales_overview(
         if code not in latest_by_scale:
             latest_by_scale[code] = row
 
-    overview: list[dict[str, Any]] = []
+    overview: list[ScaleOverviewItem] = []
     for code, row in latest_by_scale.items():
         overview.append(
             {
@@ -259,13 +272,13 @@ async def get_scales_overview(
 
 
 # История по одной шкале
-@router.get("/{scale_code}/history")
+@router.get("/{scale_code}/history", response_model=list[ScaleHistoryItem])
 async def get_scale_history(
     scale_code: str,
     patient_token: str,
     limit: int = 20,
     session: AsyncSession = Depends(get_async_session),
-) -> list[dict[str, Any]]:
+) -> list[ScaleHistoryItem]:
     user_id = await resolve_user_id_by_patient_token(session, patient_token)
 
     stmt = (
@@ -280,7 +293,7 @@ async def get_scale_history(
     res = await session.execute(stmt)
     rows = res.scalars().all()
 
-    history: list[dict[str, Any]] = []
+    history: list[ScaleHistoryItem] = []
     for row in rows:
         result = row.result_json or {}
         history.append(

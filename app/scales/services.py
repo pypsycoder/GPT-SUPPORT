@@ -124,9 +124,9 @@ def calculate_hads_result(
     # Формируем компактное представление: итоговый балл + текстовая сводка для фронта.
     summary = (
         f"Тревога: {anxiety.get('label', 'нет данных')} "
-        f"({subscale_scores.get('ANX', 0)} б.), "
+        f"({subscale_scores.get('ANX', 0)} баллов), "
         f"депрессия: {depression.get('label', 'нет данных')} "
-        f"({subscale_scores.get('DEP', 0)} б.)"
+        f"({subscale_scores.get('DEP', 0)} баллов)"
     )
 
     result_json: Dict[str, Any] = {
@@ -151,6 +151,16 @@ def calculate_hads_result(
         "depression_level": depression_level,
         "total_level": total_level_code,
         "total_label": worst_label,
+        "ANX": {
+            "score": subscale_scores.get("ANX", 0),
+            "level": anxiety_level,
+            "label": anxiety.get("label"),
+        },
+        "DEP": {
+            "score": subscale_scores.get("DEP", 0),
+            "level": depression_level,
+            "label": depression.get("label"),
+        },
     }
 
     return result_json, answers_log
