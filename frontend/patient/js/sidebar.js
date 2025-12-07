@@ -47,12 +47,15 @@
           targetUrl = patientToken
             ? `/p/${encodeURIComponent(patientToken)}/vitals`
             : '/frontend/patient/vitals.html';
-        }
-        else if (section === 'education') {
+        } else if (section === 'education') {
           // ✅ Обновлено: "Обучение" ведёт на навигатор education_overview
           targetUrl = patientToken
             ? `/p/${encodeURIComponent(patientToken)}/education_overview`
             : '/frontend/patient/education_overview.html';
+        } else if (section === 'hads') {
+          targetUrl = patientToken
+            ? `/p/${encodeURIComponent(patientToken)}/hads`
+            : '/frontend/patient/hads.html';
         }
 
         if (targetUrl && targetUrl !== window.location.pathname + window.location.search) {
