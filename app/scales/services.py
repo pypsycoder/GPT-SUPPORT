@@ -100,6 +100,48 @@ def calculate_hads_result(
             "label": matched["label"],
         }
 
+    anxiety = result_json.get("ANX", {})
+    depression = result_json.get("DEP", {})
+    total_score = subscale_scores.get("ANX", 0) + subscale_scores.get("DEP", 0)
+
+    # Определяем общий уровень по наихудшему из субшкал
+    severity_rank = {"normal": 0, "borderline": 1, "clinical": 2}
+    anxiety_level = anxiety.get("level")
+    depression_level = depression.get("level")
+    total_level = max(
+        severity_rank.get(anxiety_level, 0),
+        severity_rank.get(depression_level, 0),
+    )
+    level_by_rank = {v: k for k, v in severity_rank.items()}
+    total_level_code = level_by_rank.get(total_level, "normal")
+
+    worst_label = (
+        anxiety.get("label")
+        if total_level_code == anxiety_level
+        else depression.get("label")
+        or anxiety.get("label")
+    )
+    summary = (
+        f"Общий уровень: {worst_label or 'нет данных'}. "
+        f"Тревога: {anxiety.get('label', 'нет данных')} ("
+        f"{subscale_scores.get('ANX', 0)} б.). "
+        f"Депрессия: {depression.get('label', 'нет данных')} ("
+        f"{subscale_scores.get('DEP', 0)} б.)"
+    )
+
+    result_json.update(
+        {
+            "total_score": total_score,
+            "anxiety_score": subscale_scores.get("ANX"),
+            "depression_score": subscale_scores.get("DEP"),
+            "anxiety_level": anxiety_level,
+            "depression_level": depression_level,
+            "total_level": total_level_code,
+            "total_label": worst_label,
+            "summary": summary,
+        }
+    )
+
     return result_json, answers_log
 
 
@@ -195,6 +237,26 @@ def calculate_kop25a_result(
             "PL": round(pl, 1),
         },
     }
+
+    adherence_level = "high"
+    adherence_label = "Высокая приверженность"
+    if pl < 50:
+        adherence_level = "low"
+        adherence_label = "Низкая приверженность"
+    elif pl < 75:
+        adherence_level = "moderate"
+        adherence_label = "Умеренная приверженность"
+
+    summary = f"{adherence_label}. Итоговый индекс: {round(pl, 1)}%."
+
+    result_json.update(
+        {
+            "total_score": round(pl, 1),
+            "adherence_level": adherence_level,
+            "adherence_label": adherence_label,
+            "summary": summary,
+        }
+    )
 
     return result_json, answers_log
 
