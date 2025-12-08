@@ -1,7 +1,8 @@
 (function () {
-  let questions = [];
-  let currentIndex = 0;
-  const answersMap = {};
+  let blocks = [];
+  let currentBlockIndex = 0;
+  const answersByBlock = {};
+  const questionOptionMap = {};
   let isSubmitting = false;
 
   const container = document.getElementById('tobol-container');
@@ -38,14 +39,33 @@
     statusBanner.classList.remove('status-error', 'status-success');
   }
 
+  function buildBlocks(questions = []) {
+    const bySection = new Map();
+    questionOptionMap && Object.keys(questionOptionMap).forEach((key) => delete questionOptionMap[key]);
+
+    questions.forEach((q) => {
+      if (!bySection.has(q.section)) {
+        bySection.set(q.section, { code: q.section, title: q.section_title || '', items: [] });
+      }
+      const section = bySection.get(q.section);
+      section.items.push({ id: q.id, text: q.text });
+
+      if (Array.isArray(q.options) && q.options.length) {
+        questionOptionMap[q.id] = q.options[0].id ?? '1';
+      }
+    });
+
+    blocks = Array.from(bySection.values());
+    currentBlockIndex = 0;
+    Object.keys(answersByBlock).forEach((key) => delete answersByBlock[key]);
+  }
+
   function updateProgress() {
-    const total = questions.length || 0;
-    const current = currentIndex + 1;
+    const total = blocks.length || 0;
+    const current = currentBlockIndex + 1;
 
     if (progressText) {
-      progressText.textContent = total
-        ? `Вопрос ${current} из ${total}`
-        : 'Загружаем вопросы…';
+      progressText.textContent = total ? `Блок ${current} из ${total}` : 'Загружаем блоки…';
     }
 
     if (progressFill) {
@@ -55,14 +75,14 @@
   }
 
   function updateNavButtons() {
-    const lastIndex = questions.length - 1;
+    const lastIndex = blocks.length - 1;
 
     if (prevButton) {
-      prevButton.disabled = currentIndex === 0;
+      prevButton.disabled = currentBlockIndex === 0;
     }
 
     if (nextButton && submitButton) {
-      if (currentIndex === lastIndex) {
+      if (currentBlockIndex === lastIndex) {
         nextButton.style.display = 'none';
         submitButton.style.display = 'inline-flex';
       } else {
@@ -71,91 +91,95 @@
       }
     }
 
-    updateNextAndSubmitState();
+    updateSubmitState();
   }
 
-  function updateNextAndSubmitState() {
-    const q = questions[currentIndex];
-    const answered = q ? !!answersMap[q.id] : false;
-
-    if (nextButton && nextButton.style.display !== 'none') {
-      nextButton.disabled = !answered;
-    }
-    if (submitButton && submitButton.style.display !== 'none') {
-      submitButton.disabled = !answered || isSubmitting;
-    }
+  function updateSubmitState() {
+    if (!submitButton) return;
+    const isLastBlock = currentBlockIndex === blocks.length - 1;
+    submitButton.disabled = !isLastBlock || isSubmitting;
   }
 
-  function renderCurrentQuestion() {
+  function renderCurrentBlock() {
     clearStatus();
 
     if (!container) return;
     container.innerHTML = '';
 
-    const question = questions[currentIndex];
-    if (!question) {
-      container.innerHTML = '<div class="hads-error-text">Не удалось загрузить вопрос.</div>';
+    const block = blocks[currentBlockIndex];
+    if (!block) {
+      container.innerHTML = '<div class="hads-error-text">Не удалось загрузить блок.</div>';
       return;
     }
 
     const wrapper = document.createElement('div');
     wrapper.className = 'scale-question';
 
-    const section = question.section_title;
-    if (section) {
-      const sectionLabel = document.createElement('div');
-      sectionLabel.className = 'scale-progress-text';
-      sectionLabel.textContent = section;
-      wrapper.appendChild(sectionLabel);
-    }
+    const sectionLabel = document.createElement('div');
+    sectionLabel.className = 'scale-progress-text';
+    sectionLabel.textContent = `Блок ${block.code}. ${block.title || ''}`.trim();
+    wrapper.appendChild(sectionLabel);
 
-    const qText = document.createElement('div');
-    qText.className = 'scale-question-text';
-    qText.textContent = question.text;
+    const hint = document.createElement('div');
+    hint.className = 'scale-question-text';
+    hint.textContent = 'Выберите не более двух утверждений. Можно ничего не выбирать, если ни одно не подходит.';
+    wrapper.appendChild(hint);
 
     const options = document.createElement('div');
     options.className = 'scale-options';
 
-    question.options.forEach((opt) => {
+    const selectedIds = new Set(answersByBlock[block.code] || []);
+
+    block.items.forEach((item) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'scale-option';
-      btn.textContent = opt.text;
-      btn.dataset.questionId = question.id;
-      btn.dataset.optionId = opt.id;
+      btn.textContent = item.text;
 
-      if (answersMap[question.id] === opt.id) {
+      if (selectedIds.has(item.id)) {
         btn.classList.add('selected');
       }
 
       btn.addEventListener('click', () => {
-        if (isSubmitting) return;
+        const currentSelections = new Set(answersByBlock[block.code] || []);
 
-        answersMap[question.id] = opt.id;
+        if (currentSelections.has(item.id)) {
+          currentSelections.delete(item.id);
+          btn.classList.remove('selected');
+          clearStatus();
+        } else {
+          if (currentSelections.size >= 2) {
+            showStatus('Можно выбрать не более двух утверждений в одном блоке.');
+            return;
+          }
+          currentSelections.add(item.id);
+          btn.classList.add('selected');
+          clearStatus();
+        }
 
-        [...options.children].forEach((c) => c.classList.remove('selected'));
-        btn.classList.add('selected');
-
-        updateNextAndSubmitState();
+        answersByBlock[block.code] = Array.from(currentSelections);
       });
 
       options.appendChild(btn);
     });
 
-    wrapper.appendChild(qText);
     wrapper.appendChild(options);
     container.appendChild(wrapper);
-
-    updateNextAndSubmitState();
   }
 
   async function submitTobol() {
     if (isSubmitting) return;
 
-    const answers = Object.entries(answersMap).map(([question_id, option_id]) => ({
-      question_id,
-      option_id,
-    }));
+    const answers = [];
+    blocks.forEach((block) => {
+      const selectedIds = answersByBlock[block.code] || [];
+      selectedIds.forEach((question_id) => {
+        answers.push({
+          question_id,
+          option_id: questionOptionMap[question_id] || '1',
+        });
+      });
+    });
 
     const patientToken = getPatientTokenFromPath();
     if (!patientToken) {
@@ -163,9 +187,14 @@
       return;
     }
 
+    if (!answers.length) {
+      showStatus('Выберите хотя бы одно утверждение перед отправкой.');
+      return;
+    }
+
     try {
       isSubmitting = true;
-      updateNextAndSubmitState();
+      updateSubmitState();
 
       const response = await fetch('/api/v1/scales/TOBOL/submit', {
         method: 'POST',
@@ -191,7 +220,7 @@
       showStatus(err.message || 'Ошибка при отправке данных.');
     } finally {
       isSubmitting = false;
-      updateNextAndSubmitState();
+      updateSubmitState();
     }
   }
 
@@ -238,15 +267,14 @@
       }
 
       const definition = await response.json();
-      questions = definition.questions || [];
-      currentIndex = 0;
-      Object.keys(answersMap).forEach((key) => delete answersMap[key]);
+      const questions = definition.questions || [];
 
       if (!questions.length) {
         throw new Error('Список вопросов пуст.');
       }
 
-      renderCurrentQuestion();
+      buildBlocks(questions);
+      renderCurrentBlock();
       updateProgress();
       updateNavButtons();
     } catch (err) {
@@ -259,18 +287,18 @@
     loadQuestions();
 
     prevButton?.addEventListener('click', () => {
-      if (currentIndex > 0) {
-        currentIndex -= 1;
-        renderCurrentQuestion();
+      if (currentBlockIndex > 0) {
+        currentBlockIndex -= 1;
+        renderCurrentBlock();
         updateProgress();
         updateNavButtons();
       }
     });
 
     nextButton?.addEventListener('click', () => {
-      if (currentIndex < questions.length - 1) {
-        currentIndex += 1;
-        renderCurrentQuestion();
+      if (currentBlockIndex < blocks.length - 1) {
+        currentBlockIndex += 1;
+        renderCurrentBlock();
         updateProgress();
         updateNavButtons();
       }
