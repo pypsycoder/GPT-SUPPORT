@@ -50,6 +50,17 @@ class ScaleSubmitRequest(BaseModel):
     answers: List[ScaleAnswerIn]
 
 
+class TobolAnswerIn(BaseModel):
+    question_id: str
+    value: int
+
+
+class TobolSubmitRequest(BaseModel):
+    patient_token: str
+    scale_id: str | None = None
+    answers: List[TobolAnswerIn]
+
+
 class ScaleResultOut(BaseModel):
     id: UUID
     scale_code: str
@@ -183,12 +194,18 @@ async def submit_hads(
 
 @router.post("/TOBOL/submit", response_model=ScaleResultOut)
 async def submit_tobol(
-    payload: ScaleSubmitRequest,
+    payload: TobolSubmitRequest,
     session: AsyncSession = Depends(get_async_session),
 ) -> ScaleResultOut:
     """Принимаем ответы по ТОБОЛ, считаем результат и логируем в БД."""
 
     user_id = await resolve_user_id_by_patient_token(session=session, patient_token=payload.patient_token)
+
+    if payload.scale_id and payload.scale_id.upper() != "TOBOL":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="scale_id должен быть TOBOL",
+        )
 
     try:
         scale_config = get_scale_config("TOBOL")

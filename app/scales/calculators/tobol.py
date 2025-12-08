@@ -1,100 +1,126 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, Iterable, List, Sequence
 
-from app.scales.config.tobol import TOBOL_CONFIG
+from app.scales.config.tobol import (
+    FORBID,
+    PROFILE_CODES,
+    PROFILE_DESCRIPTIONS,
+    TOBOL_COEFFS,
+    TOBOL_ITEMS,
+)
+
+ScaleResult = Dict[str, Any]
 
 
-def calculate_tobol(answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]):
-    """Расчёт шкалы ТОБОЛ на основе статического конфига."""
+def _validate_question_ids(selected_ids: Sequence[str]) -> None:
+    valid_ids = {item.id for item in TOBOL_ITEMS}
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for qid in selected_ids:
+        if qid in seen:
+            duplicates.add(qid)
+        else:
+            seen.add(qid)
+    if duplicates:
+        raise ValueError(f"Duplicate answers for questions: {sorted(duplicates)}")
 
-    types_meta = TOBOL_CONFIG["types_meta"]
-    diagnostic_code = TOBOL_CONFIG["diagnostic_code"]
-    mapping = TOBOL_CONFIG["question_mapping"]
+    unknown = [qid for qid in selected_ids if qid not in valid_ids]
+    if unknown:
+        raise ValueError(f"Unknown question ids: {sorted(unknown)}")
 
-    type_scores_ru: Dict[str, int] = {code: 0 for code in types_meta.keys()}
-    forbidden_ru: set[str] = set()
-    answers_log: List[Dict[str, Any]] = []
-    seen_questions: set[str] = set()
+
+def calculate_tobol_profile(selected_ids: Iterable[str]) -> ScaleResult:
+    """Подсчёт профиля ТОБОЛ по списку выбранных утверждений."""
+
+    selected_list = list(selected_ids)
+    _validate_question_ids(selected_list)
+
+    raw_scores: Dict[str, int] = {code: 0 for code in PROFILE_CODES}
+    forbidden: Dict[str, bool] = {code: False for code in PROFILE_CODES}
+    for question_id in selected_list:
+        coeffs = TOBOL_COEFFS.get(question_id)
+        if coeffs is None:
+            raise ValueError(f"Coefficients not found for question {question_id}")
+
+        for profile_code in PROFILE_CODES:
+            value = coeffs.get(profile_code)
+            if value is None:
+                continue
+            if value == FORBID:
+                forbidden[profile_code] = True
+            else:
+                raw_scores[profile_code] += int(value)
+
+    total_score = sum(raw_scores.values())
+
+    top_profiles = sorted(
+        PROFILE_CODES,
+        key=lambda code: raw_scores[code],
+        reverse=True,
+    )
+    top_profiles = [code for code in top_profiles if raw_scores[code] > 0][:3]
+
+    summary_parts = [
+        f"{PROFILE_DESCRIPTIONS[code]['label']} ({raw_scores[code]} баллов)"
+        for code in top_profiles
+    ]
+    if not summary_parts:
+        summary_parts.append("Значимых профилей не выявлено")
+
+    forbidden_profiles = [
+        PROFILE_DESCRIPTIONS[code]["label"] for code, flag in forbidden.items() if flag
+    ]
+    if forbidden_profiles:
+        summary_parts.append(
+            "Запрещающие признаки: " + ", ".join(sorted(set(forbidden_profiles)))
+        )
+
+    subscales: Dict[str, Dict[str, Any]] = {}
+    for code in PROFILE_CODES:
+        profile_meta = PROFILE_DESCRIPTIONS.get(code, {})
+        subscales[code] = {
+            "score": raw_scores[code],
+            "forbidden": forbidden[code],
+            "label": profile_meta.get("label", code),
+            "description": profile_meta.get("description", ""),
+        }
+
+    return {
+        "total_score": total_score,
+        "subscales": subscales,
+        "summary": "; ".join(summary_parts),
+    }
+
+
+def calculate_tobol_from_answers(
+    answers: Iterable[Dict[str, Any] | Any],
+) -> tuple[ScaleResult, List[Dict[str, Any]]]:
+    """Формирует список выбранных вопросов (value != 0) и считает профиль."""
+
+    selected_ids: List[str] = []
+    raw_log: List[Dict[str, Any]] = []
 
     for answer in answers:
         question_id = (
-            answer.get("question_id") if isinstance(answer, dict) else getattr(answer, "question_id", None)
+            answer.get("question_id")
+            if isinstance(answer, dict)
+            else getattr(answer, "question_id", None)
         )
-        option_id = (
-            answer.get("option_id") if isinstance(answer, dict) else getattr(answer, "option_id", None)
-        )
+        if question_id is None:
+            raise ValueError("question_id is required")
+        value = answer.get("value") if isinstance(answer, dict) else getattr(answer, "value", None)
 
-        if question_id in seen_questions:
-            raise ValueError(f"Duplicate answer for question {question_id}")
-        seen_questions.add(question_id)
+        raw_log.append({"question_id": question_id, "value": value})
 
-        mapping_row = mapping.get(question_id)
-        if not mapping_row:
-            raise ValueError(f"Unknown question id: {question_id}")
+        if value is None:
+            continue
+        if value != 0:
+            selected_ids.append(str(question_id))
 
-        topic = mapping_row.get("topic")
-        row = mapping_row.get("row")
-        topic_block = diagnostic_code.get(topic)
-        if topic_block is None:
-            raise ValueError(f"Unknown topic in diagnostic code: {topic}")
+    result = calculate_tobol_profile(selected_ids)
+    return result, raw_log
 
-        row_cfg = topic_block.get(row)
-        if row_cfg is None:
-            raise ValueError(f"Unknown row {row} for topic {topic}")
 
-        coeffs = row_cfg.get("coeffs", {})
-        for t_code, score in coeffs.items():
-            type_scores_ru[t_code] += int(score)
+calculate_tobol = calculate_tobol_from_answers
 
-        forbidden_ru.update(row_cfg.get("forbid_types", []) or [])
-
-        answers_log.append(
-            {
-                "question_id": question_id,
-                "option_id": option_id,
-                "topic": topic,
-                "row": row,
-                "coeffs": coeffs,
-            }
-        )
-
-    if not answers:
-        raise ValueError("Ответы на шкалу ТОБОЛ не переданы")
-
-    max_score = max(type_scores_ru.values()) if type_scores_ru else 0
-    leading_ru = [t for t, score in type_scores_ru.items() if score == max_score and t not in forbidden_ru and score > 0]
-
-    subscales: Dict[str, Dict[str, Any]] = {}
-    for ru_code, meta in types_meta.items():
-        latin_key = meta["key"]
-        subscales[latin_key] = {
-            "score": type_scores_ru.get(ru_code, 0),
-            "label": meta["label"],
-            "adaptive": meta["adaptive"],
-        }
-
-    if not leading_ru:
-        summary = "Ведущий тип отношения к болезни не выявлен."
-    elif len(leading_ru) == 1:
-        ru_code = leading_ru[0]
-        meta = types_meta[ru_code]
-        summary = f"Ведущий тип отношения к болезни: {meta['label']} ({ru_code})."
-        if meta.get("adaptive"):
-            summary = f"{summary} Профиль в целом ближе к адаптивному."
-    else:
-        parts = [f"{types_meta[t]['label']} ({t})" for t in leading_ru]
-        summary = f"Ведущие типы отношения к болезни: {', '.join(parts)}."
-
-    result_json: Dict[str, Any] = {
-        "total_score": max_score,
-        "summary": summary,
-        "subscales": subscales,
-        "raw": {
-            "type_scores_ru": type_scores_ru,
-            "forbidden_types_ru": sorted(forbidden_ru),
-            "leading_types_ru": leading_ru,
-        },
-    }
-
-    return result_json, answers_log

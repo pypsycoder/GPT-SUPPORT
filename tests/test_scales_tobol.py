@@ -25,9 +25,9 @@ from core.db.session import get_async_session  # noqa: E402
 
 def test_calculate_tobol_result_anxious_type():
     answers = [
-        {"question_id": "I_7", "option_id": "7"},
-        {"question_id": "III_10", "option_id": "10"},
-        {"question_id": "V_1", "option_id": "1"},
+        {"question_id": "I_7", "value": 1},
+        {"question_id": "III_10", "value": 1},
+        {"question_id": "V_1", "value": 1},
     ]
 
     result, _ = calculate_tobol_result(TOBOL_CONFIG, answers)
@@ -80,10 +80,11 @@ def test_submit_tobol_creates_result():
         client = TestClient(app)
         payload = {
             "patient_token": "test-token",
+            "scale_id": "TOBOL",
             "answers": [
-                {"question_id": "I_7", "option_id": "7"},
-                {"question_id": "III_10", "option_id": "10"},
-                {"question_id": "V_1", "option_id": "1"},
+                {"question_id": "I_7", "value": 1},
+                {"question_id": "III_10", "value": 1},
+                {"question_id": "V_1", "value": 1},
             ],
         }
         response = client.post("/api/v1/scales/TOBOL/submit", json=payload)
