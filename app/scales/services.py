@@ -7,7 +7,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.scales.config.hads import HADS_CONFIG
 from app.scales.config.kop25a import KOP25A_CONFIG, KOP25A_GROUPS
+from app.scales.config.tobol import TOBOL_CONFIG
 from app.scales.models import ScaleResult
+
+
+TOBOL_TYPE_MAPPING = {
+    "Г": {"code": "G", "label": "Гармоничный", "adaptive": True},
+    "Р": {"code": "R", "label": "Эргопатический", "adaptive": True},
+    "З": {"code": "Z", "label": "Анозогнозический", "adaptive": False},
+    "Т": {"code": "T", "label": "Тревожный", "adaptive": False},
+    "И": {"code": "I", "label": "Ипохондрический", "adaptive": False},
+    "Н": {"code": "N", "label": "Неврастенический", "adaptive": False},
+    "М": {"code": "M", "label": "Меланхолический", "adaptive": False},
+    "А": {"code": "A", "label": "Апатический", "adaptive": False},
+    "С": {"code": "S", "label": "Сенситивный", "adaptive": False},
+    "Э": {"code": "E", "label": "Эгоцентрический", "adaptive": False},
+    "П": {"code": "P", "label": "Паранойяльный", "adaptive": False},
+    "Д": {"code": "D", "label": "Дисфорический", "adaptive": False},
+}
+
+TOBOL_RU_NORMALIZATION = {
+    "M": "М",
+    "A": "А",
+    "P": "Р",
+    "C": "С",
+    "E": "Э",
+}
 
 
 def get_scale_config(scale_code: str) -> dict:
@@ -18,6 +43,8 @@ def get_scale_config(scale_code: str) -> dict:
         return HADS_CONFIG
     if code == "KOP25A":
         return KOP25A_CONFIG
+    if code == "TOBOL":
+        return TOBOL_CONFIG
     raise ValueError(f"Unknown scale code: {scale_code}")
 
 
@@ -278,6 +305,127 @@ def calculate_kop25a_result(
             "summary": summary,
         }
     )
+
+    return result_json, answers_log
+
+
+def _parse_tobol_question_id(question_id: str) -> Tuple[str, str]:
+    if "_" not in question_id:
+        raise ValueError(
+            "Некорректный идентификатор вопроса. Ожидался формат 'I_1', 'II_3' и т.п."
+        )
+    section, item = question_id.split("_", 1)
+    section = section.replace(".", "")
+    return section, item
+
+
+def _build_tobol_summary(leading: List[str]) -> str:
+    if not leading:
+        return "Недостаточно данных для определения ведущего типа отношения к болезни."
+
+    titles = [f"{TOBOL_TYPE_MAPPING[t]['label']} ({t})" for t in leading]
+
+    if len(leading) == 1:
+        code = leading[0]
+        title = TOBOL_TYPE_MAPPING[code]["label"]
+        if code in {"Г", "Р", "З"}:
+            prefix = "Преобладает адаптивный тип отношения к болезни"
+        else:
+            prefix = "Преобладает неадаптивный тип отношения к болезни"
+        return f"{prefix}: {title} ({code})."
+
+    return f"Выявлены смешанные типы отношения к болезни: {', '.join(titles)}."
+
+
+def calculate_tobol_result(
+    scale_config: dict, answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    diagnostic_code: Dict[str, Dict[str, dict]] = scale_config.get("diagnostic_code", {})
+    if not diagnostic_code:
+        raise ValueError("Диагностический код ТОБОЛ не найден в конфиге")
+
+    expected_ids = {
+        f"{section}_{item_id}" for section, items in diagnostic_code.items() for item_id in items.keys()
+    }
+
+    type_scores: Dict[str, int] = {key: 0 for key in TOBOL_TYPE_MAPPING.keys()}
+    forbidden: set[str] = set()
+    answers_log: List[Dict[str, Any]] = []
+    seen_questions: set[str] = set()
+
+    for answer in answers:
+        question_id = (
+            answer.get("question_id") if isinstance(answer, dict) else getattr(answer, "question_id", None)
+        )
+        option_id = (
+            answer.get("option_id") if isinstance(answer, dict) else getattr(answer, "option_id", None)
+        )
+
+        if question_id in seen_questions:
+            raise ValueError(f"Duplicate answer for question {question_id}")
+        seen_questions.add(question_id)
+
+        section, item_from_id = _parse_tobol_question_id(question_id)
+        if question_id not in expected_ids:
+            raise ValueError(f"Unknown question id: {question_id}")
+        item_code = str(option_id or item_from_id)
+
+        section_block = diagnostic_code.get(section)
+        if not section_block:
+            raise ValueError(f"Unknown section in question id: {section}")
+
+        row = section_block.get(item_from_id) or section_block.get(item_code)
+        if not row:
+            raise ValueError(f"Unknown option id: {option_id} for question {question_id}")
+
+        coeffs: Dict[str, int] = row.get("coeffs", {})
+        for t_code, score in coeffs.items():
+            normalized_code = t_code
+            if normalized_code not in type_scores:
+                normalized_code = TOBOL_RU_NORMALIZATION.get(t_code, t_code)
+            if normalized_code not in type_scores:
+                continue
+            type_scores[normalized_code] += int(score)
+
+        forbidden.update(row.get("forbid_types", []) or [])
+
+        answers_log.append(
+            {
+                "question_id": question_id,
+                "option_id": option_id,
+                "section": section,
+                "code_row": item_from_id,
+                "coeffs": coeffs,
+            }
+        )
+
+    if not answers:
+        raise ValueError("Ответы на шкалу ТОБОЛ не переданы")
+
+    max_score = max(type_scores.values()) if type_scores else 0
+    leading_types = [t for t, score in type_scores.items() if score == max_score and t not in forbidden and score > 0]
+
+    subscales = {
+        data["code"]: {
+            "score": type_scores.get(ru_code, 0),
+            "label": data["label"],
+            "adaptive": data["adaptive"],
+        }
+        for ru_code, data in TOBOL_TYPE_MAPPING.items()
+    }
+
+    summary = _build_tobol_summary(leading_types)
+
+    result_json: Dict[str, Any] = {
+        "total_score": max_score,
+        "summary": summary,
+        "subscales": subscales,
+        "raw": {
+            "type_scores_ru": type_scores,
+            "forbidden_types_ru": sorted(forbidden),
+            "leading_types_ru": leading_types,
+        },
+    }
 
     return result_json, answers_log
 
