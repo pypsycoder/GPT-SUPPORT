@@ -97,3 +97,10 @@ async def serve_kop25a_page(patient_token: str):
     HTML берёт patient_token из URL через JS.
     """
     return FileResponse(FRONTEND_DIR / "patient" / "kop25a.html")
+
+
+@router.get("/{patient_token}/tobol", include_in_schema=False)
+async def serve_tobol_page(patient_token: str):
+    """Страница шкалы ТОБОЛ для пациента."""
+
+    return FileResponse(FRONTEND_DIR / "patient" / "tobol.html")

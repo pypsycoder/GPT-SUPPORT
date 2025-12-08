@@ -30,6 +30,16 @@
         window.location.href = target;
       });
     }
+
+    const tobolButton = document.querySelector('[data-scale="tobol"]');
+    if (tobolButton && !tobolButton.disabled) {
+      tobolButton.addEventListener('click', () => {
+        const target = patientToken
+          ? `/p/${encodeURIComponent(patientToken)}/tobol`
+          : '/frontend/patient/tobol.html';
+        window.location.href = target;
+      });
+    }
   }
 
   document.addEventListener('DOMContentLoaded', initScaleButtons);
