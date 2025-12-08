@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/frontend/patient/css/style.css" />
   <link rel="stylesheet" href="/frontend/patient/css/sidebar.css" />
   <link rel="stylesheet" href="/frontend/patient/css/global_header.css" />
+  <link rel="stylesheet" href="/frontend/patient/css/kop25a.css" />
 </head>
 <body data-page="tobol">
   <div class="page">
@@ -18,13 +19,28 @@
       <main class="content">
         <section class="page-header">
           <div class="page-title">🧭 ТОБОЛ — тип отношения к болезни</div>
-          <div class="page-subtitle">Сохраните результаты, чтобы обсудить ведущие типы отношения к болезни с врачом.</div>
+          <div class="page-subtitle">Отвечайте на вопросы по одному на экран. После завершения вы увидите краткий результат.</div>
         </section>
 
-        <section class="card" style="padding: 24px;">
-          <p>Шкала доступна в мобильном боте и через API.</p>
-          <p>Если вы открыли страницу из дэшборда, вернитесь и выберите нужный опросник. Веб-форма для ТОБОЛ будет добавлена позже.</p>
-          <p>Уже посчитанные результаты появятся в разделе «Шкалы» и в общей истории.</p>
+        <div id="tobol-status" class="status-banner status-hidden"></div>
+
+        <section class="scale-card" aria-live="polite">
+          <div class="scale-progress">
+            <div id="tobol-progress-text" class="scale-progress-text">Загружаем вопросы…</div>
+            <div class="scale-progress-bar">
+              <div id="tobol-progress-fill" class="scale-progress-fill"></div>
+            </div>
+          </div>
+
+          <div id="tobol-container" class="scale-questions"></div>
+
+          <div class="scale-nav">
+            <button id="tobol-prev" type="button" class="scale-nav-button">Назад</button>
+            <button id="tobol-next" type="button" class="scale-nav-button">Далее</button>
+            <button id="tobol-submit" type="button" class="scale-nav-button">Готово</button>
+          </div>
+
+          <div id="tobol-result" class="kop25a-result-window hidden"></div>
         </section>
       </main>
     </div>
@@ -34,6 +50,6 @@
 
   <script src="/frontend/patient/js/global_header.js"></script>
   <script src="/frontend/patient/js/sidebar.js"></script>
+  <script src="/frontend/patient/js/tobol.js"></script>
 </body>
 </html>
-
