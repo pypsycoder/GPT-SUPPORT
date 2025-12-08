@@ -1,8 +1,7 @@
 (function () {
-  let blocks = [];
+  let TOBOL_BLOCKS = [];
   let currentBlockIndex = 0;
-  const answersByBlock = {};
-  const questionOptionMap = {};
+  const selectedByBlock = {};
   let isSubmitting = false;
 
   const container = document.getElementById('tobol-container');
@@ -41,7 +40,6 @@
 
   function buildBlocks(questions = []) {
     const bySection = new Map();
-    questionOptionMap && Object.keys(questionOptionMap).forEach((key) => delete questionOptionMap[key]);
 
     questions.forEach((q) => {
       if (!bySection.has(q.section)) {
@@ -49,19 +47,15 @@
       }
       const section = bySection.get(q.section);
       section.items.push({ id: q.id, text: q.text });
-
-      if (Array.isArray(q.options) && q.options.length) {
-        questionOptionMap[q.id] = q.options[0].id ?? '1';
-      }
     });
 
-    blocks = Array.from(bySection.values());
+    TOBOL_BLOCKS = Array.from(bySection.values());
     currentBlockIndex = 0;
-    Object.keys(answersByBlock).forEach((key) => delete answersByBlock[key]);
+    Object.keys(selectedByBlock).forEach((key) => delete selectedByBlock[key]);
   }
 
   function updateProgress() {
-    const total = blocks.length || 0;
+    const total = TOBOL_BLOCKS.length || 0;
     const current = currentBlockIndex + 1;
 
     if (progressText) {
@@ -75,7 +69,7 @@
   }
 
   function updateNavButtons() {
-    const lastIndex = blocks.length - 1;
+    const lastIndex = TOBOL_BLOCKS.length - 1;
 
     if (prevButton) {
       prevButton.disabled = currentBlockIndex === 0;
@@ -96,7 +90,7 @@
 
   function updateSubmitState() {
     if (!submitButton) return;
-    const isLastBlock = currentBlockIndex === blocks.length - 1;
+    const isLastBlock = currentBlockIndex === TOBOL_BLOCKS.length - 1;
     submitButton.disabled = !isLastBlock || isSubmitting;
   }
 
@@ -106,7 +100,7 @@
     if (!container) return;
     container.innerHTML = '';
 
-    const block = blocks[currentBlockIndex];
+    const block = TOBOL_BLOCKS[currentBlockIndex];
     if (!block) {
       container.innerHTML = '<div class="hads-error-text">Не удалось загрузить блок.</div>';
       return;
@@ -128,7 +122,7 @@
     const options = document.createElement('div');
     options.className = 'scale-options';
 
-    const selectedIds = new Set(answersByBlock[block.code] || []);
+    const selectedIds = new Set(selectedByBlock[block.code] || []);
 
     block.items.forEach((item) => {
       const btn = document.createElement('button');
@@ -141,7 +135,7 @@
       }
 
       btn.addEventListener('click', () => {
-        const currentSelections = new Set(answersByBlock[block.code] || []);
+        const currentSelections = new Set(selectedByBlock[block.code] || []);
 
         if (currentSelections.has(item.id)) {
           currentSelections.delete(item.id);
@@ -157,7 +151,7 @@
           clearStatus();
         }
 
-        answersByBlock[block.code] = Array.from(currentSelections);
+        selectedByBlock[block.code] = currentSelections;
       });
 
       options.appendChild(btn);
@@ -171,12 +165,14 @@
     if (isSubmitting) return;
 
     const answers = [];
-    blocks.forEach((block) => {
-      const selectedIds = answersByBlock[block.code] || [];
+    TOBOL_BLOCKS.forEach((block) => {
+      const selectedIds = selectedByBlock[block.code];
+      if (!selectedIds) return;
+
       selectedIds.forEach((question_id) => {
         answers.push({
           question_id,
-          option_id: questionOptionMap[question_id] || '1',
+          option_id: '1',
         });
       });
     });
@@ -184,11 +180,6 @@
     const patientToken = getPatientTokenFromPath();
     if (!patientToken) {
       showStatus('Не найден токен пациента в адресе.');
-      return;
-    }
-
-    if (!answers.length) {
-      showStatus('Выберите хотя бы одно утверждение перед отправкой.');
       return;
     }
 
@@ -296,7 +287,7 @@
     });
 
     nextButton?.addEventListener('click', () => {
-      if (currentBlockIndex < blocks.length - 1) {
+      if (currentBlockIndex < TOBOL_BLOCKS.length - 1) {
         currentBlockIndex += 1;
         renderCurrentBlock();
         updateProgress();
