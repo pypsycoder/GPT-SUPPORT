@@ -93,10 +93,10 @@ def calculate_tobol_profile(selected_ids: Iterable[str]) -> ScaleResult:
     }
 
 
-def calculate_tobol_from_answers(
+def calculate_tobol(
     answers: Iterable[Dict[str, Any] | Any],
 ) -> tuple[ScaleResult, List[Dict[str, Any]]]:
-    """Формирует список выбранных вопросов (value != 0) и считает профиль."""
+    """Обёртка, преобразующая ответы в список выбранных вопросов."""
 
     selected_ids: List[str] = []
     raw_log: List[Dict[str, Any]] = []
@@ -109,8 +109,10 @@ def calculate_tobol_from_answers(
         )
         if question_id is None:
             raise ValueError("question_id is required")
-        value = answer.get("value") if isinstance(answer, dict) else getattr(answer, "value", None)
 
+        value = (
+            answer.get("value") if isinstance(answer, dict) else getattr(answer, "value", None)
+        )
         raw_log.append({"question_id": question_id, "value": value})
 
         if value is None:
@@ -120,7 +122,4 @@ def calculate_tobol_from_answers(
 
     result = calculate_tobol_profile(selected_ids)
     return result, raw_log
-
-
-calculate_tobol = calculate_tobol_from_answers
 
