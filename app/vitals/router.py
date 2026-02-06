@@ -307,3 +307,118 @@ async def create_weight_by_token(
     measurement = await crud.weight_crud.create(session, prepared)
     await session.commit()
     return measurement
+
+
+# =========================
+#  Вода
+# =========================
+
+@router.post("/water", response_model=schemas.WaterIntakeRead)
+async def create_water(
+    payload: schemas.WaterIntakeCreate,
+    session: AsyncSession = Depends(get_session),
+):
+    prepared = service.VitalsService.prepare_water_data(**payload.model_dump())
+    measurement = await crud.water_crud.create(session, prepared)
+    await session.commit()
+    return measurement
+
+
+@router.post("/water/by-token/{patient_token}", response_model=schemas.WaterIntakeRead)
+async def create_water_by_token(
+    patient_token: str,
+    payload: schemas.WaterIntakeCreate,
+    session: AsyncSession = Depends(get_session),
+):
+    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found",
+        )
+    
+    # payload.user_id игнорируем, берем из токена
+    data = payload.model_dump()
+    data["user_id"] = user.id
+    
+    prepared = service.VitalsService.prepare_water_data(**data)
+    measurement = await crud.water_crud.create(session, prepared)
+    await session.commit()
+    return measurement
+
+
+@router.get("/water/by-token/{patient_token}", response_model=list[schemas.WaterIntakeRead])
+async def list_water_by_token(
+    patient_token: str,
+    *,
+    session: AsyncSession = Depends(get_session),
+    limit: int = Query(100, le=200),
+    offset: int = 0,
+    order_by: Optional[str] = Query("measured_at desc"),
+    date_from: Optional[datetime] = Query(None, alias="from"),
+    date_to: Optional[datetime] = Query(None, alias="to"),
+):
+    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found",
+        )
+    records = await crud.water_crud.list(
+        session,
+        user_id=user.id,
+        limit=limit,
+        offset=offset,
+        order_by=_parse_order(order_by),
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return records
+
+
+@router.get("/water/daily-total/by-token/{patient_token}")
+async def get_daily_water_total(
+    patient_token: str,
+    *,
+    date: Optional[datetime] = Query(None), # Если не указано, берем сегодня (по UTC)
+    session: AsyncSession = Depends(get_session),
+):
+    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found",
+        )
+    
+    target_date = date or datetime.now()
+    # Начало и конец дня (простая реализация, лучше учитывать часовой пояс клиента, но пока UTC/серверное)
+    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    records = await crud.water_crud.list(
+        session,
+        user_id=user.id,
+        limit=1000,
+        date_from=start_of_day,
+        date_to=end_of_day,
+    )
+    
+    total_ml = sum(r.volume_ml for r in records)
+    
+    return {
+        "date": start_of_day,
+        "total_ml": total_ml,
+        "entries_count": len(records),
+        "entries": records
+    }
+
+
+@router.delete("/water/{measurement_id}")
+async def delete_water(
+    measurement_id: str, # UUID передаем как строку, FastAPI сконвертит
+    session: AsyncSession = Depends(get_session),
+):
+    # TODO: Проверка прав доступа если нужно (сейчас удаляем просто по ID)
+    await crud.water_crud.delete(session, measurement_id)
+    await session.commit()
+    return {"ok": True}

@@ -141,6 +141,15 @@ body {
   opacity: 0.85;
 }
 
+.bp-range-line {
+  cursor: pointer;
+  transition: stroke-width 120ms ease;
+}
+
+.bp-range-line:hover {
+  stroke-width: 4;
+}
+
 .card-controls select {
   border-radius: 12px;
   border: 1px solid #e5e7eb;

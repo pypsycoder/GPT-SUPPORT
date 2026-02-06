@@ -54,3 +54,13 @@ class WeightMeasurement(VitalsBase):
     weight = Column(Numeric(6, 2), nullable=False)
     # контекст измерения веса (до/после, дома утром/вечером)
     context = Column(String(length=32), nullable=False, server_default="na")
+
+
+class WaterIntake(VitalsBase):
+    __tablename__ = "water_intake"
+
+    volume_ml = Column(Integer, nullable=False)
+    # тип жидкости (опционально для будущего расширения)
+    liquid_type = Column(String(length=32), nullable=True)
+    # контекст (утро/день/вечер, с едой/без еды)
+    context = Column(String(length=32), nullable=False, server_default="na")

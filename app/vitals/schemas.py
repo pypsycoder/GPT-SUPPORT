@@ -110,3 +110,30 @@ class WeightMeasurementUpdate(BaseModel):
 
 class WeightMeasurementRead(WeightMeasurementBase, VitalsReadSchema):
     pass
+
+
+# =========================
+#  Вода
+# =========================
+
+class WaterIntakeBase(BaseVitalsSchema):
+    volume_ml: int
+    liquid_type: Optional[str] = None
+
+
+class WaterIntakeCreate(WaterIntakeBase):
+    pass
+
+
+class WaterIntakeUpdate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    volume_ml: Optional[int] = None
+    liquid_type: Optional[str] = None
+    session_id: Optional[UUID] = None
+    measured_at: Optional[datetime] = None
+    context: Optional[MeasurementContext] = None
+
+
+class WaterIntakeRead(WaterIntakeBase, VitalsReadSchema):
+    pass

@@ -106,8 +106,14 @@ class WeightMeasurementsCRUD(
     pass
 
 
+class WaterIntakeCRUD(
+    VitalsCRUDBase[models.WaterIntake, schemas.WaterIntakeCreate, schemas.WaterIntakeUpdate]
+):
+    pass
+
 
 bp_crud = BPMeasurementsCRUD(models.BPMeasurement)
 pulse_crud = PulseMeasurementsCRUD(models.PulseMeasurement)
 weight_crud = WeightMeasurementsCRUD(models.WeightMeasurement)
+water_crud = WaterIntakeCRUD(models.WaterIntake)
 

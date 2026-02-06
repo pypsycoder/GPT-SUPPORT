@@ -35,6 +35,11 @@ class VitalsService:
         if not 2 <= weight <= 500:
             raise ValueError("Недопустимое значение веса")
 
+    @staticmethod
+    def validate_water(volume_ml: int) -> None:
+        if not 0 < volume_ml <= 5000:
+            raise ValueError("Недопустимое значение объема жидкости")
+
     # =========================
     #  Подготовка данных АД
     # =========================
@@ -103,6 +108,31 @@ class VitalsService:
         return schemas.WeightMeasurementCreate(
             user_id=user_id,
             weight=weight,
+            session_id=session_id,
+            measured_at=normalized_measured_at,
+            context=context,
+        )
+
+    # =========================
+    #  Подготовка данных воды
+    # =========================
+    @classmethod
+    def prepare_water_data(
+        cls,
+        *,
+        user_id: int,
+        volume_ml: int,
+        liquid_type: Optional[str] = None,
+        session_id: Optional[UUID] = None,
+        measured_at: Optional[datetime] = None,
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
+    ) -> schemas.WaterIntakeCreate:
+        cls.validate_water(volume_ml)
+        normalized_measured_at = cls.normalize_measured_at(measured_at)
+        return schemas.WaterIntakeCreate(
+            user_id=user_id,
+            volume_ml=volume_ml,
+            liquid_type=liquid_type,
             session_id=session_id,
             measured_at=normalized_measured_at,
             context=context,
