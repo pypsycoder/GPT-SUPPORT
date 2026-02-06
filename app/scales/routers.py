@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, List
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -32,7 +32,9 @@ class ScaleQuestionOut(BaseModel):
     id: str
     text: str
     options: List[ScaleOptionOut]
-
+    # для ТОБОЛ, но опционально, чтобы не ломать HADS/KOP
+    section: Optional[str] = None
+    section_title: Optional[str] = None
 
 class ScaleDefinitionOut(BaseModel):
     code: str
@@ -132,12 +134,18 @@ async def get_tobol_definition() -> ScaleDefinitionOut:
 
     questions_for_output: List[ScaleQuestionOut] = []
     for question in scale_config.get("questions", []):
-        options = [ScaleOptionOut(id=opt["id"], text=opt["text"]) for opt in question.get("options", [])]
+        options = [
+            ScaleOptionOut(id=opt["id"], text=opt["text"])
+            for opt in question.get("options", [])
+        ]
+
         questions_for_output.append(
             ScaleQuestionOut(
                 id=question["id"],
                 text=question["text"],
                 options=options,
+                section=question.get("section"),
+                section_title=question.get("section_title"),
             )
         )
 
@@ -146,6 +154,7 @@ async def get_tobol_definition() -> ScaleDefinitionOut:
         title=scale_config["title"],
         questions=questions_for_output,
     )
+
 
 
 @router.post("/HADS/submit", response_model=ScaleResultOut)

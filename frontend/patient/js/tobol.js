@@ -39,20 +39,23 @@
   }
 
   function buildBlocks(questions = []) {
-    const bySection = new Map();
+    // Каждый question — это секция (I..XII),
+    // а его options — утверждения внутри блока
+    TOBOL_BLOCKS = questions.map((q) => ({
+      code: q.section || q.id,         // "I", "II", ... "XII"
+      title: q.section_title || '',    // "Самочувствие", "Настроение" и т.п.
+      items: (q.options || []).map((opt) => ({
+        id: opt.id,                    // "I_3"
+        text: opt.text,                // текст утверждения
+      })),
+    }));
 
-    questions.forEach((q) => {
-      if (!bySection.has(q.section)) {
-        bySection.set(q.section, { code: q.section, title: q.section_title || '', items: [] });
-      }
-      const section = bySection.get(q.section);
-      section.items.push({ id: q.id, text: q.text });
-    });
-
-    TOBOL_BLOCKS = Array.from(bySection.values());
     currentBlockIndex = 0;
     Object.keys(selectedByBlock).forEach((key) => delete selectedByBlock[key]);
   }
+
+
+
 
   function updateProgress() {
     const total = TOBOL_BLOCKS.length || 0;

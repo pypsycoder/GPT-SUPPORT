@@ -4,8 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Iterable
+from collections import OrderedDict
+from typing import Any
+
 
 RESOURCE_PATH = Path(__file__).resolve().parent.parent / "resources" / "tobol.md"
+SCALE_ID = "TOBOL"
+SCALE_TITLE = "Тип отношения к болезни (ТОБОЛ)"
 
 
 @dataclass(frozen=True)
@@ -149,19 +154,102 @@ def _parse_coefficients(items: Iterable[TobolItem]) -> dict[str, dict[str, int |
 TOBOL_ITEMS: list[TobolItem] = _parse_items()
 TOBOL_COEFFS: dict[str, dict[str, int | str]] = _parse_coefficients(TOBOL_ITEMS)
 
-TOBOL_CONFIG: dict = {
-    "code": "TOBOL",
-    "title": "ТОБОЛ — Тип отношения к болезни",
-    "version": "1.0",
-    "questions": [
-        {
-            "id": item.id,
-            "section": item.section,
-            "section_title": item.section_title,
-            "text": item.text,
-            "options": [{"id": str(item.index), "text": item.text}],
-        }
-        for item in TOBOL_ITEMS
-    ],
-}
 
+def get_tobol_sections_for_front() -> list[dict[str, Any]]:
+    """
+    Готовит структуру для фронта:
+    [
+      {
+        "section": "I",
+        "section_title": "Самочувствие",
+        "question_text": "...",
+        "options": [
+          {"id": "I_1", "text": "..."},
+          ...
+        ],
+      },
+      ...
+    ]
+    """
+    sections: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+
+    default_question_text = (
+        "Выберите до двух утверждений, которые лучше всего описывают ваше состояние."
+    )
+
+    for item in TOBOL_ITEMS:
+        sec = sections.get(item.section)
+        if sec is None:
+            sec = {
+                "section": item.section,
+                "section_title": item.section_title,
+                "question_text": default_question_text,
+                "options": [],
+            }
+            sections[item.section] = sec
+
+        sec["options"].append(
+            {
+                "id": item.id,      # "I_3"
+                "text": item.text,  # текст утверждения
+            }
+        )
+
+    # сортируем утверждения внутри секции по номеру
+    for sec in sections.values():
+        sec["options"].sort(
+            key=lambda opt: int(opt["id"].split("_")[1])
+        )
+
+    return list(sections.values())
+
+
+# -------------------------------
+#   Конфиг для API /scales/TOBOL
+# -------------------------------
+
+def _build_tobol_config() -> dict[str, Any]:
+    """
+    Строим конфиг шкалы ТОБОЛ для API.
+
+    ВАЖНО:
+    - Каждый элемент TOBOL_ITEMS = отдельное утверждение.
+    - Поле section = только римская цифра блока ("I", "II", ..., "XII"),
+      чтобы фронт мог сгруппировать утверждения в блоки.
+    """
+
+    questions: list[dict[str, Any]] = []
+
+    for item in TOBOL_ITEMS:
+        # item.id вида "I_1", "II_7", ... → берём часть до "_"
+        if "_" in item.id:
+            section_code = item.id.split("_", 1)[0]
+        else:
+            # запасной вариант, если парсер уже положил туда код блока
+            section_code = item.section
+
+        questions.append(
+            {
+                "id": item.id,                 # "I_1"
+                "text": item.text,             # текст утверждения
+                "section": section_code,       # "I"
+                "section_title": item.section_title,  # "I. САМOЧУВСТВИЕ" и т.п.
+                # options фронту сейчас не нужны, но оставим,
+                # чтобы структура совпадала с другими шкалами
+                "options": [
+                    {
+                        "id": item.id,
+                        "text": item.text,
+                    }
+                ],
+            }
+        )
+
+    return {
+        "code": SCALE_ID,
+        "title": SCALE_TITLE,
+        "questions": questions,
+    }
+
+
+TOBOL_CONFIG: dict[str, Any] = _build_tobol_config()
