@@ -225,6 +225,27 @@
           optsDiv.appendChild(btn);
         }
         qDiv.appendChild(optsDiv);
+
+        // Add text field if has_text_field is true
+        if (q.has_text_field) {
+          var tfDiv = document.createElement('div');
+          tfDiv.className = 'psqi-text-field-row';
+          var tfLabel = document.createElement('label');
+          tfLabel.className = 'psqi-text-field-label';
+          tfLabel.textContent = q.text_field_label || 'Опишите';
+          tfLabel.setAttribute('for', 'input-' + q.text_field_id);
+          var tf = document.createElement('input');
+          tf.type = 'text';
+          tf.id = 'input-' + q.text_field_id;
+          tf.className = 'psqi-input psqi-text-field';
+          tf.placeholder = q.text_field_label || '';
+          tf.value = answers[q.text_field_id] || '';
+          tf.dataset.qid = q.text_field_id;
+          tf.addEventListener('input', handleInputChange);
+          tfDiv.appendChild(tfLabel);
+          tfDiv.appendChild(tf);
+          qDiv.appendChild(tfDiv);
+        }
       }
 
       wrapper.appendChild(qDiv);

@@ -104,12 +104,34 @@
 }
 
 .kop25a-result-window {
-    max-width: 600px;
+    width: 100%;
+    max-width: 900px;
     margin: 0 auto;
-    padding: 20px 18px;
+    padding: 20px 16px;
     border-radius: 16px;
     background: #ffffff;
     box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+    box-sizing: border-box;
+}
+
+@media (max-width: 480px) {
+    .kop25a-result-window {
+        padding: 16px 12px;
+    }
+}
+
+.kop25a-result-window h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 16px;
+    color: #111827;
+}
+
+.kop25a-result-window h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 16px 0 12px;
+    color: #111827;
 }
 
 .result-score {
@@ -135,19 +157,6 @@
     display: none !important;
 }
 
-
-.result-score {
-    font-size: 2.4rem;
-    font-weight: 700;
-    margin-bottom: 10px;
-}
-
-.result-text {
-    margin-top: 6px;
-    color: #4b5563;
-    font-size: 0.95rem;
-    line-height: 1.35rem;
-}
 
 /* === ЦВЕТНЫЕ КАРТОЧКИ ДЛЯ РЕЗУЛЬТАТОВ === */
 
@@ -178,45 +187,34 @@
 
 /* Сетка мини-карточек по направлениям */
 .mini-grid {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 0.75rem;
     margin-top: 0.5rem;
-}
-
-@media (min-width: 640px) {
-    .mini-grid {
-        flex-direction: row;
-    }
+    width: 100%;
 }
 
 /* Одна мини-карточка (ПТ / ПС / ПМ) */
 .result-mini-box {
     padding: 14px 12px;
     border-radius: 12px;
+    min-width: 0;
+    word-break: break-word;
 }
 
 /* Заголовок мини-карточки */
 .mini-title {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 500;
     color: #374151;
     margin-bottom: 4px;
+    line-height: 1.3;
+    word-wrap: break-word;
 }
 
 /* Значение в мини-карточке */
 .mini-value {
-    font-size: 1.2rem;
+    font-size: 1.3rem;
     font-weight: 600;
     color: #111827;
-}
-
-.result-line {
-    margin-top: 6px;
-    font-size: 0.95rem;
-    color: #111827;
-}
-
-.hidden {
-    display: none !important;
 }
