@@ -7,6 +7,7 @@ from pathlib import Path
 # сторонние библиотеки
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -48,6 +49,15 @@ app.mount(
     StaticFiles(directory=str(FRONTEND_DIR)),
     name="frontend",
 )
+
+
+# === Корневой маршрут ===
+
+
+@app.get("/", include_in_schema=False)
+async def serve_root():
+    """Главная страница приложения (index)."""
+    return FileResponse(FRONTEND_DIR / "index.template.html")
 
 
 # === Регистрация роутеров API/страниц ===

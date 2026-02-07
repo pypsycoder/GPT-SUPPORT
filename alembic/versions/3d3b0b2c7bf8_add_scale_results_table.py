@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "3d3b0b2c7bf8"
-down_revision: Union[str, Sequence[str], None] = "86a0d2c1f8e3"
+down_revision: Union[str, Sequence[str], None] = "d2ca01903a4c"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -29,7 +29,7 @@ def upgrade() -> None:
 
     op.create_table(
         "scale_results",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), primary_key=True, nullable=False),
         sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("scale_code", sa.String(length=32), nullable=False),
         sa.Column("scale_version", sa.String(length=16), nullable=True),

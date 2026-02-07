@@ -13,6 +13,7 @@ from app.scales.models import ScaleResult
 from app.scales.services import (
     calculate_hads_result,
     calculate_kop25a_result,
+    calculate_psqi_result,
     calculate_tobol_result,
     get_scale_config,
     save_scale_result,
@@ -61,6 +62,16 @@ class TobolSubmitRequest(BaseModel):
     patient_token: str
     scale_id: str | None = None
     answers: List[TobolAnswerIn]
+
+
+class PsqiAnswerIn(BaseModel):
+    question_id: str
+    value: Any
+
+
+class PsqiSubmitRequest(BaseModel):
+    patient_token: str
+    answers: List[PsqiAnswerIn]
 
 
 class ScaleResultOut(BaseModel):
@@ -290,6 +301,59 @@ async def submit_kop25a(
             scale_config,
             payload.answers,
         )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    saved = await save_scale_result(
+        session=session,
+        user_id=user_id,
+        scale_code=scale_config["code"],
+        scale_version=scale_config.get("version", ""),
+        result_json=result_json,
+        answers_log=answers_log,
+    )
+
+    return ScaleResultOut(
+        id=saved.id,
+        scale_code=saved.scale_code,
+        scale_version=saved.scale_version,
+        result=result_json,
+        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
+    )
+
+
+@router.get("/PSQI")
+async def get_psqi_definition():
+    """Отдаём структуру опросника PSQI (блоки с вопросами)."""
+    scale_config = get_scale_config("PSQI")
+    return {
+        "code": scale_config["code"],
+        "title": scale_config["title"],
+        "blocks": scale_config["blocks"],
+    }
+
+
+@router.post("/PSQI/submit", response_model=ScaleResultOut)
+async def submit_psqi(
+    payload: PsqiSubmitRequest,
+    session: AsyncSession = Depends(get_async_session),
+) -> ScaleResultOut:
+    """Принимаем ответы по PSQI, считаем результат и логируем в БД."""
+
+    user_id = await resolve_user_id_by_patient_token(
+        session=session, patient_token=payload.patient_token
+    )
+
+    try:
+        scale_config = get_scale_config("PSQI")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        result_json, answers_log = calculate_psqi_result(scale_config, payload.answers)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

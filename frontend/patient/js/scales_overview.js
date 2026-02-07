@@ -40,6 +40,16 @@
         window.location.href = target;
       });
     }
+
+    const psqiButton = document.querySelector('[data-scale="psqi"]');
+    if (psqiButton && !psqiButton.disabled) {
+      psqiButton.addEventListener('click', () => {
+        const target = patientToken
+          ? `/p/${encodeURIComponent(patientToken)}/psqi`
+          : '/frontend/patient/psqi.html';
+        window.location.href = target;
+      });
+    }
   }
 
   document.addEventListener('DOMContentLoaded', initScaleButtons);

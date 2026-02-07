@@ -69,14 +69,6 @@ async def serve_education_test_page(patient_token: str):
 @router.get("/{patient_token}/hads", include_in_schema=False)
 async def serve_hads_page(patient_token: str):
     """
-    Страница шкалы HADS.
-    """
-    return FileResponse(FRONTEND_DIR / "patient" / "hads.html")
-
-
-@router.get("/{patient_token}/hads", include_in_schema=False)
-async def serve_hads_page(patient_token: str):
-    """
     Страница прохождения шкалы HADS.
     """
     return FileResponse(FRONTEND_DIR / "patient" / "hads.html")
@@ -104,3 +96,10 @@ async def serve_tobol_page(patient_token: str):
     """Страница шкалы ТОБОЛ для пациента."""
 
     return FileResponse(FRONTEND_DIR / "patient" / "tobol.html")
+
+
+@router.get("/{patient_token}/psqi", include_in_schema=False)
+async def serve_psqi_page(patient_token: str):
+    """Страница опросника качества сна PSQI для пациента."""
+
+    return FileResponse(FRONTEND_DIR / "patient" / "psqi.html")

@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Union
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.scales.calculators.hads import calculate_hads
 from app.scales.calculators.kop_25a1 import calculate_kop_25a1 as calculate_kop_25a1_calc
 from app.scales.config.hads import HADS_CONFIG
 from app.scales.config.kop_25a1 import KOP25A_CONFIG
+from app.scales.config.psqi import PSQI_CONFIG
 from app.scales.config.tobol import TOBOL_CONFIG
 from app.scales.models import ScaleResult
 from app.scales.registry import get_scale_calculator
+
+logger = logging.getLogger("gpt-support")
 
 
 def get_scale_config(scale_code: str) -> dict:
@@ -24,6 +29,8 @@ def get_scale_config(scale_code: str) -> dict:
         return KOP25A_CONFIG
     if code == "TOBOL":
         return TOBOL_CONFIG
+    if code == "PSQI":
+        return PSQI_CONFIG
     raise ValueError(f"Unknown scale code: {scale_code}")
 
 
@@ -46,6 +53,13 @@ def calculate_tobol_result(scale_config: dict, answers: List[Union[Dict[str, str
     return calculator(answers)
 
 
+def calculate_psqi_result(scale_config: dict, answers: List[Union[Dict[str, Any], "PsqiAnswerIn"]]):
+    """Обертка для расчёта PSQI."""
+
+    calculator = get_scale_calculator("PSQI")
+    return calculator(answers)
+
+
 async def save_scale_result(
     session: AsyncSession,
     user_id: int,
@@ -56,6 +70,11 @@ async def save_scale_result(
 ) -> ScaleResult:
     """Сохраняем результат прохождения шкалы в БД."""
 
+    logger.info(
+        "[scales] save_scale_result: user_id=%s, scale_code=%s",
+        user_id, scale_code,
+    )
+
     scale_result = ScaleResult(
         user_id=user_id,
         scale_code=scale_code,
@@ -65,8 +84,32 @@ async def save_scale_result(
         answers_json=answers_log,
     )
 
-    session.add(scale_result)
-    await session.flush()
-    await session.commit()
-    await session.refresh(scale_result)
+    try:
+        session.add(scale_result)
+        logger.info("[scales] session.add() — OK")
+
+        await session.flush()
+        logger.info("[scales] session.flush() — OK, id=%s", scale_result.id)
+
+        await session.commit()
+        logger.info("[scales] session.commit() — OK")
+
+        await session.refresh(scale_result)
+        logger.info("[scales] session.refresh() — OK, id=%s", scale_result.id)
+
+        # Проверяем, реально ли запись в БД
+        verify = await session.execute(
+            text("SELECT id FROM scales.scale_results WHERE id = :rid"),
+            {"rid": str(scale_result.id)},
+        )
+        row = verify.fetchone()
+        if row:
+            logger.info("[scales] ✅ VERIFIED in DB: id=%s", row[0])
+        else:
+            logger.error("[scales] ❌ NOT FOUND in DB after commit! id=%s", scale_result.id)
+
+    except Exception:
+        logger.exception("[scales] ❌ ОШИБКА при сохранении scale_result")
+        raise
+
     return scale_result
