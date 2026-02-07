@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>PSQI — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+    <link rel="stylesheet" href="/frontend/patient/css/kop25a.css">
+    <link rel="stylesheet" href="/frontend/patient/css/psqi.css">
+</head>
+<body data-page="psqi">
+<div class="page">
+    <div id="global-header"></div>
+
+    <div class="layout">
+        <div id="sidebar-container"></div>
+
+        <main class="content">
+            <section class="page-header">
+                <div class="page-title">Питтсбургский опросник качества сна (PSQI)</div>
+                <div class="page-subtitle">Оцените качество вашего сна за последний месяц. Заполняйте блоки последовательно.</div>
+            </section>
+
+            <div id="psqi-status" class="status-banner status-hidden"></div>
+
+            <section class="scale-card" aria-live="polite">
+                <div class="scale-progress" id="psqi-progress">
+                    <div class="scale-progress-text" id="psqi-progress-text">Загружаем опросник...</div>
+                    <div class="scale-progress-bar" aria-hidden="true">
+                        <div class="scale-progress-fill" id="psqi-progress-fill"></div>
+                    </div>
+                </div>
+
+                <div id="psqi-block-container" class="psqi-block-container"></div>
+
+                <div class="scale-nav" id="psqi-nav" style="display:none;">
+                    <button class="scale-nav-button" id="psqi-prev" disabled>Назад</button>
+                    <button class="scale-nav-button" id="psqi-next" disabled>Далее</button>
+                    <button class="scale-nav-button" id="psqi-submit" style="display:none;">Отправить</button>
+                </div>
+
+                <div id="psqi-result" class="hidden"></div>
+            </section>
+        </main>
+    </div>
+
+    <footer class="footer">GPT Health Support · Поддержка пациентов</footer>
+</div>
+
+<script src="/frontend/patient/js/global_header.js"></script>
+<script src="/frontend/patient/js/sidebar.js"></script>
+<script src="/frontend/patient/js/psqi.js"></script>
+</body>
+</html>
