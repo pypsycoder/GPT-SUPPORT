@@ -86,6 +86,14 @@ body {
 .card-pill-scales { background: #f5f3ff; color: #7c3aed; }
 .card-pill-education { background: #ecfdf3; color: #16a34a; }
 
+.card-controls {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  z-index: 10;
+}
+
 .card-time {
   color: var(--muted-text);
   font-size: 13px;
@@ -155,6 +163,8 @@ body {
   border: 1px solid #e5e7eb;
   padding: 6px 10px;
   font-size: 14px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .education-progress-row {

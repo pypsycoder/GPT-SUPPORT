@@ -1,0 +1,336 @@
+/* ====================================== */
+/* ============= PROFILE ================ */
+/* ====================================== */
+
+/* Карточка профиля (общий стиль) */
+.profile-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 1.1rem 1.2rem 1.25rem;
+    box-shadow: 0 6px 18px rgba(31, 41, 55, 0.06);
+    margin-bottom: 1rem;
+}
+
+/* Заголовок карточки с кнопкой справа */
+.profile-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.9rem;
+}
+
+.profile-card .card-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+/* ====================================== */
+/* ========= ЛИЧНЫЕ ДАННЫЕ ============== */
+/* ====================================== */
+
+/* Режим просмотра */
+.personal-view {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.info-row {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.info-label {
+    color: #6b7280;
+    min-width: 90px;
+}
+
+.info-value {
+    color: #111827;
+    font-weight: 500;
+}
+
+/* Форма редактирования */
+.personal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.personal-form .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-bottom: 0;
+}
+
+.personal-form .form-row label {
+    font-size: 0.9rem;
+    color: #374151;
+}
+
+.personal-form .form-row input,
+.personal-form .form-row select {
+    border-radius: 0.7rem;
+    border: 1px solid #e5e7eb;
+    padding: 0.55rem 0.7rem;
+    font-size: 1rem;
+    font-family: inherit;
+    outline: none;
+    background: #f9fafb;
+}
+
+.personal-form .form-row input:focus,
+.personal-form .form-row select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    background: #ffffff;
+}
+
+/* Кнопки редактирования */
+.edit-button {
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.6rem;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: 0.85rem;
+    color: #374151;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.edit-button:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Кнопки формы */
+.form-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.form-actions .submit-button {
+    flex: 1;
+    max-width: 180px;
+}
+
+.cancel-button {
+    padding: 0.55rem 1rem;
+    border-radius: 999px;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: 0.95rem;
+    color: #374151;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease;
+}
+
+.cancel-button:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+/* ====================================== */
+/* ============ СОГЛАСИЯ ================ */
+/* ====================================== */
+
+.consents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.consent-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.95rem;
+}
+
+.consent-icon {
+    font-size: 1.1rem;
+    width: 24px;
+    text-align: center;
+}
+
+.consent-icon.consent-yes {
+    color: #16a34a;
+}
+
+.consent-icon.consent-no {
+    color: #dc2626;
+}
+
+.consent-text {
+    color: #374151;
+}
+
+.consents-hint {
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    color: #9ca3af;
+}
+
+/* ====================================== */
+/* =========== СТАТИСТИКА =============== */
+/* ====================================== */
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.stat-item {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.stat-item-wide {
+    grid-column: span 2;
+}
+
+@media (max-width: 480px) {
+    .stat-item-wide {
+        grid-column: span 1;
+    }
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+
+.stat-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.stat-value-small {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.stat-date {
+    font-size: 0.8rem;
+    color: #9ca3af;
+}
+
+/* ====================================== */
+/* ============== ТОКЕН ================= */
+/* ====================================== */
+
+.token-display {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.token-value {
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 0.9rem;
+    color: #374151;
+    word-break: break-all;
+    user-select: all;
+}
+
+.copy-button {
+    padding: 0.45rem 0.85rem;
+    border-radius: 0.6rem;
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        box-shadow 0.15s ease,
+        transform 0.08s ease;
+}
+
+.copy-button:hover {
+    background: #1d4ed8;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+    transform: translateY(-1px);
+}
+
+.copy-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+}
+
+.token-hint {
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    color: #9ca3af;
+    line-height: 1.45;
+}
+
+/* ====================================== */
+/* ============ RESPONSIVE ============== */
+/* ====================================== */
+
+@media (max-width: 640px) {
+    .profile-card {
+        padding: 0.9rem 1rem 1.1rem;
+    }
+
+    .profile-card .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+
+    .form-actions .submit-button {
+        max-width: 100%;
+    }
+
+    .token-display {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .token-value {
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .copy-button {
+        width: 100%;
+    }
+}

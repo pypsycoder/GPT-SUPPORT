@@ -103,3 +103,10 @@ async def serve_psqi_page(patient_token: str):
     """Страница опросника качества сна PSQI для пациента."""
 
     return FileResponse(FRONTEND_DIR / "patient" / "psqi.html")
+
+
+@router.get("/{patient_token}/profile", include_in_schema=False)
+async def serve_profile_page(patient_token: str):
+    """Страница профиля пациента с личными данными и статистикой."""
+
+    return FileResponse(FRONTEND_DIR / "patient" / "profile.html")

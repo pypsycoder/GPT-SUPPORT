@@ -18,6 +18,7 @@ from app.pages.router import router as pages_router
 from app.education.router import router as education_router
 from app.vitals.router import router as vitals_router
 from app.scales.routers import router as scales_router
+from app.profile.router import router as profile_router
 from core.db.engine import engine
 
 from fastapi.routing import APIRoute
@@ -67,6 +68,7 @@ app.include_router(pages_router)
 # app.include_router(education_router, prefix="/api/v1")
 app.include_router(education_router, prefix="/api/v1/education")
 app.include_router(scales_router, prefix="/api/v1/scales", tags=["scales"])
+app.include_router(profile_router, prefix="/api/v1/profile", tags=["profile"])
 
 for route in app.routes:
     if isinstance(route, APIRoute):

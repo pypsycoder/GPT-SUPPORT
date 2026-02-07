@@ -68,6 +68,10 @@
           targetUrl = patientToken
             ? `/p/${encodeURIComponent(patientToken)}/scales`
             : '/frontend/patient/scales_overview.html';
+        } else if (section === 'profile') {
+          targetUrl = patientToken
+            ? `/p/${encodeURIComponent(patientToken)}/profile`
+            : '/frontend/patient/profile.html';
         }
 
         if (targetUrl && targetUrl !== window.location.pathname + window.location.search) {

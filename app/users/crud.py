@@ -114,3 +114,53 @@ async def save_user(
         full_name,
     )
     return user
+
+
+# update_user_profile
+async def update_user_profile(
+    session: AsyncSession,
+    user: User,
+    *,
+    full_name: Optional[str] = None,
+    age: Optional[int] = None,
+    gender: Optional[str] = None,
+) -> User:
+    """
+    Обновить профиль пользователя (ФИО, возраст, пол).
+
+    Принимает уже найденного пользователя и обновляет только те поля,
+    которые переданы (не None).
+
+    Коммитит изменения и возвращает обновленного пользователя.
+    """
+    updated = False
+
+    if full_name is not None and user.full_name != full_name:
+        user.full_name = full_name
+        updated = True
+
+    if age is not None and user.age != age:
+        user.age = age
+        updated = True
+
+    if gender is not None and user.gender != gender:
+        user.gender = gender
+        updated = True
+
+    if updated:
+        await session.commit()
+        await session.refresh(user)
+        logger.info(
+            "[users][crud] updated profile for user %s (full_name=%r, age=%r, gender=%r)",
+            user.id,
+            full_name,
+            age,
+            gender,
+        )
+    else:
+        logger.debug(
+            "[users][crud] profile for user %s already up-to-date",
+            user.id,
+        )
+
+    return user
