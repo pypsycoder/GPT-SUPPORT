@@ -34,7 +34,7 @@ async def accept_consent(
     user.consent_personal_data = consent_personal_data
     user.consent_bot_use = consent_bot_use
     user.consent_given_at = datetime.now(timezone.utc)
-    session.add(user)
+    # Note: user is already tracked by the session, no need to add
     await session.commit()
     logger.info("[consent] user %s accepted consent", user.id)
     return user
