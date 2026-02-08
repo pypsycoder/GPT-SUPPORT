@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -19,6 +20,9 @@ from app.education.router import router as education_router
 from app.vitals.router import router as vitals_router
 from app.scales.routers import router as scales_router
 from app.profile.router import router as profile_router
+from app.auth.router import router as auth_router
+from app.consent.router import router as consent_router
+from app.researchers.router import router as researcher_router
 from core.db.engine import engine
 
 from fastapi.routing import APIRoute
@@ -43,6 +47,16 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 app = FastAPI(title="GPT Support API")
 
 
+# === CORS конфигурация ===
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost", "http://127.0.0.1"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 # === Статика (общий фронтенд) ===
 # Всё, что лежит в папке frontend/, доступно по /frontend/...
 app.mount(
@@ -57,13 +71,17 @@ app.mount(
 
 @app.get("/", include_in_schema=False)
 async def serve_root():
-    """Главная страница приложения (index)."""
-    return FileResponse(FRONTEND_DIR / "index.template.html")
+    """Корневой маршрут — перенаправляем на страницу входа."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/login")
 
 
 # === Регистрация роутеров API/страниц ===
 app.include_router(vitals_router)
 app.include_router(users_api_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(consent_router, prefix="/api/v1")
+app.include_router(researcher_router, prefix="/api/v1")
 app.include_router(pages_router)
 # app.include_router(education_router, prefix="/api/v1")
 app.include_router(education_router, prefix="/api/v1/education")

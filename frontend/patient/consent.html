@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Согласие — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/patient/css/consent.css">
+</head>
+<body>
+  <div class="consent-wrapper">
+    <div class="consent-card">
+      <div class="consent-title">Согласие на обработку данных</div>
+      <div class="consent-subtitle">
+        Для продолжения работы необходимо ваше согласие на обработку персональных данных.
+      </div>
+
+      <div class="consent-text-block">
+        <h3>1. Цель обработки</h3>
+        <p>
+          Ваши персональные данные обрабатываются в целях проведения
+          медицинского исследования и мониторинга состояния здоровья.
+        </p>
+
+        <h3>2. Перечень данных</h3>
+        <ul>
+          <li>Фамилия, имя, отчество</li>
+          <li>Возраст и пол</li>
+          <li>Показатели здоровья (артериальное давление, пульс, вес)</li>
+          <li>Результаты психологических тестов</li>
+        </ul>
+
+        <h3>3. Срок обработки</h3>
+        <p>
+          Данные обрабатываются на период проведения исследования.
+          После его завершения данные будут обезличены или удалены.
+        </p>
+
+        <h3>4. Право отзыва</h3>
+        <p>
+          Вы имеете право отозвать своё согласие в любой момент,
+          обратившись к исследователю. Отзыв не влияет на законность
+          обработки до момента отзыва.
+        </p>
+
+        <h3>5. Защита данных</h3>
+        <p>
+          Данные хранятся в защищённой системе. Доступ имеют
+          только уполномоченные исследователи.
+        </p>
+      </div>
+
+      <div class="consent-checkbox-row" id="consent-row-pd">
+        <input type="checkbox" id="consent-pd">
+        <label for="consent-pd">
+          Я даю согласие на обработку моих персональных данных
+          в целях медицинского исследования
+        </label>
+      </div>
+
+      <div class="consent-checkbox-row" id="consent-row-bot">
+        <input type="checkbox" id="consent-bot">
+        <label for="consent-bot">
+          Я согласен(на) на использование приложения
+          для мониторинга здоровья
+        </label>
+      </div>
+
+      <button class="consent-button" id="consent-btn" disabled>
+        Продолжить
+      </button>
+
+      <div class="consent-error" id="consent-error"></div>
+    </div>
+  </div>
+
+  <script src="/frontend/patient/js/consent.js"></script>
+</body>
+</html>

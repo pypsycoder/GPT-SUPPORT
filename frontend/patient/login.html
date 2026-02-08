@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Вход — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/patient/css/login.css">
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-card">
+      <div class="login-logo">🏥</div>
+      <div class="login-title">GPT Health Support</div>
+      <div class="login-subtitle">Вход для пациента</div>
+
+      <div class="login-hint">
+        Номер и PIN-код указаны на карточке, которую вам выдал исследователь.
+      </div>
+
+      <form id="login-form" autocomplete="off">
+        <div class="login-field">
+          <label for="patient-number">Номер пациента</label>
+          <input
+            type="text"
+            id="patient-number"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="6"
+            placeholder="1042"
+            autocomplete="off"
+            required
+          >
+        </div>
+
+        <div class="login-field">
+          <label for="pin-code">PIN-код</label>
+          <input
+            type="password"
+            id="pin-code"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            maxlength="6"
+            placeholder="••••"
+            autocomplete="off"
+            required
+          >
+        </div>
+
+        <button type="submit" class="login-button" id="login-btn">
+          Войти
+        </button>
+      </form>
+
+      <div class="login-error" id="login-error"></div>
+
+      <div class="login-footer">
+        Если вы потеряли карточку — обратитесь к исследователю.
+      </div>
+    </div>
+  </div>
+
+  <script src="/frontend/patient/js/login.js"></script>
+</body>
+</html>

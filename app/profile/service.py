@@ -23,7 +23,6 @@ from app.profile.schemas import (
 )
 from app.scales.models import ScaleResult
 from app.scales.registry import SCALE_CALCULATORS
-from app.users.crud import get_user_by_patient_token
 from app.users.models import User
 from app.vitals.models import BPMeasurement, PulseMeasurement, WaterIntake, WeightMeasurement
 
@@ -112,7 +111,7 @@ async def _get_vitals_summary(session: AsyncSession, user_id: int) -> VitalsSumm
     )
 
 
-async def _get_education_summary(session: AsyncSession, patient_token: str) -> EducationSummary:
+async def _get_education_summary(session: AsyncSession, patient_token: str, user_id: int) -> EducationSummary:
     """Получает сводку по обучению пациента."""
 
     # Общее количество уроков (из прогресса пациента)
@@ -141,39 +140,33 @@ async def _get_education_summary(session: AsyncSession, patient_token: str) -> E
     tests_result = await session.execute(tests_stmt)
     tests_passed = tests_result.scalar_one() or 0
 
-    # Выполненные практики (через user_id - нужно найти по токену)
-    # Для practice_logs нужен user_id, получим его из users
-    user = await get_user_by_patient_token(session, patient_token)
-    practices_done = 0
-    last_activity_at = None
+    # Выполненные практики (через user_id)
+    practices_stmt = (
+        select(func.count(PracticeLog.id))
+        .where(PracticeLog.user_id == user_id)
+    )
+    practices_result = await session.execute(practices_stmt)
+    practices_done = practices_result.scalar_one() or 0
 
-    if user:
-        practices_stmt = (
-            select(func.count(PracticeLog.id))
-            .where(PracticeLog.user_id == user.id)
-        )
-        practices_result = await session.execute(practices_stmt)
-        practices_done = practices_result.scalar_one() or 0
+    # Последняя активность - максимум из прогресса уроков и тестов
+    last_progress_stmt = (
+        select(func.max(LessonProgress.updated_at))
+        .where(LessonProgress.patient_token == patient_token)
+    )
+    last_progress_result = await session.execute(last_progress_stmt)
+    last_progress = last_progress_result.scalar_one()
 
-        # Последняя активность - максимум из прогресса уроков и тестов
-        last_progress_stmt = (
-            select(func.max(LessonProgress.updated_at))
-            .where(LessonProgress.patient_token == patient_token)
-        )
-        last_progress_result = await session.execute(last_progress_stmt)
-        last_progress = last_progress_result.scalar_one()
+    last_test_stmt = (
+        select(func.max(LessonTestResult.created_at))
+        .where(LessonTestResult.patient_token == patient_token)
+    )
+    last_test_result = await session.execute(last_test_stmt)
+    last_test = last_test_result.scalar_one()
 
-        last_test_stmt = (
-            select(func.max(LessonTestResult.created_at))
-            .where(LessonTestResult.patient_token == patient_token)
-        )
-        last_test_result = await session.execute(last_test_stmt)
-        last_test = last_test_result.scalar_one()
-
-        if last_progress and last_test:
-            last_activity_at = max(last_progress, last_test)
-        else:
-            last_activity_at = last_progress or last_test
+    if last_progress and last_test:
+        last_activity_at = max(last_progress, last_test)
+    else:
+        last_activity_at = last_progress or last_test
 
     return EducationSummary(
         lessons_total=lessons_total,
@@ -226,16 +219,12 @@ async def _get_scales_summary(session: AsyncSession, user_id: int) -> ScalesSumm
 
 async def get_profile_summary(
     session: AsyncSession,
-    patient_token: str,
+    user: User,
 ) -> ProfileSummary:
     """Собирает все данные профиля пациента одним запросом."""
 
-    user = await get_user_by_patient_token(session, patient_token)
-    if user is None:
-        raise ValueError("Пациент с таким токеном не найден")
-
     vitals = await _get_vitals_summary(session, user.id)
-    education = await _get_education_summary(session, patient_token)
+    education = await _get_education_summary(session, user.patient_token, user.id)
     scales = await _get_scales_summary(session, user.id)
 
     return ProfileSummary(
@@ -255,14 +244,10 @@ async def get_profile_summary(
 
 async def update_profile(
     session: AsyncSession,
-    patient_token: str,
+    user: User,
     data: ProfileUpdate,
 ) -> User:
     """Обновляет профиль пациента (ФИО, возраст, пол)."""
-
-    user = await get_user_by_patient_token(session, patient_token)
-    if user is None:
-        raise ValueError("Пациент с таким токеном не найден")
 
     updated = False
 

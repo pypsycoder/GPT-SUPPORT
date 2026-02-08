@@ -12,16 +12,9 @@
   // ========================================
 
   /**
-   * Получить patient_token из URL (/p/{token}/profile)
+   * API запросы используют session cookies для авторизации
+   * (не нужно передавать токен в URL или заголовках)
    */
-  function getPatientToken() {
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const pIndex = parts.indexOf('p');
-    if (pIndex !== -1 && parts.length > pIndex + 1) {
-      return parts[pIndex + 1];
-    }
-    return null;
-  }
 
   /**
    * Форматирование даты в читаемый вид
@@ -87,20 +80,23 @@
   // API запросы
   // ========================================
 
-  async function fetchProfileSummary(patientToken) {
-    const url = `/api/v1/profile/summary?patient_token=${encodeURIComponent(patientToken)}`;
-    const response = await fetch(url);
+  async function fetchProfileSummary() {
+    const url = `/api/v1/profile/summary`;
+    const response = await fetch(url, {
+      credentials: 'include', // Включить cookies для авторизации
+    });
     if (!response.ok) {
       throw new Error(`Ошибка загрузки профиля: ${response.status}`);
     }
     return response.json();
   }
 
-  async function updateProfile(patientToken, data) {
-    const url = `/api/v1/profile/?patient_token=${encodeURIComponent(patientToken)}`;
+  async function updateProfile(data) {
+    const url = `/api/v1/profile/`;
     const response = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Включить cookies для авторизации
       body: JSON.stringify(data),
     });
     if (!response.ok) {
@@ -233,14 +229,8 @@
 
   function renderToken(patientToken) {
     const tokenEl = document.getElementById('token-value');
-    const headerTokenEl = document.getElementById('header-token');
 
     if (tokenEl) tokenEl.textContent = patientToken || '—';
-    if (headerTokenEl) {
-      headerTokenEl.textContent = patientToken
-        ? `Токен пациента: ${patientToken}`
-        : 'Токен пациента: не найден';
-    }
   }
 
   // ========================================
@@ -267,7 +257,7 @@
     }
   }
 
-  function initEditControls(patientToken, reloadProfile) {
+  function initEditControls(reloadProfile) {
     const editBtn = document.getElementById('edit-personal-btn');
     const cancelBtn = document.getElementById('cancel-edit-btn');
     const form = document.getElementById('personal-form');
@@ -301,7 +291,7 @@
         if (gender) data.gender = gender;
 
         try {
-          await updateProfile(patientToken, data);
+          await updateProfile(data);
           setStatus('success', 'Профиль успешно сохранён!');
           toggleEditMode(false);
           reloadProfile();
@@ -317,25 +307,29 @@
   // Копирование токена
   // ========================================
 
-  function initCopyToken(patientToken) {
+  function initCopyToken() {
     const copyBtn = document.getElementById('copy-token-btn');
+    const tokenEl = document.getElementById('token-value');
 
-    if (copyBtn && patientToken) {
+    if (copyBtn && tokenEl) {
       copyBtn.addEventListener('click', async () => {
+        const patientToken = tokenEl.textContent;
+        if (!patientToken || patientToken === '—') {
+          setStatus('error', 'Токен недоступен');
+          return;
+        }
+
         try {
           await navigator.clipboard.writeText(patientToken);
           setStatus('success', 'Токен скопирован в буфер обмена!');
         } catch (err) {
           console.error('Ошибка копирования:', err);
           // Fallback для старых браузеров
-          const tokenEl = document.getElementById('token-value');
-          if (tokenEl) {
-            const range = document.createRange();
-            range.selectNodeContents(tokenEl);
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
+          const range = document.createRange();
+          range.selectNodeContents(tokenEl);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
           setStatus('error', 'Не удалось скопировать. Выделите токен вручную.');
         }
       });
@@ -346,9 +340,9 @@
   // Инициализация страницы
   // ========================================
 
-  async function loadAndRenderProfile(patientToken) {
+  async function loadAndRenderProfile() {
     try {
-      const profile = await fetchProfileSummary(patientToken);
+      const profile = await fetchProfileSummary();
 
       renderPersonalData(profile);
       renderConsents(profile);
@@ -363,22 +357,13 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    const patientToken = getPatientToken();
-
-    if (!patientToken) {
-      setStatus('error', 'Токен пациента не найден в адресе страницы.');
-      renderToken(null);
-      return;
-    }
-
-    renderToken(patientToken);
-
-    // Загрузка данных
-    const reloadProfile = () => loadAndRenderProfile(patientToken);
+    // Авторизация происходит через session cookies
+    // Загрузка данных профиля
+    const reloadProfile = () => loadAndRenderProfile();
     reloadProfile();
 
     // Инициализация управления
-    initEditControls(patientToken, reloadProfile);
-    initCopyToken(patientToken);
+    initEditControls(reloadProfile);
+    initCopyToken();
   });
 })();

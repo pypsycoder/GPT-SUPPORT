@@ -93,6 +93,8 @@
         }
 
         try {
+            console.log('Marking lesson as read:', lessonCode);
+            console.log('document.cookie:', document.cookie);
             const resp = await fetch(
                 `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/mark_read`,
                 {
@@ -104,6 +106,7 @@
                 }
             );
 
+            console.log('mark_read response status:', resp.status);
             if (!resp.ok) {
                 console.warn('Не удалось отметить урок прочитанным:', resp.status);
                 return;
@@ -420,7 +423,7 @@
     wrapper.appendChild(backBlock);
 
     // кнопка "Пройти тест" — только на последней карточке и если тест есть
-    if (isLastCard && lessonTestId && patientToken) {
+    if (isLastCard && lessonTestId) {
         const testBlock = document.createElement('div');
         testBlock.className = 'edu-test-block';
 
@@ -433,7 +436,7 @@
         testBtn.textContent = 'Пройти тест';
         testBtn.addEventListener('click', () => {
             const url =
-                `/patient/education_test.html?lesson=${encodeURIComponent(lessonCode)}`;
+                `/patient/education_test?lesson=${encodeURIComponent(lessonCode)}`;
             window.location.href = url;
         });
 

@@ -20,7 +20,7 @@ python -m scripts.import_lesson_from_md `
 **Что произойдёт:**
 
 * скрипт подхватит `.env`,
-* возьмёт `APP_DATABASE_URL` или `DATABASE_URL`, 
+* возьмёт `DATABASE_URL`, 
 * импортирует файл как урок:
   * `lesson.code = "stress_intro"`
   * `topic = "stress"`

@@ -1,5 +1,8 @@
 """SQLAlchemy models for user entities."""
-from sqlalchemy import Boolean, Column, Integer, JSON, String, text, BOOLEAN
+from sqlalchemy import (
+    Boolean, Column, DateTime, Integer, JSON, String, text,
+)
+from sqlalchemy.sql import func
 
 from app.models import Base
 
@@ -26,8 +29,16 @@ class User(Base):
         default=False,
         server_default=text("false"),
     )
-    telegram_id = Column(String, unique=True, index=True, nullable=False)
+    consent_given_at = Column(DateTime(timezone=True), nullable=True)
+
+    telegram_id = Column(String, unique=True, index=True, nullable=True)
     external_ids = Column(JSON, nullable=True)
 
-    # новый веб-токен пациента для доступа к формам
+    # веб-токен пациента для доступа к формам (legacy, сохраняем)
     patient_token = Column(String(64), unique=True, index=True, nullable=True)
+
+    # --- PIN-авторизация ---
+    patient_number = Column(Integer, unique=True, index=True, nullable=True)
+    pin_hash = Column(String(128), nullable=True)
+    pin_attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    is_locked = Column(Boolean, nullable=False, default=False, server_default=text("false"))

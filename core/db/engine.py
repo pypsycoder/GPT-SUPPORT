@@ -24,13 +24,10 @@ load_dotenv(env_path)
 
 # --- берём URL из .env ---
 
-DATABASE_URL = (
-    os.getenv("APP_DATABASE_URL")
-    or os.getenv("DATABASE_URL")
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise RuntimeError("Нет APP_DATABASE_URL или DATABASE_URL в .env")
+    raise RuntimeError("Нет DATABASE_URL в .env")
 
 # --- создаём async engine и фабрику сессий ---
 

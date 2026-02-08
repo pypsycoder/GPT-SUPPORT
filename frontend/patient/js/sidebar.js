@@ -1,13 +1,13 @@
 (function () {
-  // # получаем patient_token из URL (/p/{token}/...)
-  function sidebarGetPatientTokenFromPath() {
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const pIndex = parts.indexOf('p');
-    if (pIndex !== -1 && parts.length > pIndex + 1) {
-      return parts[pIndex + 1];
-    }
-    return null;
-  }
+  // # навигация: session-based URLs (/patient/...) с fallback на legacy (/p/{token}/...)
+  var NAV_MAP = {
+    dashboard:       '/patient/home',
+    vitals:          '/patient/vitals',
+    education:       '/patient/education_overview',
+    hads:            '/patient/hads',
+    scales_overview: '/patient/scales',
+    profile:         '/patient/profile',
+  };
 
   // # стартовое состояние: на маленьких экранах — узкий, на больших — широкий
   function sidebarApplyInitialState() {
@@ -35,7 +35,6 @@
           : bodyPage;
 
     const items = root.querySelectorAll('.sidebar-item[data-section]');
-    const patientToken = sidebarGetPatientTokenFromPath();
 
     items.forEach((item) => {
       const section = item.getAttribute('data-section');
@@ -45,36 +44,8 @@
       }
 
       item.addEventListener('click', () => {
-        let targetUrl = null;
-
-        if (section === 'dashboard') {
-          targetUrl = patientToken
-            ? `/p/${encodeURIComponent(patientToken)}/home`
-            : '/frontend/patient/home.html';
-        } else if (section === 'vitals') {
-          targetUrl = patientToken
-            ? `/p/${encodeURIComponent(patientToken)}/vitals`
-            : '/frontend/patient/vitals.html';
-        } else if (section === 'education') {
-          // ✅ Обновлено: "Обучение" ведёт на навигатор education_overview
-          targetUrl = patientToken
-            ? `/p/${encodeURIComponent(patientToken)}/education_overview`
-            : '/frontend/patient/education_overview.html';
-        } else if (section === 'hads') {
-          targetUrl = patientToken
-            ? `/p/${encodeURIComponent(patientToken)}/hads`
-            : '/frontend/patient/hads.html';
-        } else if (section === 'scales_overview') {
-          targetUrl = patientToken
-            ? `/p/${encodeURIComponent(patientToken)}/scales`
-            : '/frontend/patient/scales_overview.html';
-        } else if (section === 'profile') {
-          targetUrl = patientToken
-            ? `/p/${encodeURIComponent(patientToken)}/profile`
-            : '/frontend/patient/profile.html';
-        }
-
-        if (targetUrl && targetUrl !== window.location.pathname + window.location.search) {
+        var targetUrl = NAV_MAP[section] || null;
+        if (targetUrl && targetUrl !== window.location.pathname) {
           window.location.href = targetUrl;
         }
       });

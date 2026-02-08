@@ -14,6 +14,8 @@ from app.education.models import (
     LessonTestResult,
     LessonProgress,
 )
+from app.auth.dependencies import get_current_user
+from app.users.models import User
 
 from app.education.schemas import (
     EducationItem,
@@ -168,10 +170,7 @@ async def get_lesson_cards(
 @router.post("/lessons/{lesson_code}/mark_read", status_code=204)
 async def mark_lesson_read(
     lesson_code: str,
-    patient_token: str = Query(
-        ...,
-        description="patient_token пациента, для которого фиксируем факт чтения урока.",
-    ),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -197,7 +196,7 @@ async def mark_lesson_read(
     result = await session.execute(
         select(LessonProgress).where(
             LessonProgress.lesson_id == lesson.id,
-            LessonProgress.patient_token == patient_token,
+            LessonProgress.patient_token == user.patient_token,
         )
     )
     progress = result.scalar_one_or_none()
@@ -206,7 +205,7 @@ async def mark_lesson_read(
     if progress is None:
         progress = LessonProgress(
             lesson_id=lesson.id,
-            patient_token=patient_token,
+            patient_token=user.patient_token,
             is_completed=False,
         )
         session.add(progress)
@@ -221,10 +220,7 @@ async def mark_lesson_read(
 # Сводка по блокам и урокам с учётом прогресса пациента.
 @router.get("/lessons/overview")
 async def get_lessons_overview(
-    patient_token: str = Query(
-        ...,
-        description="patient_token пациента (для прогресса по урокам и тестам).",
-    ),
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> List[Dict[str, Any]]:
     """
@@ -277,7 +273,7 @@ async def get_lessons_overview(
     # --- 2. Прогресс по урокам (LessonProgress) ---
     stmt_progress = select(LessonProgress).where(
         LessonProgress.lesson_id.in_(lesson_ids),
-        LessonProgress.patient_token == patient_token,
+        LessonProgress.patient_token == user.patient_token,
     )
     result_progress = await session.execute(stmt_progress)
     progresses: List[LessonProgress] = result_progress.scalars().all()
@@ -302,7 +298,7 @@ async def get_lessons_overview(
 
     if test_ids:
         stmt_results = select(LessonTestResult).where(
-            LessonTestResult.patient_token == patient_token,
+            LessonTestResult.patient_token == user.patient_token,
             LessonTestResult.test_id.in_(test_ids),
             LessonTestResult.passed.is_(True),
         )
@@ -475,6 +471,7 @@ async def get_test_questions(
 async def submit_test_answers(
     test_id: int,
     payload: TestSubmitRequest,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -531,7 +528,7 @@ async def submit_test_answers(
 
     result = LessonTestResult(
         test_id=test_id,
-        patient_token=payload.patient_token,
+        patient_token=user.patient_token,
         score=score,
         max_score=max_score,
         passed=passed,
@@ -544,7 +541,7 @@ async def submit_test_answers(
         progress_q = await session.execute(
             select(LessonProgress).where(
                 LessonProgress.lesson_id == test.lesson_id,
-                LessonProgress.patient_token == payload.patient_token,
+                LessonProgress.patient_token == user.patient_token,
             )
         )
         progress = progress_q.scalar_one_or_none()
@@ -552,7 +549,7 @@ async def submit_test_answers(
         if progress is None:
             progress = LessonProgress(
                 lesson_id=test.lesson_id,
-                patient_token=payload.patient_token,
+                patient_token=user.patient_token,
                 is_completed=True,
             )
             session.add(progress)
@@ -578,7 +575,7 @@ async def submit_test_answers(
 )
 async def get_last_test_result(
     test_id: int,
-    patient_token: str,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -588,7 +585,7 @@ async def get_last_test_result(
         select(LessonTestResult)
         .where(
             LessonTestResult.test_id == test_id,
-            LessonTestResult.patient_token == patient_token,
+            LessonTestResult.patient_token == user.patient_token,
         )
         .order_by(LessonTestResult.created_at.desc())
         .limit(1)

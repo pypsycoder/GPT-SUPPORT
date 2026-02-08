@@ -11,6 +11,9 @@
   const resultBlock = document.getElementById('hads-result');
 
   function getPatientTokenFromPath() {
+    if (window.PatientAuth) {
+      return window.PatientAuth.getPatientToken();
+    }
     const parts = window.location.pathname.split('/').filter(Boolean);
     const pIndex = parts.indexOf('p');
     if (pIndex !== -1 && parts.length > pIndex + 1) {
@@ -132,7 +135,7 @@
     const dashboardUrl = (() => {
       const token = getPatientTokenFromPath();
       return token
-        ? `/p/${encodeURIComponent(token)}/vitals`
+        ? `/patient/vitals`
         : '/frontend/patient/vitals.html';
     })();
 
@@ -162,19 +165,12 @@
 
     progressText.textContent = 'Сохраняем ответы…';
 
-    const patientToken = getPatientTokenFromPath();
-    if (!patientToken) {
-      showStatus('Не найден токен пациента в адресе.', 'error');
-      isSubmitting = false;
-      return;
-    }
-
     fetch('/api/v1/scales/HADS/submit', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ patient_token: patientToken, answers }),
+      body: JSON.stringify({ answers }),
     })
       .then(async (resp) => {
         if (!resp.ok) {

@@ -15,6 +15,9 @@
   const submitBtn = document.getElementById('psqi-submit');
 
   function getPatientTokenFromPath() {
+    if (window.PatientAuth) {
+      return window.PatientAuth.getPatientToken();
+    }
     const parts = window.location.pathname.split('/').filter(Boolean);
     const pIndex = parts.indexOf('p');
     if (pIndex !== -1 && parts.length > pIndex + 1) {
@@ -383,13 +386,6 @@
     progressText.textContent = 'Сохраняем ответы...';
     navPanel.style.display = 'none';
 
-    var patientToken = getPatientTokenFromPath();
-    if (!patientToken) {
-      showStatus('Не найден токен пациента в адресе.', 'error');
-      isSubmitting = false;
-      return;
-    }
-
     // build answers array
     var answersArr = [];
     var keys = Object.keys(answers);
@@ -400,7 +396,7 @@
     fetch('/api/v1/scales/PSQI/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ patient_token: patientToken, answers: answersArr }),
+      body: JSON.stringify({ answers: answersArr }),
     })
       .then(function (resp) {
         if (!resp.ok) {
@@ -463,7 +459,7 @@
     var flags = result.clinical_flags || [];
 
     var token = getPatientTokenFromPath();
-    var backUrl = token ? '/p/' + encodeURIComponent(token) + '/scales' : '/';
+    var backUrl = token ? '/patient/scales' : '/';
 
     // components mini cards
     var compHtml = '';

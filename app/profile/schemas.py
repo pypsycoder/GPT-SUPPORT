@@ -83,7 +83,7 @@ class ProfileSummary(BaseModel):
     full_name: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
-    telegram_id: str
+    telegram_id: Optional[str] = None
     patient_token: str
     consent_personal_data: bool
     consent_bot_use: bool

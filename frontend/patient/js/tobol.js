@@ -14,6 +14,9 @@
   const resultBlock = document.getElementById('tobol-result');
 
   function getPatientTokenFromPath() {
+    if (window.PatientAuth) {
+      return window.PatientAuth.getPatientToken();
+    }
     const parts = window.location.pathname.split('/').filter(Boolean);
     const pIndex = parts.indexOf('p');
     if (pIndex !== -1 && parts.length > pIndex + 1) {
@@ -180,12 +183,6 @@
       });
     });
 
-    const patientToken = getPatientTokenFromPath();
-    if (!patientToken) {
-      showStatus('Не найден токен пациента в адресе.');
-      return;
-    }
-
     try {
       isSubmitting = true;
       updateSubmitState();
@@ -193,7 +190,7 @@
       const response = await fetch('/api/v1/scales/TOBOL/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patient_token: patientToken, answers }),
+        body: JSON.stringify({ answers }),
       });
 
       if (!response.ok) {

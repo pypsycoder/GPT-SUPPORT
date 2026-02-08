@@ -86,7 +86,6 @@ class TestAnswer(BaseModel):
 
 
 class TestSubmitRequest(BaseModel):
-    patient_token: str
     answers: List[TestAnswer]
 
 

@@ -1,0 +1,95 @@
+---
+description: Virtual environment location and activation
+alwaysApply: true
+---
+
+# Virtual Environment Setup
+
+## Путь к Virtual Environment
+
+Python virtual environment для проекта находится по адресу:
+
+```
+/d/PROJECT/venv/venv311/.venv/Scripts/activate
+```
+
+### Для Windows PowerShell
+
+Активация venv:
+```powershell
+& "/d/PROJECT/venv/venv311/.venv/Scripts/Activate.ps1"
+```
+
+Проверка активации:
+```powershell
+python --version  # должно быть из venv
+pip list          # должны видны пакеты проекта
+```
+
+### Для CMD
+
+Активация venv:
+```cmd
+cd /d/PROJECT/venv/venv311/.venv/Scripts/
+activate.bat
+```
+
+### Для Git Bash / MSYS2
+
+Активация venv:
+```bash
+source /d/PROJECT/venv/venv311/.venv/Scripts/activate
+```
+
+Git Bash находится по адресу:
+```
+C:\Program Files\Git\git-bash.exe
+```
+
+## ⚠️ Если PowerShell не работает
+
+Если PowerShell имеет проблемы или не активирует venv, используйте **Git Bash** как альтернативу:
+
+### Способ 1: Открыть Git Bash напрямую
+```
+C:\Program Files\Git\git-bash.exe
+```
+
+Затем активировать venv:
+```bash
+source /d/PROJECT/venv/venv311/.venv/Scripts/activate
+```
+
+### Способ 2: Запустить Git Bash из PowerShell
+```powershell
+& "C:\Program Files\Git\git-bash.exe" -i -l
+```
+
+### Способ 3: Использовать CMD вместо PowerShell
+Если PowerShell упорствует, CMD обычно работает более стабильно:
+```cmd
+"C:\Program Files\Git\venv\venv311\.venv\Scripts\activate.bat"
+```
+
+## Требования перед разработкой
+
+Перед запуском приложения или скриптов:
+
+✅ Убедитесь, что venv активирован (в prompt должно быть `(venv311)`)
+
+✅ Установите зависимости:
+```bash
+pip install -r requirements.txt
+```
+
+✅ Для тестирования используйте:
+```bash
+pip install -r requirements.txt  # если еще не установлены
+pytest  # или python -m pytest
+```
+
+## Важно
+
+- **Не коммитим** папку venv в Git (уже в .gitignore)
+- **Используем** requirements.txt для всех зависимостей
+- **При добавлении** новых пакетов: `pip install [package] && pip freeze > requirements.txt`

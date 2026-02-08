@@ -1,5 +1,9 @@
 (function () {
   function getPatientToken() {
+    // Use session-based auth if available, fallback to URL
+    if (window.PatientAuth) {
+      return window.PatientAuth.getPatientToken();
+    }
     const parts = window.location.pathname.split('/').filter(Boolean);
     const pIndex = parts.indexOf('p');
     if (pIndex !== -1 && parts.length > pIndex + 1) {
@@ -289,7 +293,9 @@
   }
 
   function safeFetch(url) {
-    return fetch(url).then((resp) => {
+    return fetch(url, {
+      credentials: 'include'
+    }).then((resp) => {
       if (!resp.ok) throw new Error(`Request failed ${resp.status}`);
       return resp.json();
     });
@@ -496,8 +502,7 @@
       }
 
       const historyUrl =
-        `/api/v1/scales/${encodeURIComponent(code)}/history?limit=7` +
-        (patientToken ? `&patient_token=${encodeURIComponent(patientToken)}` : '');
+        `/api/v1/scales/${encodeURIComponent(code)}/history?limit=7`;
 
       try {
         const history = await safeFetch(historyUrl);
@@ -547,9 +552,7 @@
     }
 
     try {
-      const overviewUrl =
-        `/api/v1/scales/overview` +
-        (patientToken ? `?patient_token=${encodeURIComponent(patientToken)}` : '');
+      const overviewUrl = `/api/v1/scales/overview`;
 
       const overview = await safeFetch(overviewUrl);
 
@@ -590,7 +593,7 @@
     }
 
     try {
-      const blocks = await safeFetch(`/api/v1/education/lessons/overview?patient_token=${encodeURIComponent(patientToken)}`);
+      const blocks = await safeFetch(`/api/v1/education/lessons/overview`);
       if (!Array.isArray(blocks) || blocks.length === 0) {
         labelEl.textContent = 'Нет данных';
         titleEl.textContent = 'Нет активных тем';
@@ -631,16 +634,13 @@
     }
   }
 
-  function initNavigation(patientToken) {
+  function initNavigation() {
     const vitalsCards = ['card-bp', 'card-pulse', 'card-weight', 'card-water'];
     vitalsCards.forEach((id) => {
       const card = document.getElementById(id);
       if (card) {
         card.addEventListener('click', () => {
-          const target = patientToken
-            ? `/p/${encodeURIComponent(patientToken)}/vitals`
-            : '/frontend/patient/vitals.html';
-          window.location.href = target;
+          window.location.href = '/patient/vitals';
         });
       }
     });
@@ -648,25 +648,24 @@
     const scalesCard = document.getElementById('card-scales');
     if (scalesCard) {
       scalesCard.addEventListener('click', () => {
-        const target = patientToken
-          ? `/p/${encodeURIComponent(patientToken)}/scales`
-          : '/frontend/patient/scales_overview.html';
-        window.location.href = target;
+        window.location.href = '/patient/scales';
       });
     }
 
     const eduCard = document.getElementById('card-education');
     if (eduCard) {
       eduCard.addEventListener('click', () => {
-        const target = patientToken
-          ? `/p/${encodeURIComponent(patientToken)}/education_overview`
-          : '/frontend/patient/education_overview.html';
-        window.location.href = target;
+        window.location.href = '/patient/education_overview';
       });
     }
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    // Use session-based auth; redirects to /login if not authenticated
+    if (window.PatientAuth) {
+      await window.PatientAuth.requireAuth();
+    }
+
     const patientToken = getPatientToken();
     updateHeaderToken(patientToken);
 
@@ -676,6 +675,6 @@
       loadEducation(patientToken),
     ]);
 
-    initNavigation(patientToken);
+    initNavigation();
   });
 })();
