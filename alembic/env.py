@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import os
 from logging.config import fileConfig
+import json
+import time
+from urllib.parse import urlparse
 from pathlib import Path
 
 from alembic import context
@@ -37,7 +40,7 @@ print("### SYNC_DATABASE_URL:", os.getenv("SYNC_DATABASE_URL"))
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # ------------------------------------------------------------------------------
 # Project metadata
@@ -45,10 +48,29 @@ if config.config_file_name is not None:
 
 from app.models import Base  # noqa
 import app.users.models  # noqa: F401
+import app.researchers.models  # noqa: F401
 import app.scales.models  # noqa: F401
 import app.vitals.models  # noqa: F401
 
 target_metadata = Base.metadata
+
+_DEBUG_LOG_PATH = Path(r"d:\PROJECT\GPT-SUPPORT\.cursor\debug.log")
+
+
+def _debug_log(*, run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        return
 
 # ------------------------------------------------------------------------------
 # Helpers
@@ -65,17 +87,32 @@ def _get_sync_url() -> str:
 
     Если async (postgresql+asyncpg) — меняем на sync (postgresql+psycopg).
     """
-    url = (
-        os.getenv("SYNC_DATABASE_URL")
-        or os.getenv("APP_DATABASE_URL")
-        or os.getenv("DATABASE_URL")
-        or ""
-    )
+    source = None
+    url = os.getenv("DATABASE_URL") or ""
+    if url:
+        source = "DATABASE_URL"
     if not url:
-        raise RuntimeError("Нет SYNC_DATABASE_URL / APP_DATABASE_URL / DATABASE_URL в .env")
+        raise RuntimeError("Нет DATABASE_URL в .env")
 
     if "+asyncpg" in url:
         url = url.replace("+asyncpg", "+psycopg")
+
+    parsed = urlparse(url)
+    # region agent log
+    _debug_log(
+        run_id="pre-fix",
+        hypothesis_id="H2",
+        location="alembic/env.py:_get_sync_url",
+        message="resolved sync url metadata",
+        data={
+            "source": source,
+            "driver": parsed.scheme,
+            "host": parsed.hostname,
+            "port": parsed.port,
+            "database": (parsed.path or "").lstrip("/"),
+        },
+    )
+    # endregion
 
     return url
 
@@ -113,6 +150,16 @@ def run_migrations_online() -> None:
     section = config.get_section(config.config_ini_section) or {}
     section["sqlalchemy.url"] = url
 
+    # region agent log
+    _debug_log(
+        run_id="pre-fix",
+        hypothesis_id="H2",
+        location="alembic/env.py:run_migrations_online",
+        message="starting online migration",
+        data={"has_url": bool(url)},
+    )
+    # endregion
+
     connectable = engine_from_config(
         section,
         prefix="sqlalchemy.",
@@ -140,7 +187,6 @@ def run_migrations_online() -> None:
             version_table_schema="public",
         )
 
-        # 🔴 ЭТОГО СЕЙЧАС НЕТ:
         with context.begin_transaction():
             context.run_migrations()
 

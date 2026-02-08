@@ -1,7 +1,7 @@
-"""Merge multiple heads
+"""Merge multiple heads (fixed chain)
 
 Revision ID: d2f20e5011be
-Revises: 86a0d2c1f8e3, a515d149cfa3
+Revises: c9f0e1d2a3b4
 Create Date: 2025-11-18 23:45:51.370161
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'd2f20e5011be'
-down_revision: Union[str, Sequence[str], None] = ('86a0d2c1f8e3', 'a515d149cfa3')
+down_revision: Union[str, Sequence[str], None] = 'c9f0e1d2a3b4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
