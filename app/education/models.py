@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, List
+from typing import TYPE_CHECKING, Optional, List
 
 from sqlalchemy import (
     Boolean,
@@ -18,7 +18,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models import Base
-from app.users.models import User
+
+if TYPE_CHECKING:
+    from app.users.models import User
 
 
 EDUCATION_SCHEMA = "education"
