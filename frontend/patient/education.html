@@ -84,7 +84,7 @@
     // Отметить урок как "прочитанный"
     // ============================
     async function markLessonAsRead() {
-        if (!patientToken || !lessonCode) {
+        if (!lessonCode) {
             return;
         }
 
@@ -94,13 +94,13 @@
 
         try {
             const resp = await fetch(
-                `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/mark_read` +
-                `?patient_token=${encodeURIComponent(patientToken)}`,
+                `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/mark_read`,
                 {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json'
-                    }
+                    },
+                    credentials: 'include'
                 }
             );
 
@@ -277,7 +277,9 @@
         if (!lessonCode) return;
 
         try {
-            const resp = await fetch(`${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/test`);
+            const resp = await fetch(`${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/test`, {
+                credentials: 'include'
+            });
             if (!resp.ok) {
                 return;
             }
@@ -408,9 +410,9 @@
     backBtn.addEventListener('click', () => {
         if (patientToken) {
             window.location.href =
-                `/p/${encodeURIComponent(patientToken)}/education_overview`;
+                `/patient/education_overview`;
         } else {
-            window.location.href = '/frontend/patient/education_overview.html';
+            window.location.href = '/patient/education_overview';
         }
     });
 
@@ -431,7 +433,7 @@
         testBtn.textContent = 'Пройти тест';
         testBtn.addEventListener('click', () => {
             const url =
-                `/p/${encodeURIComponent(patientToken)}/education_test.html?lesson=${encodeURIComponent(lessonCode)}`;
+                `/patient/education_test.html?lesson=${encodeURIComponent(lessonCode)}`;
             window.location.href = url;
         });
 
@@ -456,7 +458,9 @@
 
         try {
             // 1. грузим список уроков
-            const respLessons = await fetch(`${API_BASE}/lessons`);
+            const respLessons = await fetch(`${API_BASE}/lessons`, {
+                credentials: 'include'
+            });
             if (!respLessons.ok) {
                 throw new Error('Сервер вернул ошибку при загрузке списка уроков');
             }
@@ -480,7 +484,10 @@
 
             // 2. грузим карточки этого урока
             const respCards = await fetch(
-                `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/cards`
+                `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/cards`,
+                {
+                    credentials: 'include'
+                }
             );
             if (!respCards.ok) {
                 throw new Error('Ошибка при загрузке карточек урока');
@@ -535,6 +542,8 @@
     });
 </script>
 
+<!-- auth -->
+<script src="/frontend/patient/js/auth.js"></script>
 <!-- общий сайдбар для всех страниц пациента -->
 <script src="/frontend/patient/js/sidebar.js"></script>
 <!-- общий header (тот же, что в education / education_test) -->

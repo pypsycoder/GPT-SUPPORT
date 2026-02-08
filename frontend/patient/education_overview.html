@@ -357,11 +357,11 @@
                             let targetUrl;
                             if (patientToken) {
                                 targetUrl =
-                                    `/p/${encodeURIComponent(patientToken)}/education?lesson=${encodeURIComponent(lessonCode)}`;
+                                    `/patient/education?lesson=${encodeURIComponent(lessonCode)}`;
                             } else {
                                 // запасной вариант, если вдруг не нашли токен (локальный стенд, тесты и т.п.)
                                 targetUrl =
-                                    `/frontend/patient/education.html?lesson=${encodeURIComponent(lessonCode)}`;
+                                    `/patient/education?lesson=${encodeURIComponent(lessonCode)}`;
                             }
 
                             window.location.href = targetUrl;
@@ -393,34 +393,19 @@
     async function loadEducationOverview(patientToken) {
         const container = document.getElementById('education-blocks-container');
 
-        if (!patientToken) {
-            setEducationStatus('error',
-                'Не удалось определить токен пациента из адреса страницы. Проверьте ссылку или обратитесь к врачу.');
-            if (container) {
-                container.innerHTML = '';
-                const card = document.createElement('article');
-                card.className = 'edu-topic-card';
-                const msg = document.createElement('div');
-                msg.className = 'edu-empty';
-                msg.textContent = 'Нет токена пациента. Невозможно загрузить список занятий.';
-                card.appendChild(msg);
-                container.appendChild(card);
-            }
-            return;
-        }
-
         // Во время загрузки статус убираем, оставляем "Загрузка..." в контенте
         setEducationStatus('none', '');
 
         const API_BASE = ''; // тот же хост, что и фронтенд
 
         try {
-            const url = `${API_BASE}/api/v1/education/lessons/overview?patient_token=${encodeURIComponent(patientToken)}`;
+            const url = `${API_BASE}/api/v1/education/lessons/overview`;
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json'
-                }
+                },
+                credentials: 'include'
             });
 
             if (!response.ok) {
@@ -468,6 +453,8 @@
     });
 </script>
 
+<!-- auth -->
+<script src="/frontend/patient/js/auth.js"></script>
 <!-- Общий сайдбар -->
 <script src="/frontend/patient/js/sidebar.js"></script>
 <!-- Общий глобальный хедер -->

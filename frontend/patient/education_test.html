@@ -123,7 +123,10 @@
         }
 
         const resp = await fetch(
-            `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/test`
+            `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/test`,
+            {
+                credentials: 'include'
+            }
         );
 
         if (resp.status === 404) {
@@ -138,7 +141,9 @@
     }
 
     async function fetchTestQuestions(testId) {
-        const resp = await fetch(`${API_BASE}/tests/${testId}/questions`);
+        const resp = await fetch(`${API_BASE}/tests/${testId}/questions`, {
+            credentials: 'include'
+        });
 
         if (!resp.ok) {
             throw new Error('Не удалось загрузить вопросы теста');
@@ -161,7 +166,6 @@
 
     async function submitTestAnswers() {
         const payload = {
-            patient_token: patientToken,
             answers: Object.entries(answers).map(([questionId, chosenOption]) => ({
                 question_id: Number(questionId),
                 chosen_option: chosenOption
@@ -171,6 +175,7 @@
         const resp = await fetch(`${API_BASE}/tests/${testId}/submit`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
             body: JSON.stringify(payload)
         });
 
@@ -292,19 +297,14 @@
         backToLessonBtn.className = 'secondary-button';
         backToLessonBtn.textContent = 'Вернуться к уроку';
         backToLessonBtn.addEventListener('click', () => {
-            if (!patientToken) {
-                window.location.href = '/';
-                return;
-            }
-
             if (lessonCode) {
                 // возвращаемся в тот же урок, что открывали тест
                 window.location.href =
-                    `/p/${encodeURIComponent(patientToken)}/education?lesson=${encodeURIComponent(lessonCode)}`;
+                    `/patient/education?lesson=${encodeURIComponent(lessonCode)}`;
             } else {
                 // если по какой-то причине lessonCode нет — в навигатор
                 window.location.href =
-                    `/p/${encodeURIComponent(patientToken)}/education_overview`;
+                    `/patient/education_overview`;
             }
         });
         actions.appendChild(backToLessonBtn);
@@ -314,12 +314,8 @@
         backToListBtn.className = 'secondary-button';
         backToListBtn.textContent = 'К другим занятиям';
         backToListBtn.addEventListener('click', () => {
-            if (!patientToken) {
-                window.location.href = '/';
-                return;
-            }
             window.location.href =
-                `/p/${encodeURIComponent(patientToken)}/education_overview`;
+                `/patient/education_overview`;
         });
         actions.appendChild(backToListBtn);
 
@@ -363,14 +359,6 @@
     // ======== Инициализация ========
 
     async function init() {
-        if (!patientToken) {
-            lessonSubtitleEl.textContent = 'Не найден идентификатор пациента в ссылке.';
-            questionTextEl.textContent = 'Проверьте, что вы открыли страницу по персональной ссылке.';
-            optionsListEl.innerHTML = '';
-            nextButtonEl.disabled = true;
-            return;
-        }
-
         if (!lessonCode) {
             lessonSubtitleEl.textContent = 'Не указан код занятия (?lesson=...).';
             questionTextEl.textContent = 'Проверьте ссылку или вернитесь к списку уроков.';
@@ -428,6 +416,8 @@
 </script>
 
 
+<!-- auth -->
+<script src="/frontend/patient/js/auth.js"></script>
 <!-- общий сайдбар -->
 <script src="/frontend/patient/js/sidebar.js"></script>
 <!-- общий header (тот же, что в education / education_test) -->
