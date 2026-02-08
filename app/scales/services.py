@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Union
 
 from sqlalchemy import text
@@ -79,7 +79,7 @@ async def save_scale_result(
         user_id=user_id,
         scale_code=scale_code,
         scale_version=scale_version,
-        measured_at=datetime.utcnow(),
+        measured_at=datetime.now(timezone.utc),
         result_json=result_json,
         answers_json=answers_log,
     )

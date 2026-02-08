@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import UUID
 
@@ -18,7 +18,8 @@ from app.scales.services import (
     get_scale_config,
     save_scale_result,
 )
-from app.users.crud import get_user_by_patient_token
+from app.auth.dependencies import get_current_user
+from app.users.models import User
 from core.db.session import get_async_session
 
 router = APIRouter(tags=["scales"])
@@ -49,7 +50,6 @@ class ScaleAnswerIn(BaseModel):
 
 
 class ScaleSubmitRequest(BaseModel):
-    patient_token: str
     answers: List[ScaleAnswerIn]
 
 
@@ -59,7 +59,6 @@ class TobolAnswerIn(BaseModel):
 
 
 class TobolSubmitRequest(BaseModel):
-    patient_token: str
     scale_id: str | None = None
     answers: List[TobolAnswerIn]
 
@@ -70,7 +69,6 @@ class PsqiAnswerIn(BaseModel):
 
 
 class PsqiSubmitRequest(BaseModel):
-    patient_token: str
     answers: List[PsqiAnswerIn]
 
 
@@ -98,23 +96,6 @@ class ScaleHistoryItem(BaseModel):
     summary: str | None
 
 
-async def resolve_user_id_by_patient_token(
-    session: AsyncSession, patient_token: str
-) -> int:
-    """
-    Возвращает внутренний user_id по patient_token.
-
-    Если пользователь не найден — выбрасывает 404.
-    """
-
-    user = await get_user_by_patient_token(session=session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пациент с таким токеном не найден",
-        )
-
-    return user.id
 
 
 @router.get("/HADS", response_model=ScaleDefinitionOut)
@@ -171,13 +152,10 @@ async def get_tobol_definition() -> ScaleDefinitionOut:
 @router.post("/HADS/submit", response_model=ScaleResultOut)
 async def submit_hads(
     payload: ScaleSubmitRequest,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> ScaleResultOut:
     """Принимаем ответы по HADS, считаем результат и логируем в БД."""
-
-    user_id = await resolve_user_id_by_patient_token(
-        session=session, patient_token=payload.patient_token
-    )
 
     try:
         scale_config = get_scale_config("HADS")
@@ -196,7 +174,7 @@ async def submit_hads(
     # сохраняем результат в БД
     saved = await save_scale_result(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         scale_code=scale_config["code"],
         scale_version=scale_config.get("version", ""),
         result_json=result_json,
@@ -208,18 +186,17 @@ async def submit_hads(
         scale_code=saved.scale_code,
         scale_version=saved.scale_version,
         result=result_json,
-        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
+        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.now(timezone.utc),
     )
 
 
 @router.post("/TOBOL/submit", response_model=ScaleResultOut)
 async def submit_tobol(
     payload: TobolSubmitRequest,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> ScaleResultOut:
     """Принимаем ответы по ТОБОЛ, считаем результат и логируем в БД."""
-
-    user_id = await resolve_user_id_by_patient_token(session=session, patient_token=payload.patient_token)
 
     if payload.scale_id and payload.scale_id.upper() != "TOBOL":
         raise HTTPException(
@@ -239,7 +216,7 @@ async def submit_tobol(
 
     saved = await save_scale_result(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         scale_code=scale_config["code"],
         scale_version=scale_config.get("version", ""),
         result_json=result_json,
@@ -251,7 +228,7 @@ async def submit_tobol(
         scale_code=saved.scale_code,
         scale_version=saved.scale_version,
         result=result_json,
-        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
+        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.now(timezone.utc),
     )
 
 
@@ -280,13 +257,10 @@ async def get_kop25a_definition() -> ScaleDefinitionOut:
 @router.post("/KOP25A/submit", response_model=ScaleResultOut)
 async def submit_kop25a(
     payload: ScaleSubmitRequest,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> ScaleResultOut:
     """Принимаем ответы по KOP-25A, считаем результат и логируем в БД."""
-
-    user_id = await resolve_user_id_by_patient_token(
-        session=session, patient_token=payload.patient_token
-    )
 
     try:
         scale_config = get_scale_config("KOP25A")
@@ -309,7 +283,7 @@ async def submit_kop25a(
 
     saved = await save_scale_result(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         scale_code=scale_config["code"],
         scale_version=scale_config.get("version", ""),
         result_json=result_json,
@@ -321,7 +295,7 @@ async def submit_kop25a(
         scale_code=saved.scale_code,
         scale_version=saved.scale_version,
         result=result_json,
-        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
+        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.now(timezone.utc),
     )
 
 
@@ -339,13 +313,10 @@ async def get_psqi_definition():
 @router.post("/PSQI/submit", response_model=ScaleResultOut)
 async def submit_psqi(
     payload: PsqiSubmitRequest,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> ScaleResultOut:
     """Принимаем ответы по PSQI, считаем результат и логируем в БД."""
-
-    user_id = await resolve_user_id_by_patient_token(
-        session=session, patient_token=payload.patient_token
-    )
 
     try:
         scale_config = get_scale_config("PSQI")
@@ -362,7 +333,7 @@ async def submit_psqi(
 
     saved = await save_scale_result(
         session=session,
-        user_id=user_id,
+        user_id=user.id,
         scale_code=scale_config["code"],
         scale_version=scale_config.get("version", ""),
         result_json=result_json,
@@ -374,7 +345,7 @@ async def submit_psqi(
         scale_code=saved.scale_code,
         scale_version=saved.scale_version,
         result=result_json,
-        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.utcnow(),
+        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.now(timezone.utc),
     )
 
 
@@ -384,17 +355,15 @@ def _get_scale_title(scale_code: str) -> str:
     except ValueError:
         return scale_code
 
-# Сводка по шкалам для токена
+# Сводка по шкалам для текущего пользователя
 @router.get("/overview", response_model=list[ScaleOverviewItem])
 async def get_scales_overview(
-    patient_token: str,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ) -> list[ScaleOverviewItem]:
-    user_id = await resolve_user_id_by_patient_token(session, patient_token)
-
     stmt = (
         select(ScaleResult)
-        .where(ScaleResult.user_id == user_id)
+        .where(ScaleResult.user_id == user.id)
         .order_by(ScaleResult.scale_code, ScaleResult.measured_at.desc())
     )
     res = await session.execute(stmt)
@@ -425,16 +394,14 @@ async def get_scales_overview(
 @router.get("/{scale_code}/history", response_model=list[ScaleHistoryItem])
 async def get_scale_history(
     scale_code: str,
-    patient_token: str,
-    limit: int = 20,
+    user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
+    limit: int = 20,
 ) -> list[ScaleHistoryItem]:
-    user_id = await resolve_user_id_by_patient_token(session, patient_token)
-
     stmt = (
         select(ScaleResult)
         .where(
-            ScaleResult.user_id == user_id,
+            ScaleResult.user_id == user.id,
             ScaleResult.scale_code == scale_code,
         )
         .order_by(ScaleResult.measured_at.desc())
