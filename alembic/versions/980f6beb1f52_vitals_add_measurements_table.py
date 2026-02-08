@@ -1,7 +1,7 @@
 """vitals: add measurements table
 
 Revision ID: 980f6beb1f52
-Revises:
+Revises: a515d149cfa3
 Create Date: 2025-11-12 16:01:38.803048
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "980f6beb1f52"
-down_revision: Union[str, Sequence[str], None] = None
+down_revision: Union[str, Sequence[str], None] = "a515d149cfa3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
