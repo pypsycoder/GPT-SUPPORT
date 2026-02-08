@@ -141,26 +141,32 @@
     }
 
     async function fetchTestQuestions(testId) {
+        console.log('Fetching questions for testId:', testId);
         const resp = await fetch(`${API_BASE}/tests/${testId}/questions`, {
             credentials: 'include'
         });
 
         if (!resp.ok) {
+            console.error('Failed to fetch questions, status:', resp.status);
             throw new Error('Не удалось загрузить вопросы теста');
         }
 
         const data = await resp.json();
+        console.log('Questions data received:', data);
 
         // поддерживаем оба варианта ответа:
         // 1) [ {...}, {...} ]
         // 2) { test_id: 1, questions: [ {...}, {...} ] }
         if (Array.isArray(data)) {
+            console.log('Data is array, returning as is');
             return data;
         }
         if (data && Array.isArray(data.questions)) {
+            console.log('Data is object with questions array, returning questions');
             return data.questions;
         }
 
+        console.error('Unexpected data format:', data);
         throw new Error('Неожиданный формат данных вопросов теста');
     }
 
@@ -371,8 +377,10 @@
 
         try {
             const testInfo = await fetchLessonTest();
+            console.log('testInfo received:', testInfo);
 
             if (!testInfo || !testInfo.test_id) {
+                console.warn('No test_id found:', testInfo);
                 lessonSubtitleEl.textContent = 'Для этого занятия тест пока не готов.';
                 questionTextEl.textContent = 'Вы можете вернуться к материалу и пройти тест позже.';
                 optionsListEl.innerHTML = '';
@@ -381,6 +389,7 @@
             }
 
             testId = testInfo.test_id;
+            console.log('testId set to:', testId);
 
             if (testInfo.title) {
                 lessonTitleEl.textContent = `Тест по занятию: ${testInfo.title}`;
