@@ -34,10 +34,8 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('token'),
     schema='users'
     )
-    op.create_table('alembic_version',
-    sa.Column('version_num', sa.VARCHAR(length=32), autoincrement=False, nullable=False),
-    sa.PrimaryKeyConstraint('version_num', name=op.f('alembic_version_pkc'))
-    )
+    # Create alembic_version if it doesn't exist
+    op.execute('CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)')
     op.drop_table('responses', schema='scales')
     op.drop_table('drafts', schema='scales')
     op.drop_index(op.f('ix_researchers_username'), table_name='researchers', schema='users')
