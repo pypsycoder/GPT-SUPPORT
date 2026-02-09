@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.users.models import User
 from bots.shared.utils import logger
-from app.users.utils import generate_patient_token
 
 
 # get_user_by_telegram_id
@@ -28,28 +27,6 @@ async def get_user_by_telegram_id(
 
     logger.debug("[users][crud] get_user_by_telegram_id(%s) -> %s", telegram_id, user.id if user else None)
     return user
-
-# get_user_by_patient_token
-async def get_user_by_patient_token(
-    session: AsyncSession,
-    patient_token: str,
-) -> Optional[User]:
-    """
-    Найти пользователя по patient_token.
-
-    Ничего не коммитит — просто читает из БД.
-    """
-    stmt = select(User).where(User.patient_token == patient_token)
-    result = await session.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    logger.debug(
-        "[users][crud] get_user_by_patient_token(%s) -> %s",
-        patient_token,
-        user.id if user else None,
-    )
-    return user
-
 
 # save_user
 async def save_user(
@@ -100,8 +77,6 @@ async def save_user(
     user = User(
         telegram_id=telegram_id,
         full_name=full_name,
-        patient_token=generate_patient_token(),  # генерация токена для пациента
-
     )
     session.add(user)
     await session.commit()

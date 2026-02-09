@@ -1,0 +1,43 @@
+# /path/to/gpt-health-support/.cursorignore
+
+# Зависимости Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Alembic миграции (старые)
+alembic/versions/*.py
+
+# База данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи
+*.log
+logs/
+
+# Данные и тесты
+data/
+test_data/
+fixtures/
+
+# Документация (доступна через @docs/file.md)
+docs/
+*.md
+
+# Конфиги
+.env
+.env.*
+*.local
+
+# Node/JS (если есть фронтенд)
+node_modules/
+dist/
+build/
+
+

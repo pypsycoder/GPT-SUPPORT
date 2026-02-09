@@ -55,7 +55,6 @@ async def main() -> None:
                 print(f"  Patient Number: {p.patient_number}")
                 print(f"  Age:            {p.age or '(not set)'}")
                 print(f"  Gender:         {p.gender or '(not set)'}")
-                print(f"  Token:          {p.patient_token}")
                 print(f"  Locked:         {'Yes' if p.is_locked else 'No'}")
                 print()
         

@@ -47,6 +47,16 @@ class BPMeasurementCreate(BPMeasurementBase):
     pass
 
 
+class BPMeasurementCreateMe(BaseModel):
+    """Тело запроса для POST /vitals/bp/me (user_id берётся из сессии)."""
+    systolic: int
+    diastolic: int
+    pulse: Optional[int] = None
+    session_id: Optional[UUID] = None
+    measured_at: Optional[datetime] = None
+    context: MeasurementContext = MeasurementContext.NA
+
+
 class BPMeasurementUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -74,6 +84,13 @@ class PulseMeasurementCreate(PulseMeasurementBase):
     pass
 
 
+class PulseMeasurementCreateMe(BaseModel):
+    bpm: int
+    session_id: Optional[UUID] = None
+    measured_at: Optional[datetime] = None
+    context: MeasurementContext = MeasurementContext.NA
+
+
 class PulseMeasurementUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -97,6 +114,13 @@ class WeightMeasurementBase(BaseVitalsSchema):
 
 class WeightMeasurementCreate(WeightMeasurementBase):
     pass
+
+
+class WeightMeasurementCreateMe(BaseModel):
+    weight: float
+    session_id: Optional[UUID] = None
+    measured_at: Optional[datetime] = None
+    context: MeasurementContext = MeasurementContext.NA
 
 
 class WeightMeasurementUpdate(BaseModel):
@@ -123,6 +147,14 @@ class WaterIntakeBase(BaseVitalsSchema):
 
 class WaterIntakeCreate(WaterIntakeBase):
     pass
+
+
+class WaterIntakeCreateMe(BaseModel):
+    volume_ml: int
+    liquid_type: Optional[str] = None
+    session_id: Optional[UUID] = None
+    measured_at: Optional[datetime] = None
+    context: MeasurementContext = MeasurementContext.NA
 
 
 class WaterIntakeUpdate(BaseModel):

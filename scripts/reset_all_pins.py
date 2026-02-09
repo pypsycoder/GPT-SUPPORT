@@ -40,15 +40,14 @@ async def main() -> None:
                 'name': patient.full_name,
                 'number': patient.patient_number,
                 'pin': new_pin,
-                'token': patient.patient_token,
             })
         
         # Display table
-        print(f"\n{'ID':<4} {'Name':<25} {'Number':<10} {'PIN':<6} {'Token':<35}")
-        print(f"{'-'*4} {'-'*25} {'-'*10} {'-'*6} {'-'*35}")
+        print(f"\n{'ID':<4} {'Name':<25} {'Number':<10} {'PIN':<6}")
+        print(f"{'-'*4} {'-'*25} {'-'*10} {'-'*6}")
         
         for cred in patient_creds:
-            print(f"{cred['id']:<4} {cred['name']:<25} {cred['number']:<10} {cred['pin']:<6} {cred['token']:<35}")
+            print(f"{cred['id']:<4} {cred['name']:<25} {cred['number']:<10} {cred['pin']:<6}")
         
         print(f"\n{'='*80}")
         print(f"\nDetailed credentials:\n")
@@ -59,7 +58,6 @@ async def main() -> None:
             print(f"  Name:            {cred['name']}")
             print(f"  Patient Number:  {cred['number']}")
             print(f"  PIN:             {cred['pin']} (NEW)")
-            print(f"  Token:           {cred['token']}")
             print()
         
         print(f"{'='*80}\n")

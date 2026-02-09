@@ -102,7 +102,7 @@ body {
 .card-main-row {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
-  align-items: center;
+  align-items: start;
   gap: 10px;
 }
 

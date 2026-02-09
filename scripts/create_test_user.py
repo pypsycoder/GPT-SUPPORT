@@ -35,7 +35,6 @@ async def main(full_name: str, age: int | None, gender: str | None) -> None:
         print(f"Full Name:        {user.full_name}")
         print(f"Patient Number:   {user.patient_number}")
         print(f"PIN:              {pin}")
-        print(f"Patient Token:    {user.patient_token}")
         print(f"Age:              {user.age}")
         print(f"Gender:           {user.gender}")
         print(f"{'='*60}\n")

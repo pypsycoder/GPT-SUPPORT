@@ -1,17 +1,4 @@
 (function () {
-  function getPatientToken() {
-    // Use session-based auth if available, fallback to URL
-    if (window.PatientAuth) {
-      return window.PatientAuth.getPatientToken();
-    }
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const pIndex = parts.indexOf('p');
-    if (pIndex !== -1 && parts.length > pIndex + 1) {
-      return parts[pIndex + 1];
-    }
-    return null;
-  }
-
   function formatDateLabel(dateString) {
     if (!dateString) return '—';
     const date = new Date(dateString);
@@ -285,13 +272,6 @@
     return diff > 0 ? `Есть рост${suffix}` : `Снижение${suffix}`;
   }
 
-  function updateHeaderToken(token) {
-    const el = document.getElementById('header-token');
-    if (el && token) {
-      el.textContent = `Токен пациента: ${token}`;
-    }
-  }
-
   function safeFetch(url) {
     return fetch(url, {
       credentials: 'include'
@@ -301,9 +281,9 @@
     });
   }
 
-  async function loadDailyWaterTotal(patientToken) {
+  async function loadDailyWaterTotal() {
     try {
-      const data = await safeFetch(`/vitals/water/daily-total/by-token/${encodeURIComponent(patientToken)}`);
+      const data = await safeFetch('/api/v1/vitals/water/daily-total/me');
       const latestEl = document.getElementById('water-latest');
       const trendEl = document.getElementById('water-trend');
 
@@ -368,16 +348,14 @@
     }
   }
 
-  async function loadWaterCard(patientToken) {
-    if (!patientToken) return;
-
+  async function loadWaterCard() {
     const chartEl = document.getElementById('water-chart');
     const latestEl = document.getElementById('water-latest');
     const trendEl = document.getElementById('water-trend');
     const updatedAtEl = document.getElementById('water-updated-at');
 
     try {
-      const data = await safeFetch(`/vitals/water/by-token/${encodeURIComponent(patientToken)}?limit=200&order_by=measured_at desc`);
+      const data = await safeFetch('/api/v1/vitals/water/me?limit=200&order_by=measured_at desc');
 
       if (!Array.isArray(data) || data.length === 0) {
         if (latestEl) latestEl.textContent = '—';
@@ -436,13 +414,11 @@
     }
   }
 
-  async function loadVitals(patientToken) {
-    if (!patientToken) return;
-
+  async function loadVitals() {
     await Promise.all([
       loadVitalsCard({
         idPrefix: 'bp',
-        endpoint: `/vitals/bp/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
+        endpoint: '/api/v1/vitals/bp/me?limit=7&order_by=measured_at desc',
         formatValue: (item) => `${item.systolic ?? '—'} / ${item.diastolic ?? '—'}`,
         trendSuffix: '',
         chartMapper: (item) => ({
@@ -454,7 +430,7 @@
       }),
       loadVitalsCard({
         idPrefix: 'pulse',
-        endpoint: `/vitals/pulse/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
+        endpoint: '/api/v1/vitals/pulse/me?limit=7&order_by=measured_at desc',
         formatValue: (item) => `${item.bpm ?? '—'} уд/мин`,
         trendSuffix: '',
         chartMapper: (item) => ({ value: item.bpm || 0, date: item.measured_at }),
@@ -462,18 +438,18 @@
       }),
       loadVitalsCard({
         idPrefix: 'weight',
-        endpoint: `/vitals/weight/by-token/${encodeURIComponent(patientToken)}?limit=7&order_by=measured_at desc`,
+        endpoint: '/api/v1/vitals/weight/me?limit=7&order_by=measured_at desc',
         formatValue: (item) => `${item.weight ?? '—'} кг`,
         trendSuffix: '',
         chartMapper: (item) => ({ value: item.weight || 0, date: item.measured_at }),
       }),
 
-      loadWaterCard(patientToken),
+      loadWaterCard(),
 
     ]);
   }
 
-  async function loadScales(patientToken) {
+  async function loadScales() {
     const selectEl = document.getElementById('scale-select');
     const scoreEl = document.getElementById('scale-main-score');
     const summaryEl = document.getElementById('scale-main-summary');
@@ -546,13 +522,8 @@
       selectEl.addEventListener('change', updateSelectedScale);
     }
 
-    if (!patientToken) {
-      setEmptyState();
-      return;
-    }
-
     try {
-      const overviewUrl = `/api/v1/scales/overview`;
+      const overviewUrl = '/api/v1/scales/overview';
 
       const overview = await safeFetch(overviewUrl);
 
@@ -579,18 +550,11 @@
     }
   }
 
-  async function loadEducation(patientToken) {
+  async function loadEducation() {
     const fillEl = document.getElementById('education-progress-fill');
     const labelEl = document.getElementById('education-progress-label');
     const titleEl = document.getElementById('education-last-title');
     const captionEl = document.getElementById('education-last-caption');
-
-    if (!patientToken) {
-      labelEl.textContent = 'Нет данных';
-      titleEl.textContent = 'Недоступно';
-      captionEl.textContent = 'Авторизуйтесь по токену пациента.';
-      return;
-    }
 
     try {
       const blocks = await safeFetch(`/api/v1/education/lessons/overview`);
@@ -666,13 +630,10 @@
       await window.PatientAuth.requireAuth();
     }
 
-    const patientToken = getPatientToken();
-    updateHeaderToken(patientToken);
-
     await Promise.all([
-      loadVitals(patientToken),
-      loadScales(patientToken),
-      loadEducation(patientToken),
+      loadVitals(),
+      loadScales(),
+      loadEducation(),
     ]);
 
     initNavigation();

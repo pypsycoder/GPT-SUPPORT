@@ -74,21 +74,11 @@
 
     const API_BASE = '/api/v1/education';
 
-    function getPatientTokenFromPath() {
-        const parts = window.location.pathname.split('/').filter(Boolean);
-        // ожидаем: /p/{patient_token}/education_test.html
-        if (parts[0] === 'p' && parts.length >= 2) {
-            return parts[1];
-        }
-        return null;
-    }
-
     function getQueryParam(name) {
         const params = new URLSearchParams(window.location.search);
         return params.get(name);
     }
 
-    const patientToken = getPatientTokenFromPath();
     const lessonCode = getQueryParam('lesson');  // Lesson.code, тот же, что в education.html
 
     // ======== Селекторы ========

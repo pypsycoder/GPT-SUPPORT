@@ -34,9 +34,6 @@ class User(Base):
     telegram_id = Column(String, unique=True, index=True, nullable=True)
     external_ids = Column(JSON, nullable=True)
 
-    # веб-токен пациента для доступа к формам (legacy, сохраняем)
-    patient_token = Column(String(64), unique=True, index=True, nullable=True)
-
     # --- PIN-авторизация ---
     patient_number = Column(Integer, unique=True, index=True, nullable=True)
     pin_hash = Column(String(128), nullable=True)

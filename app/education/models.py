@@ -180,7 +180,7 @@ class PracticeLog(Base):
     practice: Mapped["Practice"] = relationship(back_populates="logs")
 
 # ---------------------------
-# Прогресс урока (для Web, через patient_token)
+# Прогресс урока (по user_id из сессии)
 # ---------------------------
 
 class LessonProgress(Base):
@@ -189,7 +189,12 @@ class LessonProgress(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    patient_token: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
 
     lesson_id: Mapped[int] = mapped_column(
         Integer,
@@ -288,7 +293,7 @@ class LessonTestQuestion(Base):
 
 
 # ---------------------------
-# Результат прохождения теста (для Web, через patient_token)
+# Результат прохождения теста (по user_id из сессии)
 # ---------------------------
 
 class LessonTestResult(Base):
@@ -304,7 +309,12 @@ class LessonTestResult(Base):
         index=True,
     )
 
-    patient_token: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
 
     score: Mapped[float] = mapped_column(Numeric, default=0)
     max_score: Mapped[float] = mapped_column(Numeric, default=0)

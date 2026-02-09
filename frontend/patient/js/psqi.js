@@ -14,18 +14,6 @@
   const nextBtn = document.getElementById('psqi-next');
   const submitBtn = document.getElementById('psqi-submit');
 
-  function getPatientTokenFromPath() {
-    if (window.PatientAuth) {
-      return window.PatientAuth.getPatientToken();
-    }
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const pIndex = parts.indexOf('p');
-    if (pIndex !== -1 && parts.length > pIndex + 1) {
-      return parts[pIndex + 1];
-    }
-    return null;
-  }
-
   function showStatus(message, type) {
     if (!statusBanner) return;
     statusBanner.textContent = message;
@@ -458,8 +446,7 @@
     var details = result.details || {};
     var flags = result.clinical_flags || [];
 
-    var token = getPatientTokenFromPath();
-    var backUrl = token ? '/patient/scales' : '/';
+    var backUrl = '/patient/scales';
 
     // components mini cards
     var compHtml = '';

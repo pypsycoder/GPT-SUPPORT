@@ -227,12 +227,6 @@
     }
   }
 
-  function renderToken(patientToken) {
-    const tokenEl = document.getElementById('token-value');
-
-    if (tokenEl) tokenEl.textContent = patientToken || '—';
-  }
-
   // ========================================
   // Редактирование профиля
   // ========================================
@@ -307,35 +301,6 @@
   // Копирование токена
   // ========================================
 
-  function initCopyToken() {
-    const copyBtn = document.getElementById('copy-token-btn');
-    const tokenEl = document.getElementById('token-value');
-
-    if (copyBtn && tokenEl) {
-      copyBtn.addEventListener('click', async () => {
-        const patientToken = tokenEl.textContent;
-        if (!patientToken || patientToken === '—') {
-          setStatus('error', 'Токен недоступен');
-          return;
-        }
-
-        try {
-          await navigator.clipboard.writeText(patientToken);
-          setStatus('success', 'Токен скопирован в буфер обмена!');
-        } catch (err) {
-          console.error('Ошибка копирования:', err);
-          // Fallback для старых браузеров
-          const range = document.createRange();
-          range.selectNodeContents(tokenEl);
-          const selection = window.getSelection();
-          selection.removeAllRanges();
-          selection.addRange(range);
-          setStatus('error', 'Не удалось скопировать. Выделите токен вручную.');
-        }
-      });
-    }
-  }
-
   // ========================================
   // Инициализация страницы
   // ========================================
@@ -349,7 +314,6 @@
       renderVitals(profile.vitals);
       renderEducation(profile.education);
       renderScales(profile.scales);
-      renderToken(profile.patient_token);
     } catch (err) {
       console.error('Ошибка загрузки профиля:', err);
       setStatus('error', 'Не удалось загрузить данные профиля. Обновите страницу.');
@@ -364,6 +328,5 @@
 
     // Инициализация управления
     initEditControls(reloadProfile);
-    initCopyToken();
   });
 })();

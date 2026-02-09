@@ -10,18 +10,6 @@
   const statusBanner = document.getElementById('hads-status');
   const resultBlock = document.getElementById('hads-result');
 
-  function getPatientTokenFromPath() {
-    if (window.PatientAuth) {
-      return window.PatientAuth.getPatientToken();
-    }
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const pIndex = parts.indexOf('p');
-    if (pIndex !== -1 && parts.length > pIndex + 1) {
-      return parts[pIndex + 1];
-    }
-    return null;
-  }
-
   function showStatus(message, type = 'error') {
     if (!statusBanner) return;
 
@@ -132,12 +120,7 @@
     const depression = result?.DEP;
 
     const advice = buildAdvice(result);
-    const dashboardUrl = (() => {
-      const token = getPatientTokenFromPath();
-      return token
-        ? `/patient/vitals`
-        : '/frontend/patient/vitals.html';
-    })();
+    const dashboardUrl = '/patient/vitals';
 
     const measuredText = measuredAt ? `<div class="hads-helper-text">Время измерения: ${new Date(measuredAt).toLocaleString('ru-RU')}</div>` : '';
 
@@ -167,9 +150,8 @@
 
     fetch('/api/v1/scales/HADS/submit', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ answers }),
     })
       .then(async (resp) => {
@@ -195,7 +177,7 @@
 
     questionContainer.innerHTML = '<div class="hads-loader">Загружаем вопросы…</div>';
 
-    fetch('/api/v1/scales/HADS')
+    fetch('/api/v1/scales/HADS', { credentials: 'include' })
       .then((resp) => {
         if (!resp.ok) {
           throw new Error('Не удалось получить шкалу HADS.');

@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.vitals import crud, schemas, service
-from app.users import crud as users_crud
-from core.db.session import async_session_factory
+from app.auth.dependencies import get_current_user
+from app.users.models import User
+from core.db.session import async_session_factory, get_async_session
 
 
 router = APIRouter(prefix="/vitals", tags=["vitals"])
@@ -63,24 +64,16 @@ async def list_bp(
     return records
 
 
-@router.get("/bp/by-token/{patient_token}", response_model=list[schemas.BPMeasurementRead])
-async def list_bp_by_token(
-    patient_token: str,
-    *,
-    session: AsyncSession = Depends(get_session),
+@router.get("/bp/me", response_model=list[schemas.BPMeasurementRead])
+async def list_bp_me(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
     limit: int = Query(100, le=200),
     offset: int = 0,
     order_by: Optional[str] = Query("measured_at desc"),
     date_from: Optional[datetime] = Query(None, alias="from"),
     date_to: Optional[datetime] = Query(None, alias="to"),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пациент с таким токеном не найден",
-        )
-
     records = await crud.bp_crud.list(
         session,
         user_id=user.id,
@@ -93,19 +86,12 @@ async def list_bp_by_token(
     return records
 
 
-@router.post("/bp/by-token/{patient_token}", response_model=schemas.BPMeasurementRead)
-async def create_bp_by_token(
-    patient_token: str,
-    payload: schemas.BPMeasurementCreate,
-    session: AsyncSession = Depends(get_session),
+@router.post("/bp/me", response_model=schemas.BPMeasurementRead)
+async def create_bp_me(
+    payload: schemas.BPMeasurementCreateMe,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пациент с таким токеном не найден",
-        )
-
     prepared = service.VitalsService.prepare_bp_data(
         user_id=user.id,
         systolic=payload.systolic,
@@ -115,9 +101,9 @@ async def create_bp_by_token(
         measured_at=payload.measured_at,
         context=payload.context,
     )
-
     measurement = await crud.bp_crud.create(session, prepared)
     await session.commit()
+    await session.refresh(measurement)
     return measurement
 
 
@@ -159,49 +145,29 @@ async def list_pulse(
     return records
 
 
-@router.get("/pulse/by-token/{patient_token}", response_model=list[schemas.PulseMeasurementRead])
-async def list_pulse_by_token(
-    patient_token: str,
-    *,
-    session: AsyncSession = Depends(get_session),
+@router.get("/pulse/me", response_model=list[schemas.PulseMeasurementRead])
+async def list_pulse_me(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
     limit: int = Query(100, le=200),
     offset: int = 0,
     order_by: Optional[str] = Query("measured_at desc"),
     date_from: Optional[datetime] = Query(None, alias="from"),
     date_to: Optional[datetime] = Query(None, alias="to"),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пациент с таким токеном не найден",
-        )
-
     records = await crud.pulse_crud.list(
-        session,
-        user_id=user.id,
-        limit=limit,
-        offset=offset,
-        order_by=_parse_order(order_by),
-        date_from=date_from,
-        date_to=date_to,
+        session, user_id=user.id, limit=limit, offset=offset,
+        order_by=_parse_order(order_by), date_from=date_from, date_to=date_to,
     )
     return records
 
 
-@router.post("/pulse/by-token/{patient_token}", response_model=schemas.PulseMeasurementRead)
-async def create_pulse_by_token(
-    patient_token: str,
-    payload: schemas.PulseMeasurementCreate,
-    session: AsyncSession = Depends(get_session),
+@router.post("/pulse/me", response_model=schemas.PulseMeasurementRead)
+async def create_pulse_me(
+    payload: schemas.PulseMeasurementCreateMe,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пациент с таким токеном не найден",
-        )
-
     prepared = service.VitalsService.prepare_pulse_data(
         user_id=user.id,
         bpm=payload.bpm,
@@ -209,7 +175,6 @@ async def create_pulse_by_token(
         measured_at=payload.measured_at,
         context=payload.context,
     )
-
     measurement = await crud.pulse_crud.create(session, prepared)
     await session.commit()
     return measurement
@@ -253,49 +218,29 @@ async def list_weight(
     return records
 
 
-@router.get("/weight/by-token/{patient_token}", response_model=list[schemas.WeightMeasurementRead])
-async def list_weight_by_token(
-    patient_token: str,
-    *,
-    session: AsyncSession = Depends(get_session),
+@router.get("/weight/me", response_model=list[schemas.WeightMeasurementRead])
+async def list_weight_me(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
     limit: int = Query(100, le=200),
     offset: int = 0,
     order_by: Optional[str] = Query("measured_at desc"),
     date_from: Optional[datetime] = Query(None, alias="from"),
     date_to: Optional[datetime] = Query(None, alias="to"),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пациент с таким токеном не найден",
-        )
-
     records = await crud.weight_crud.list(
-        session,
-        user_id=user.id,
-        limit=limit,
-        offset=offset,
-        order_by=_parse_order(order_by),
-        date_from=date_from,
-        date_to=date_to,
+        session, user_id=user.id, limit=limit, offset=offset,
+        order_by=_parse_order(order_by), date_from=date_from, date_to=date_to,
     )
     return records
 
 
-@router.post("/weight/by-token/{patient_token}", response_model=schemas.WeightMeasurementRead)
-async def create_weight_by_token(
-    patient_token: str,
-    payload: schemas.WeightMeasurementCreate,
-    session: AsyncSession = Depends(get_session),
+@router.post("/weight/me", response_model=schemas.WeightMeasurementRead)
+async def create_weight_me(
+    payload: schemas.WeightMeasurementCreateMe,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пациент с таким токеном не найден",
-        )
-
     prepared = service.VitalsService.prepare_weight_data(
         user_id=user.id,
         weight=payload.weight,
@@ -303,7 +248,6 @@ async def create_weight_by_token(
         measured_at=payload.measured_at,
         context=payload.context,
     )
-
     measurement = await crud.weight_crud.create(session, prepared)
     await session.commit()
     return measurement
@@ -324,93 +268,57 @@ async def create_water(
     return measurement
 
 
-@router.post("/water/by-token/{patient_token}", response_model=schemas.WaterIntakeRead)
-async def create_water_by_token(
-    patient_token: str,
-    payload: schemas.WaterIntakeCreate,
-    session: AsyncSession = Depends(get_session),
+@router.post("/water/me", response_model=schemas.WaterIntakeRead)
+async def create_water_me(
+    payload: schemas.WaterIntakeCreateMe,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient not found",
-        )
-    
-    # payload.user_id игнорируем, берем из токена
-    data = payload.model_dump()
-    data["user_id"] = user.id
-    
-    prepared = service.VitalsService.prepare_water_data(**data)
+    prepared = service.VitalsService.prepare_water_data(
+        user_id=user.id,
+        volume_ml=payload.volume_ml,
+        liquid_type=payload.liquid_type,
+        session_id=payload.session_id,
+        measured_at=payload.measured_at,
+        context=payload.context,
+    )
     measurement = await crud.water_crud.create(session, prepared)
     await session.commit()
     return measurement
 
 
-@router.get("/water/by-token/{patient_token}", response_model=list[schemas.WaterIntakeRead])
-async def list_water_by_token(
-    patient_token: str,
-    *,
-    session: AsyncSession = Depends(get_session),
+@router.get("/water/me", response_model=list[schemas.WaterIntakeRead])
+async def list_water_me(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
     limit: int = Query(100, le=200),
     offset: int = 0,
     order_by: Optional[str] = Query("measured_at desc"),
     date_from: Optional[datetime] = Query(None, alias="from"),
     date_to: Optional[datetime] = Query(None, alias="to"),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient not found",
-        )
     records = await crud.water_crud.list(
-        session,
-        user_id=user.id,
-        limit=limit,
-        offset=offset,
-        order_by=_parse_order(order_by),
-        date_from=date_from,
-        date_to=date_to,
+        session, user_id=user.id, limit=limit, offset=offset,
+        order_by=_parse_order(order_by), date_from=date_from, date_to=date_to,
     )
     return records
 
 
-@router.get("/water/daily-total/by-token/{patient_token}")
-async def get_daily_water_total(
-    patient_token: str,
-    *,
-    date: Optional[datetime] = Query(None), # Если не указано, берем сегодня (по UTC)
-    session: AsyncSession = Depends(get_session),
+@router.get("/water/daily-total/me")
+async def get_daily_water_total_me(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+    date: Optional[datetime] = Query(None),
 ):
-    user = await users_crud.get_user_by_patient_token(session, patient_token=patient_token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient not found",
-        )
-    
     target_date = date or datetime.now()
-    # Начало и конец дня (простая реализация, лучше учитывать часовой пояс клиента, но пока UTC/серверное)
     start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
     end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-
     records = await crud.water_crud.list(
-        session,
-        user_id=user.id,
-        limit=1000,
-        date_from=start_of_day,
-        date_to=end_of_day,
+        session, user_id=user.id, limit=1000,
+        date_from=start_of_day, date_to=end_of_day,
     )
-    
     total_ml = sum(r.volume_ml for r in records)
-    
-    return {
-        "date": start_of_day,
-        "total_ml": total_ml,
-        "entries_count": len(records),
-        "entries": records
-    }
+    return {"date": start_of_day, "total_ml": total_ml, "entries_count": len(records), "entries": records}
 
 
 @router.delete("/water/{measurement_id}")

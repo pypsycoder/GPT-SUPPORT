@@ -111,13 +111,13 @@ async def _get_vitals_summary(session: AsyncSession, user_id: int) -> VitalsSumm
     )
 
 
-async def _get_education_summary(session: AsyncSession, patient_token: str, user_id: int) -> EducationSummary:
+async def _get_education_summary(session: AsyncSession, user_id: int) -> EducationSummary:
     """Получает сводку по обучению пациента."""
 
     # Общее количество уроков (из прогресса пациента)
     lessons_stmt = (
         select(func.count(LessonProgress.id))
-        .where(LessonProgress.patient_token == patient_token)
+        .where(LessonProgress.user_id == user_id)
     )
     lessons_result = await session.execute(lessons_stmt)
     lessons_total = lessons_result.scalar_one() or 0
@@ -125,7 +125,7 @@ async def _get_education_summary(session: AsyncSession, patient_token: str, user
     # Завершенные уроки
     completed_stmt = (
         select(func.count(LessonProgress.id))
-        .where(LessonProgress.patient_token == patient_token)
+        .where(LessonProgress.user_id == user_id)
         .where(LessonProgress.is_completed == True)
     )
     completed_result = await session.execute(completed_stmt)
@@ -134,7 +134,7 @@ async def _get_education_summary(session: AsyncSession, patient_token: str, user
     # Пройденные тесты
     tests_stmt = (
         select(func.count(LessonTestResult.id))
-        .where(LessonTestResult.patient_token == patient_token)
+        .where(LessonTestResult.user_id == user_id)
         .where(LessonTestResult.passed == True)
     )
     tests_result = await session.execute(tests_stmt)
@@ -151,14 +151,14 @@ async def _get_education_summary(session: AsyncSession, patient_token: str, user
     # Последняя активность - максимум из прогресса уроков и тестов
     last_progress_stmt = (
         select(func.max(LessonProgress.updated_at))
-        .where(LessonProgress.patient_token == patient_token)
+        .where(LessonProgress.user_id == user_id)
     )
     last_progress_result = await session.execute(last_progress_stmt)
     last_progress = last_progress_result.scalar_one()
 
     last_test_stmt = (
         select(func.max(LessonTestResult.created_at))
-        .where(LessonTestResult.patient_token == patient_token)
+        .where(LessonTestResult.user_id == user_id)
     )
     last_test_result = await session.execute(last_test_stmt)
     last_test = last_test_result.scalar_one()
@@ -224,7 +224,7 @@ async def get_profile_summary(
     """Собирает все данные профиля пациента одним запросом."""
 
     vitals = await _get_vitals_summary(session, user.id)
-    education = await _get_education_summary(session, user.patient_token, user.id)
+    education = await _get_education_summary(session, user.id)
     scales = await _get_scales_summary(session, user.id)
 
     return ProfileSummary(
@@ -233,7 +233,6 @@ async def get_profile_summary(
         age=user.age,
         gender=user.gender,
         telegram_id=user.telegram_id,
-        patient_token=user.patient_token,
         consent_personal_data=user.consent_personal_data,
         consent_bot_use=user.consent_bot_use,
         vitals=vitals,

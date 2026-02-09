@@ -77,7 +77,7 @@ async def serve_root():
 
 
 # === Регистрация роутеров API/страниц ===
-app.include_router(vitals_router)
+app.include_router(vitals_router, prefix="/api/v1")
 app.include_router(users_api_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(consent_router, prefix="/api/v1")

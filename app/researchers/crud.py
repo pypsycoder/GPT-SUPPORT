@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.users.models import User
 from app.researchers.models import Researcher
 from app.auth.security import hash_pin, generate_pin, hash_password
-from app.users.utils import generate_patient_token
 
 logger = logging.getLogger("gpt-support-researcher")
 
@@ -58,7 +57,6 @@ async def create_patient(
         gender=gender,
         patient_number=patient_number,
         pin_hash=pin_hashed,
-        patient_token=generate_patient_token(),
     )
     session.add(user)
     await session.commit()

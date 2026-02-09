@@ -12,87 +12,80 @@
 
     <!-- Локальные стили только для навигатора обучения -->
     <style>
-        /* ====== Блоки обучения (используем .edu-root / .edu-topic-card из style.css) ====== */
+        /* ====== Общий прогресс вверху ====== */
+        .edu-global-progress {
+            background: #fff;
+            border-radius: 1rem;
+            border: 1px solid #e5e7eb;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.25rem;
+        }
 
-        .edu-block-header {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
+        .edu-global-progress-label {
+            font-size: 0.95rem;
+            color: #374151;
             margin-bottom: 0.5rem;
         }
 
-        .edu-block-title {
-            font-size: 1.15rem;
-            font-weight: 600;
-            color: #111827;
+        .edu-global-progress-bar {
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 999px;
+            overflow: hidden;
         }
 
-        .edu-block-subtitle {
-            font-size: 0.9rem;
-            color: #6b7280;
+        .edu-global-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            border-radius: 999px;
+            transition: width 0.3s ease;
         }
 
-        .edu-block-meta {
-            font-size: 0.8rem;
-            color: #9ca3af;
-            margin-top: 0.15rem;
-        }
-
-        /* Текст под прогресс-баром (использует .edu-progress-text из style.css) */
-        .edu-progress-text {
-            margin-top: 4px;
-        }
-
-        /* ====== Список уроков внутри блока ====== */
-
-        .edu-lessons-list {
+        /* ====== Плоский список карточек занятий ====== */
+        .edu-lessons-flat {
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
-            margin-top: 0.6rem;
+            gap: 0.75rem;
         }
 
         .edu-lesson-card {
-            padding: 0.7rem 0.85rem;
-            border-radius: 0.8rem;
-            background: #f9fafb;
+            padding: 1rem 1.25rem;
+            border-radius: 1rem;
+            background: #fff;
             border: 1px solid #e5e7eb;
             cursor: pointer;
             transition:
-                background 0.15s ease,
                 border-color 0.15s ease,
                 box-shadow 0.15s ease,
                 transform 0.06s ease;
         }
 
         .edu-lesson-card:hover {
-            background: #eef2ff;
             border-color: #c7d2fe;
-            box-shadow: 0 4px 10px rgba(37, 99, 235, 0.18);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
             transform: translateY(-1px);
         }
 
         .edu-lesson-card:active {
             transform: translateY(0);
-            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
         }
 
         .edu-lesson-title {
-            font-size: 1rem;
-            font-weight: 500;
+            font-size: 1.05rem;
+            font-weight: 600;
             color: #111827;
-            margin-bottom: 0.25rem;
+            margin-bottom: 0.5rem;
         }
 
         .edu-lesson-meta {
             display: flex;
             flex-wrap: wrap;
-            gap: 0.35rem;
+            gap: 0.4rem;
             font-size: 0.8rem;
         }
 
         .lesson-status-pill {
-            padding: 0.1rem 0.6rem;
+            padding: 0.2rem 0.65rem;
             border-radius: 999px;
             border: 1px solid transparent;
             display: inline-flex;
@@ -125,8 +118,6 @@
             color: #4b5563;
         }
 
-        /* Пустые состояния */
-
         .edu-empty {
             font-size: 0.9rem;
             color: #6b7280;
@@ -134,11 +125,10 @@
 
         @media (max-width: 768px) {
             .edu-lesson-card {
-                padding: 0.65rem 0.75rem;
+                padding: 0.85rem 1rem;
             }
-
-            .edu-block-title {
-                font-size: 1.05rem;
+            .edu-global-progress {
+                padding: 0.85rem 1rem;
             }
         }
     </style>
@@ -176,14 +166,10 @@
             <!-- Статусная плашка (используем .status-banner из style.css) -->
             <div id="education-status" class="status-banner status-hidden"></div>
 
-            <!-- Корневой контейнер модуля education (используем .edu-root) -->
+            <!-- Корневой контейнер: общий прогресс + плоский список карточек -->
             <section class="edu-root">
                 <div id="education-blocks-container">
-                    <article class="edu-topic-card">
-                        <div class="edu-empty">
-                            Загрузка списка занятий…
-                        </div>
-                    </article>
+                    <div class="edu-empty">Загрузка списка занятий…</div>
                 </div>
             </section>
 
@@ -196,20 +182,6 @@
 </div>
 
 <script>
-    // =========================================
-    // Получение patient_token из URL (как в vitals)
-    // Ожидаем путь вида: /p/{patient_token}/education_overview
-    // =========================================
-    function getPatientTokenFromUrl() {
-        const path = window.location.pathname;
-        const parts = path.split('/').filter(Boolean);
-        const pIndex = parts.indexOf('p');
-        if (pIndex !== -1 && parts.length > pIndex + 1) {
-            return parts[pIndex + 1];
-        }
-        return null;
-    }
-
     // =========================================
     // Управление статусной плашкой
     // =========================================
@@ -233,7 +205,8 @@
     }
 
     // =========================================
-    // Рендер блоков обучения
+    // Рендер: общий прогресс вверху + плоский список карточек занятий
+    // Занятие считается завершённым, если прочитано И тест пройден на проходной балл.
     // =========================================
     function renderEducationBlocks(data) {
         const container = document.getElementById('education-blocks-container');
@@ -241,149 +214,89 @@
 
         container.innerHTML = '';
 
-        if (!Array.isArray(data) || data.length === 0) {
-            const card = document.createElement('article');
-            card.className = 'edu-topic-card';
+        // Собираем все занятия из всех блоков, сортируем по order_index
+        const allLessons = [];
+        if (Array.isArray(data)) {
+            data.forEach((block) => {
+                if (Array.isArray(block.lessons)) {
+                    block.lessons.forEach((l) => allLessons.push(l));
+                }
+            });
+        }
+        allLessons.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
 
+        const M = allLessons.length;
+        const N = allLessons.filter((l) => l.is_read && l.is_test_passed).length;
+
+        if (M === 0) {
             const empty = document.createElement('div');
             empty.className = 'edu-empty';
             empty.textContent = 'Пока нет доступных занятий. Скажите об этом врачу или попробуйте позже.';
-
-            card.appendChild(empty);
-            container.appendChild(card);
+            container.appendChild(empty);
             return;
         }
 
-        data.forEach((block) => {
-            const card = document.createElement('article');
-            card.className = 'edu-topic-card';
+        // ----- Общий прогресс вверху -----
+        const progressWrap = document.createElement('div');
+        progressWrap.className = 'edu-global-progress';
 
-            // ===== Заголовок блока =====
-            const header = document.createElement('div');
-            header.className = 'edu-block-header';
+        const progressLabel = document.createElement('div');
+        progressLabel.className = 'edu-global-progress-label';
+        progressLabel.textContent = `${N} из ${M} занятий завершено`;
+
+        const progressBarOuter = document.createElement('div');
+        progressBarOuter.className = 'edu-global-progress-bar';
+
+        const progressBarFill = document.createElement('div');
+        progressBarFill.className = 'edu-global-progress-fill';
+        progressBarFill.style.width = M > 0 ? `${(N / M) * 100}%` : '0%';
+
+        progressBarOuter.appendChild(progressBarFill);
+        progressWrap.appendChild(progressLabel);
+        progressWrap.appendChild(progressBarOuter);
+        container.appendChild(progressWrap);
+
+        // ----- Плоский список карточек занятий -----
+        const listWrap = document.createElement('div');
+        listWrap.className = 'edu-lessons-flat';
+
+        allLessons.forEach((lesson) => {
+            const card = document.createElement('article');
+            card.className = 'edu-lesson-card';
+            card.setAttribute('data-lesson-id', lesson.lesson_id);
 
             const titleEl = document.createElement('div');
-            titleEl.className = 'edu-block-title';
-            // 👉 показываем человекочитаемый заголовок блока
-            titleEl.textContent = block.block_title || 'Обучение';
+            titleEl.className = 'edu-lesson-title';
+            titleEl.textContent = lesson.title || 'Без названия';
 
-            const lessonsTotal = block.progress?.lessons_total ??
-                (Array.isArray(block.lessons) ? block.lessons.length : 0);
+            const metaRow = document.createElement('div');
+            metaRow.className = 'edu-lesson-meta';
 
-            const lessonsRead = block.progress?.lessons_read ??
-                (Array.isArray(block.lessons) ? block.lessons.filter(l => l.is_read).length : 0);
+            const readPill = document.createElement('span');
+            readPill.className = 'lesson-status-pill ' + (lesson.is_read ? 'read-true' : 'read-false');
+            readPill.textContent = lesson.is_read ? 'Прочитано' : 'Не прочитано';
 
-            const subtitleEl = document.createElement('div');
-            subtitleEl.className = 'edu-block-subtitle';
-            subtitleEl.textContent = `${lessonsRead} из ${lessonsTotal} занятий завершено`;
+            const testPill = document.createElement('span');
+            testPill.className = 'lesson-status-pill ' + (lesson.is_test_passed ? 'test-true' : 'test-false');
+            testPill.textContent = lesson.is_test_passed ? 'Тест ✔' : 'Тест ○';
 
-            const metaEl = document.createElement('div');
-            metaEl.className = 'edu-block-meta';
-            const testsPassed = block.progress?.tests_passed ??
-                (Array.isArray(block.lessons) ? block.lessons.filter(l => l.is_test_passed).length : 0);
-            metaEl.textContent = `Пройдено тестов: ${testsPassed}`;
+            metaRow.appendChild(readPill);
+            metaRow.appendChild(testPill);
 
-            header.appendChild(titleEl);
-            header.appendChild(subtitleEl);
-            header.appendChild(metaEl);
+            card.appendChild(titleEl);
+            card.appendChild(metaRow);
 
-            // ===== Прогресс-бар ОДИН на весь блок =====
-            const progressBar = document.createElement('div');
-            progressBar.className = 'edu-progress-bar';
-
-            const totalSegments = Math.max(lessonsTotal, 1);
-            for (let i = 0; i < totalSegments; i++) {
-                const seg = document.createElement('div');
-                seg.className = 'edu-progress-segment';
-                if (i < lessonsRead) {
-                    seg.classList.add('edu-progress-segment--active');
+            card.addEventListener('click', () => {
+                const code = lesson.lesson_code || lesson.code;
+                if (code) {
+                    window.location.href = `/patient/education?lesson=${encodeURIComponent(code)}`;
                 }
-                progressBar.appendChild(seg);
-            }
+            });
 
-            const progressText = document.createElement('div');
-            progressText.className = 'edu-progress-text';
-            progressText.textContent = 'Нажмите на занятие, чтобы открыть карточки.';
-
-            // ===== Список уроков =====
-            const lessonsList = document.createElement('div');
-            lessonsList.className = 'edu-lessons-list';
-
-            if (Array.isArray(block.lessons) && block.lessons.length > 0) {
-                block.lessons
-                    .slice()
-                    .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
-                    .forEach((lesson) => {
-                        const lessonCard = document.createElement('article');
-                        lessonCard.className = 'edu-lesson-card';
-                        lessonCard.setAttribute('data-lesson-id', lesson.lesson_id);
-
-                        const lessonTitle = document.createElement('div');
-                        lessonTitle.className = 'edu-lesson-title';
-                        lessonTitle.textContent = lesson.title || 'Без названия';
-
-                        // 👉 короткое описание из Lesson.short_description
-                        const lessonDesc = document.createElement('div');
-                        lessonDesc.className = 'edu-lesson-desc';
-                        lessonDesc.textContent = lesson.short_description || '';
-
-                        const metaRow = document.createElement('div');
-                        metaRow.className = 'edu-lesson-meta';
-
-                        const readPill = document.createElement('span');
-                        readPill.className = 'lesson-status-pill ' +
-                            (lesson.is_read ? 'read-true' : 'read-false');
-                        readPill.textContent = lesson.is_read ? 'Прочитано' : 'Не прочитано';
-
-                        const testPill = document.createElement('span');
-                        testPill.className = 'lesson-status-pill ' +
-                            (lesson.is_test_passed ? 'test-true' : 'test-false');
-                        testPill.textContent = lesson.is_test_passed ? 'Тест ✔' : 'Тест ○';
-
-                        metaRow.appendChild(readPill);
-                        metaRow.appendChild(testPill);
-
-                        lessonCard.appendChild(lessonTitle);
-                        lessonCard.appendChild(lessonDesc);   // 👈 описание
-                        lessonCard.appendChild(metaRow);
-
-                        // Переход по клику
-                        lessonCard.addEventListener('click', () => {
-                            const lessonCode = lesson.lesson_code || lesson.code;
-                            if (!lessonCode) return;
-
-                            const patientToken = getPatientTokenFromUrl();
-
-                            let targetUrl;
-                            if (patientToken) {
-                                targetUrl =
-                                    `/patient/education?lesson=${encodeURIComponent(lessonCode)}`;
-                            } else {
-                                // запасной вариант, если вдруг не нашли токен (локальный стенд, тесты и т.п.)
-                                targetUrl =
-                                    `/patient/education?lesson=${encodeURIComponent(lessonCode)}`;
-                            }
-
-                            window.location.href = targetUrl;
-                        });
-
-
-                        lessonsList.appendChild(lessonCard);
-                    });
-            } else {
-                const emptyLessons = document.createElement('div');
-                emptyLessons.className = 'edu-empty';
-                emptyLessons.textContent = 'В этом блоке пока нет занятий.';
-                lessonsList.appendChild(emptyLessons);
-            }
-
-            card.appendChild(header);
-            card.appendChild(progressBar);
-            card.appendChild(progressText);
-            card.appendChild(lessonsList);
-
-            container.appendChild(card);
+            listWrap.appendChild(card);
         });
+
+        container.appendChild(listWrap);
     }
 
 
@@ -424,32 +337,25 @@
 
             if (container) {
                 container.innerHTML = '';
-                const card = document.createElement('article');
-                card.className = 'edu-topic-card';
                 const msg = document.createElement('div');
                 msg.className = 'edu-empty';
                 msg.textContent = 'Произошла ошибка при загрузке данных. Повторите попытку позже.';
-                card.appendChild(msg);
-                container.appendChild(card);
+                container.appendChild(msg);
             }
         }
     }
 
 
     // =========================================
-    // Инициализация страницы
+    // Инициализация (сессия: без токена в URL)
     // =========================================
-    document.addEventListener('DOMContentLoaded', () => {
-        const token = getPatientTokenFromUrl();
-        const headerToken = document.getElementById('header-token');
-
-        if (token) {
-            headerToken.textContent = `Токен пациента: ${token}`;
-        } else {
-            headerToken.textContent = 'Токен пациента: не найден (проверьте ссылку).';
+    document.addEventListener('DOMContentLoaded', async function() {
+        if (window.PatientAuth) {
+            await window.PatientAuth.requireAuth();
         }
-
-        loadEducationOverview(token);
+        var headerToken = document.getElementById('header-token');
+        if (headerToken) headerToken.style.display = 'none';
+        loadEducationOverview();
     });
 </script>
 

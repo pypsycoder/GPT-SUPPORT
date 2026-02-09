@@ -1,12 +1,9 @@
 /**
  * Shared auth helper for patient pages.
  *
- * Usage in any patient page JS:
- *   const user = await window.PatientAuth.requireAuth();
- *   // user.patient_token is available for legacy API calls
- *
- * If the patient is not authenticated, they are redirected to /login.
- * If consent is not given, they are redirected to /consent.
+ * Usage: const user = await window.PatientAuth.requireAuth();
+ * If not authenticated → redirect to /login.
+ * If consent not given → redirect to /consent.
  */
 (function () {
   'use strict';
@@ -44,26 +41,8 @@
     return user;
   }
 
-  /**
-   * Get the patient_token for legacy API calls.
-   * Falls back to extracting from URL for backward compatibility.
-   */
-  function getPatientToken() {
-    if (_cachedUser && _cachedUser.patient_token) {
-      return _cachedUser.patient_token;
-    }
-    // Fallback: extract from URL /p/{token}/...
-    var parts = window.location.pathname.split('/').filter(Boolean);
-    var pIndex = parts.indexOf('p');
-    if (pIndex !== -1 && parts.length > pIndex + 1) {
-      return parts[pIndex + 1];
-    }
-    return null;
-  }
-
   window.PatientAuth = {
     requireAuth: requireAuth,
     fetchCurrentUser: fetchCurrentUser,
-    getPatientToken: getPatientToken,
   };
 })();

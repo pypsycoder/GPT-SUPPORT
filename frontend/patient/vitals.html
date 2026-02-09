@@ -40,9 +40,7 @@
                     Введите ваши сегодняшние показатели.
                 </div>
 
-                <div id="header-token" class="page-token">
-                    Токен пациента: …
-                </div>
+                <div id="header-token" class="page-token" style="display: none;"></div>
             </section>
 
             <!-- 🔹 Плашка статуса (ошибки / успех) -->
@@ -304,18 +302,6 @@
     // ============================
     let selectedContext = 'na';
 
-    // ============================
-    // Токен пациента из URL: /p/{token}/vitals
-    // ============================
-    function getPatientTokenFromUrl() {
-        const path = window.location.pathname;
-        const parts = path.split('/').filter(Boolean);
-        const pIndex = parts.indexOf('p');
-        if (pIndex !== -1 && parts.length > pIndex + 1) {
-            return parts[pIndex + 1];
-        }
-        return null;
-    }
 
     // ============================
     // Статусная плашка (успех / ошибка / скрыть)
@@ -409,21 +395,10 @@
     }
 
     // ============================
-    // Инициализация форм отправки Vitals
+    // Инициализация форм отправки Vitals (сессия, без токена)
     // ============================
-    function initForms(patientToken) {
-        if (!patientToken) {
-            setStatus('error', 'Не удалось определить токен пациента из адреса страницы. Обратитесь к врачу.');
-            const allInputs = document.querySelectorAll('input, textarea, button.submit-button');
-            allInputs.forEach((el) => { el.disabled = true; });
-            return;
-        }
-
-        // ВАЖНО: vitals-роуты у тебя без префикса /api/v1, по Swagger:
-        // /vitals/bp/by-token/{patient_token}
-        // /vitals/pulse/by-token/{patient_token}
-        // /vitals/weight/by-token/{patient_token}
-        const API_BASE = '';
+    function initForms() {
+        const API_BASE = '/api/v1';
 
         function getCurrentContext() {
             return selectedContext || 'na';
@@ -436,36 +411,52 @@
                 event.preventDefault();
                 setStatus('none', '');
 
-                const systolic = document.getElementById('bp-systolic').value;
-                const diastolic = document.getElementById('bp-diastolic').value;
-                const note = document.getElementById('bp-note').value;
+                const systolicRaw = document.getElementById('bp-systolic').value.trim();
+                const diastolicRaw = document.getElementById('bp-diastolic').value.trim();
+                const systolic = systolicRaw ? parseInt(systolicRaw, 10) : NaN;
+                const diastolic = diastolicRaw ? parseInt(diastolicRaw, 10) : NaN;
+
+                if (isNaN(systolic) || isNaN(diastolic)) {
+                    setStatus('error', 'Укажите систолическое и диастолическое давление (числа).');
+                    return;
+                }
+                if (systolic < 50 || systolic > 250 || diastolic < 30 || diastolic > 150) {
+                    setStatus('error', 'Давление должно быть в допустимом диапазоне (САД 50–250, ДАД 30–150).');
+                    return;
+                }
 
                 const payload = {
-                    user_id: 0,
-                    systolic: systolic ? Number(systolic) : null,
-                    diastolic: diastolic ? Number(diastolic) : null,
+                    systolic: systolic,
+                    diastolic: diastolic,
                     measured_at: new Date().toISOString(),
-                    note: note || null,
                     context: getCurrentContext()
                 };
 
                 try {
                     const response = await fetch(
-                        `${API_BASE}/vitals/bp/by-token/${encodeURIComponent(patientToken)}`,
+                        `${API_BASE}/vitals/bp/me`,
                         {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
                             body: JSON.stringify(payload)
                         }
                     );
 
-                    if (!response.ok) throw new Error('Ошибка при отправке данных давления');
+                    if (!response.ok) {
+                        const text = await response.text();
+                        let msg = 'Не удалось отправить данные давления.';
+                        if (response.status === 401) msg = 'Сессия истекла. Войдите снова (номер и PIN).';
+                        else if (response.status === 422) msg = 'Проверьте введённые значения давления.';
+                        else if (text) try { var j = JSON.parse(text); if (j.detail) msg = typeof j.detail === 'string' ? j.detail : (j.detail.msg || msg); } catch (e) {}
+                        throw new Error(msg);
+                    }
 
                     setStatus('success', 'Давление успешно отправлено. Спасибо!');
                     bpForm.reset();
                 } catch (error) {
                     console.error(error);
-                    setStatus('error', 'Не удалось отправить данные давления. Попробуйте ещё раз или скажите об этом врачу.');
+                    setStatus('error', error.message || 'Не удалось отправить данные давления. Попробуйте ещё раз или скажите об этом врачу.');
                 }
             });
         }
@@ -481,19 +472,18 @@
                 const note = document.getElementById('pulse-note').value;
 
                 const payload = {
-                    user_id: 0,
                     bpm: pulse ? Number(pulse) : null,
                     measured_at: new Date().toISOString(),
-                    note: note || null,
                     context: getCurrentContext()
                 };
 
                 try {
                     const response = await fetch(
-                        `${API_BASE}/vitals/pulse/by-token/${encodeURIComponent(patientToken)}`,
+                        `${API_BASE}/vitals/pulse/me`,
                         {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
                             body: JSON.stringify(payload)
                         }
                     );
@@ -520,19 +510,18 @@
                 const note = document.getElementById('weight-note').value;
 
                 const payload = {
-                    user_id: 0,
                     weight: weight ? Number(weight) : null,
                     measured_at: new Date().toISOString(),
-                    note: note || null,
                     context: getCurrentContext()
                 };
 
                 try {
                     const response = await fetch(
-                        `${API_BASE}/vitals/weight/by-token/${encodeURIComponent(patientToken)}`,
+                        `${API_BASE}/vitals/weight/me`,
                         {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
                             body: JSON.stringify(payload)
                         }
                     );
@@ -559,19 +548,19 @@
                 // Для воды пока без комментария, но с контекстом
 
                 const payload = {
-                    user_id: 0,
                     volume_ml: volume ? Number(volume) : null,
                     measured_at: new Date().toISOString(),
                     context: getCurrentContext(),
-                    liquid_type: null // Пока не спрашиваем
+                    liquid_type: null
                 };
 
                 try {
                     const response = await fetch(
-                        `${API_BASE}/vitals/water/by-token/${encodeURIComponent(patientToken)}`,
+                        `${API_BASE}/vitals/water/me`,
                         {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
                             body: JSON.stringify(payload)
                         }
                     );
@@ -589,21 +578,13 @@
     }
 
     // ============================
-    // Инициализация страницы
+    // Инициализация страницы (сессия: без токена в URL)
     // ============================
-    document.addEventListener('DOMContentLoaded', () => {
-        const token = getPatientTokenFromUrl();
-        const headerToken = document.getElementById('header-token');
-
-        if (token) {
-            headerToken.textContent = `Токен пациента: ${token}`;
-        } else {
-            headerToken.textContent = 'Токен пациента: не найден (проверьте ссылку).';
-        }
-
+    document.addEventListener('DOMContentLoaded', async function() {
+        if (window.PatientAuth) await window.PatientAuth.requireAuth();
         initTabs();
         initContextSelector();
-        initForms(token);
+        initForms();
     });
 </script>
 

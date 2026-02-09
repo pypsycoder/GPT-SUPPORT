@@ -318,13 +318,32 @@ def parse_args() -> List[Path]:
         description="Импорт markdown-уроков в БД (education.lessons / lesson_cards)."
     )
     parser.add_argument(
+        "--dir",
+        dest="directory",
+        help="Папка с .md уроками (импортируются все *.md в этой папке, без вложенных).",
+    )
+    parser.add_argument(
         "files",
-        nargs="+",
+        nargs="*",
         help="Пути к .md файлам (например: content/education/01.Стресс.md)",
     )
 
     args = parser.parse_args()
-    paths: List[Path] = [Path(p).resolve() for p in args.files]
+    paths: List[Path] = []
+
+    if args.directory:
+        base_dir = Path(args.directory).resolve()
+        if not base_dir.is_dir():
+            parser.error(f"Папка не найдена: {base_dir}")
+        for p in sorted(base_dir.glob("*.md")):
+            if p.is_file():
+                paths.append(p)
+
+    for p_str in args.files:
+        paths.append(Path(p_str).resolve())
+
+    if not paths:
+        parser.error("Укажите --dir с папкой или хотя бы один файл.")
     return paths
 
 

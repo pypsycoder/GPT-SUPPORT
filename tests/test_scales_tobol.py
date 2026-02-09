@@ -20,6 +20,7 @@ from app.scales.routers import router as scales_router  # noqa: E402
 from app.scales.services import calculate_tobol_result  # noqa: E402
 from app.scales.config.tobol import TOBOL_CONFIG  # noqa: E402
 from app.users.models import User  # noqa: E402
+from app.auth.dependencies import get_current_user  # noqa: E402
 from core.db.session import get_async_session  # noqa: E402
 
 
@@ -62,24 +63,29 @@ def test_submit_tobol_creates_result():
                 yield session
 
         # Создаём тестового пользователя
+        test_user = None
         async with session_factory() as session:
             user = User(
                 telegram_id="12345",
                 full_name="Test User",
                 consent_personal_data=True,
                 consent_bot_use=True,
-                patient_token="test-token",
             )
             session.add(user)
             await session.commit()
+            await session.refresh(user)
+            test_user = user
+
+        async def override_get_current_user():
+            return test_user
 
         app = FastAPI()
         app.dependency_overrides[get_async_session] = override_get_async_session
+        app.dependency_overrides[get_current_user] = override_get_current_user
         app.include_router(scales_router, prefix="/api/v1/scales")
 
         client = TestClient(app)
         payload = {
-            "patient_token": "test-token",
             "scale_id": "TOBOL",
             "answers": [
                 {"question_id": "I_7", "value": 1},

@@ -40,7 +40,6 @@ async def main(
         print(f"ФИО:              {user.full_name}")
         print(f"Номер пациента:   {user.patient_number}")
         print(f"PIN-код:          {pin}")
-        print(f"Токен (web):      {user.patient_token}")
         if user.age:
             print(f"Возраст:          {user.age}")
         if user.gender:

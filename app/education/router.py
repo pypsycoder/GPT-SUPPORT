@@ -177,7 +177,7 @@ async def mark_lesson_read(
     Отмечает урок как прочитанный (просмотрен) по его коду (Lesson.code).
 
     - Ищем Lesson по Lesson.code + is_active=True.
-    - Ищем LessonProgress по (lesson_id, patient_token).
+    - Ищем LessonProgress по (lesson_id, user_id).
     - Если нет — создаём запись, is_completed оставляем False
       (тест по-прежнему отвечает за завершение).
     """
@@ -196,7 +196,7 @@ async def mark_lesson_read(
     result = await session.execute(
         select(LessonProgress).where(
             LessonProgress.lesson_id == lesson.id,
-            LessonProgress.patient_token == user.patient_token,
+            LessonProgress.user_id == user.id,
         )
     )
     progress = result.scalar_one_or_none()
@@ -205,7 +205,7 @@ async def mark_lesson_read(
     if progress is None:
         progress = LessonProgress(
             lesson_id=lesson.id,
-            patient_token=user.patient_token,
+            user_id=user.id,
             is_completed=False,
         )
         session.add(progress)
@@ -256,11 +256,11 @@ async def get_lessons_overview(
     - is_read — есть ли LessonProgress по уроку для пациента.
     - is_test_passed — есть ли успешный LessonTestResult (passed=True) по тестам урока.
     """
-    # --- 1. Берём все активные уроки ---
+    # --- 1. Берём все активные уроки (сортировка по номеру занятия: 01, 02, ...) ---
     stmt_lessons = (
         select(Lesson)
         .where(Lesson.is_active.is_(True))
-        .order_by(Lesson.topic.asc(), Lesson.order_index.asc(), Lesson.id.asc())
+        .order_by(Lesson.order_index.asc(), Lesson.id.asc())
     )
     result_lessons = await session.execute(stmt_lessons)
     lessons: List[Lesson] = result_lessons.scalars().all()
@@ -273,7 +273,7 @@ async def get_lessons_overview(
     # --- 2. Прогресс по урокам (LessonProgress) ---
     stmt_progress = select(LessonProgress).where(
         LessonProgress.lesson_id.in_(lesson_ids),
-        LessonProgress.patient_token == user.patient_token,
+        LessonProgress.user_id == user.id,
     )
     result_progress = await session.execute(stmt_progress)
     progresses: List[LessonProgress] = result_progress.scalars().all()
@@ -298,7 +298,7 @@ async def get_lessons_overview(
 
     if test_ids:
         stmt_results = select(LessonTestResult).where(
-            LessonTestResult.patient_token == user.patient_token,
+            LessonTestResult.user_id == user.id,
             LessonTestResult.test_id.in_(test_ids),
             LessonTestResult.passed.is_(True),
         )
@@ -335,14 +335,12 @@ async def get_lessons_overview(
         is_read = lesson.id in progress_by_lesson_id
         is_test_passed = lesson_has_passed_test.get(lesson.id, False)
 
-        # обновляем прогресс по блоку
         block["progress"]["lessons_total"] += 1
         if is_read:
             block["progress"]["lessons_read"] += 1
         if is_test_passed:
             block["progress"]["tests_passed"] += 1
 
-        # добавляем урок в список
         block["lessons"].append(
             {
                 "lesson_id": lesson.id,
@@ -354,14 +352,21 @@ async def get_lessons_overview(
             }
         )
 
-    # чтобы порядок был стабильным — отсортируем блоки и уроки внутри
+    # порядок: уроки внутри блока по order_index; блоки — по номеру первого занятия (01, 02, ...)
     result_blocks: List[Dict[str, Any]] = []
     for block_code, block in blocks.items():
         block["lessons"].sort(key=lambda x: (x.get("order_index") or 0, x["lesson_id"]))
+        # заголовок блока: если один урок — показываем его название; для «Адаптация к болезни» — нейтральный текст (без названия в шапке)
+        if len(block["lessons"]) == 1:
+            first_title = block["lessons"][0].get("title") or ""
+            if "adaptaciya" in (block.get("block_code") or "").lower() or "адаптаци" in first_title.lower():
+                block["block_title"] = "Дополнительное занятие"
+            else:
+                block["block_title"] = first_title or block["block_title"]
         result_blocks.append(block)
 
-    # сортируем блоки по block_title (можно поменять на свой порядок)
-    result_blocks.sort(key=lambda x: x["block_title"])
+    # сортируем блоки по номеру занятия (01.Стресс, 02.Эмоции, ...), не по алфавиту
+    result_blocks.sort(key=lambda b: min((l.get("order_index") or 0) for l in b["lessons"]))
 
     return result_blocks
 
@@ -528,7 +533,7 @@ async def submit_test_answers(
 
     result = LessonTestResult(
         test_id=test_id,
-        patient_token=user.patient_token,
+        user_id=user.id,
         score=score,
         max_score=max_score,
         passed=passed,
@@ -541,7 +546,7 @@ async def submit_test_answers(
         progress_q = await session.execute(
             select(LessonProgress).where(
                 LessonProgress.lesson_id == test.lesson_id,
-                LessonProgress.patient_token == user.patient_token,
+                LessonProgress.user_id == user.id,
             )
         )
         progress = progress_q.scalar_one_or_none()
@@ -549,7 +554,7 @@ async def submit_test_answers(
         if progress is None:
             progress = LessonProgress(
                 lesson_id=test.lesson_id,
-                patient_token=user.patient_token,
+                user_id=user.id,
                 is_completed=True,
             )
             session.add(progress)
@@ -585,7 +590,7 @@ async def get_last_test_result(
         select(LessonTestResult)
         .where(
             LessonTestResult.test_id == test_id,
-            LessonTestResult.patient_token == user.patient_token,
+            LessonTestResult.user_id == user.id,
         )
         .order_by(LessonTestResult.created_at.desc())
         .limit(1)

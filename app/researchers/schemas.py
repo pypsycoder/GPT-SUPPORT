@@ -37,7 +37,6 @@ class PatientListItem(BaseModel):
 
 
 class PatientDetail(PatientListItem):
-    patient_token: Optional[str] = None
     telegram_id: Optional[str] = None
     consent_given_at: Optional[datetime] = None
 

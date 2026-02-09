@@ -52,21 +52,10 @@
     // ============================
     const API_BASE = '/api/v1/education';
 
-    function getPatientTokenFromPath() {
-        const parts = window.location.pathname.split('/').filter(Boolean);
-        // ожидаем: /p/{patient_token}/education
-        if (parts[0] === 'p' && parts.length >= 3) {
-            return parts[1];
-        }
-        return null;
-    }
-
     function getQueryParam(name) {
         const params = new URLSearchParams(window.location.search);
         return params.get(name);
     }
-
-    const patientToken = getPatientTokenFromPath();
     let lessonCode = getQueryParam('lesson');  // теперь это именно Lesson.code
 
     // ============================
@@ -411,12 +400,7 @@
     backBtn.textContent = '← Назад к обучению';
     backBtn.className = 'edu-nav-btn edu-nav-btn--secondary';
     backBtn.addEventListener('click', () => {
-        if (patientToken) {
-            window.location.href =
-                `/patient/education_overview`;
-        } else {
-            window.location.href = '/patient/education_overview';
-        }
+        window.location.href = '/patient/education_overview';
     });
 
     backBlock.appendChild(backBtn);
@@ -537,9 +521,10 @@
     }
 
     // ============================
-    // Инициализация
+    // Инициализация (сессия: без токена в URL)
     // ============================
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async function() {
+        if (window.PatientAuth) await window.PatientAuth.requireAuth();
         loadEducation();
         document.addEventListener('keydown', handleKeyboardNavigation);
     });

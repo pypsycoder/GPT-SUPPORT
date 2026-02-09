@@ -106,7 +106,6 @@ async def patient_me(user: User = Depends(get_current_user)):
         "age": user.age,
         "gender": user.gender,
         "patient_number": user.patient_number,
-        "patient_token": user.patient_token,
         "consent_personal_data": user.consent_personal_data,
         "consent_bot_use": user.consent_bot_use,
     }

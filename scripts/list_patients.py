@@ -37,7 +37,6 @@ async def main() -> None:
             print(f"  Full Name:       {patient.full_name}")
             print(f"  Patient Number:  {patient.patient_number}")
             print(f"  PIN Hash:        {patient.pin_hash[:16]}..." if patient.pin_hash else "  PIN Hash:        (not set)")
-            print(f"  Patient Token:   {patient.patient_token}")
             print(f"  Age:             {patient.age}")
             print(f"  Gender:          {patient.gender}")
             print(f"  Locked:          {patient.is_locked}")

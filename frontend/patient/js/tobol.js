@@ -13,18 +13,6 @@
   const statusBanner = document.getElementById('tobol-status');
   const resultBlock = document.getElementById('tobol-result');
 
-  function getPatientTokenFromPath() {
-    if (window.PatientAuth) {
-      return window.PatientAuth.getPatientToken();
-    }
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const pIndex = parts.indexOf('p');
-    if (pIndex !== -1 && parts.length > pIndex + 1) {
-      return parts[pIndex + 1];
-    }
-    return null;
-  }
-
   function showStatus(message, type = 'error') {
     if (!statusBanner) return;
 
