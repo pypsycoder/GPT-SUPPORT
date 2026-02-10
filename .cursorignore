@@ -10,7 +10,7 @@ __pycache__/
 .pytest_cache/
 
 # Alembic миграции (старые)
-alembic/versions/*.py
+## alembic/versions/*.py
 
 # База данных
 *.db
@@ -28,7 +28,7 @@ fixtures/
 
 # Документация (доступна через @docs/file.md)
 docs/
-*.md
+
 
 # Конфиги
 .env

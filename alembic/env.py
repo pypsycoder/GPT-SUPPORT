@@ -57,6 +57,7 @@ import app.users.models  # noqa: F401
 import app.researchers.models  # noqa: F401
 import app.scales.models  # noqa: F401
 import app.vitals.models  # noqa: F401
+import app.dialysis.models  # noqa: F401
 
 target_metadata = Base.metadata
 
@@ -195,6 +196,8 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+        connection.commit()
 
 
 # ------------------------------------------------------------------------------

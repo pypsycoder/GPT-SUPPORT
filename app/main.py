@@ -29,6 +29,7 @@ from app.profile.router import router as profile_router
 from app.auth.router import router as auth_router
 from app.consent.router import router as consent_router
 from app.researchers.router import router as researcher_router
+from app.dialysis.router import router as dialysis_router
 from core.db.engine import engine
 
 from fastapi.routing import APIRoute
@@ -92,6 +93,7 @@ app.include_router(users_api_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(consent_router, prefix="/api/v1")
 app.include_router(researcher_router, prefix="/api/v1")
+app.include_router(dialysis_router, prefix="/api/v1")
 app.include_router(pages_router)
 # app.include_router(education_router, prefix="/api/v1")
 app.include_router(education_router, prefix="/api/v1/education")

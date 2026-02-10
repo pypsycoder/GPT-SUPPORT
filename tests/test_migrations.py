@@ -14,6 +14,8 @@ async def test_tables_exist_after_migration(async_session):
         "vitals.bp_measurement",
         "vitals.fluid_intake_event",
         "vitals.weight_measurement",
+        "centers",
+        "dialysis_schedules",
     ]
 
     for table in expected_tables:

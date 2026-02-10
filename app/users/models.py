@@ -1,7 +1,8 @@
 """SQLAlchemy models for user entities."""
 from sqlalchemy import (
-    Boolean, Column, DateTime, Integer, JSON, String, text,
+    Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
 from app.models import Base
@@ -14,6 +15,7 @@ class User(Base):
     __table_args__ = {"schema": "users"}
 
     id = Column(Integer, primary_key=True)
+    center_id = Column(UUID(as_uuid=True), ForeignKey("centers.id"), nullable=True)
     full_name = Column(String)
     age = Column(Integer, nullable=True)
     gender = Column(String, nullable=True)

@@ -236,6 +236,50 @@ table.r-table {
   color: #991b1b;
 }
 
+.r-schedule-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+
+.r-weekdays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.r-weekday-cb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.r-weekday-cb input {
+  margin: 0;
+}
+
+.r-schedule-history-table {
+  width: 100%;
+  font-size: 0.9rem;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+.r-schedule-history-table th,
+.r-schedule-history-table td {
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.r-schedule-history-table th {
+  color: #6b7280;
+  font-weight: 600;
+}
+
 /* --- Modal --- */
 
 .r-modal-backdrop {

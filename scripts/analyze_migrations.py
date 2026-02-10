@@ -20,16 +20,19 @@ for py_file in versions_dir.glob("*.py"):
     content = py_file.read_text()
     
     # Extract revision ID
-    for line in content.split('\n'):
-        if line.startswith('revision: str'):
-            rev_id = line.split('"')[1]
+    for line in content.split("\n"):
+        if line.startswith("revision: str"):
+            # правая часть после '='
+            right = line.split("=", 1)[1].strip()
+            # убираем возможные кавычки и пробелы
+            rev_id = right.strip().strip("'\"")
             break
     else:
         continue
-    
+        
     # Extract down_revision
     for line in content.split('\n'):
-        if line.startswith('down_revision:'):
+        if line.startswith("down_revision:"):
             # Handle both single and multiple parents
             if '(' in line:
                 # Multiple parents: ('86a0d2c1f8e3', 'a515d149cfa3')

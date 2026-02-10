@@ -14,6 +14,7 @@ from app.auth import models as auth_models  # noqa: F401
 from app.scales import models as scales_models  # noqa: F401
 from app.vitals import models as vitals_models  # noqa: F401
 from app.education import models as education_models  # noqa: F401
+from app.dialysis import models as dialysis_models  # noqa: F401
 
 
 __all__ = [

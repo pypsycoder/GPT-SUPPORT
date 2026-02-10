@@ -49,6 +49,18 @@ async def serve_researcher_dashboard():
     return FileResponse(FRONTEND_DIR / "researcher" / "dashboard.html")
 
 
+@router.get("/researcher/centers", include_in_schema=False)
+async def serve_researcher_centers():
+    """Центры диализа."""
+    return FileResponse(FRONTEND_DIR / "researcher" / "centers.html")
+
+
+@router.get("/researcher/import/schedules", include_in_schema=False)
+async def serve_researcher_import_schedules():
+    """Импорт расписаний диализа."""
+    return FileResponse(FRONTEND_DIR / "researcher" / "import_schedules.html")
+
+
 # ============================================
 #   Пациент — session-based страницы (/patient/...)
 # ============================================

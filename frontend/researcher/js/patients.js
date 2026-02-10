@@ -75,6 +75,7 @@
 
     patientsBody.innerHTML = patients.map(function (p) {
       var actions = '';
+      actions += '<button class="r-action-btn" onclick="window._openScheduleModal(' + p.id + ', \'' + (p.full_name || '').replace(/'/g, "\\'") + '\')">Расписание диализа</button>';
       if (p.is_locked) {
         actions += '<button class="r-action-btn" onclick="window._unlockPatient(' + p.id + ')">Разблокировать</button>';
       }
@@ -206,6 +207,195 @@
     var number = document.getElementById('reset-number').textContent;
     var pin = document.getElementById('reset-pin').textContent;
     printCard(number, pin);
+  });
+
+  // =========================================================================
+  // Dialysis schedule modal
+  // =========================================================================
+
+  var scheduleModal = document.getElementById('modal-schedule');
+  var scheduleFormModal = document.getElementById('modal-schedule-form');
+  var currentSchedulePatientId = null;
+  var currentActiveSchedule = null;
+  var scheduleList = [];
+
+  var WEEKDAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+  function shiftLabel(s) {
+    if (s === 'morning') return 'Утренняя смена';
+    if (s === 'afternoon') return 'Дневная смена';
+    if (s === 'evening') return 'Вечерняя смена';
+    return s;
+  }
+
+  function formatWeekdays(weekdays) {
+    if (!weekdays || weekdays.length === 0) return '—';
+    return weekdays.map(function (d) { return WEEKDAY_NAMES[d - 1] || d; }).join(' / ');
+  }
+
+  function formatDateStr(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    var day = ('0' + d.getDate()).slice(-2);
+    var month = ('0' + (d.getMonth() + 1)).slice(-2);
+    var year = d.getFullYear();
+    return day + '.' + month + '.' + year;
+  }
+
+  function renderScheduleCurrent(active, patientName) {
+    var content = document.getElementById('schedule-current-content');
+    var editBtn = document.getElementById('schedule-edit-btn');
+    var addBtn = document.getElementById('schedule-add-btn');
+    if (active) {
+      content.innerHTML = formatWeekdays(active.weekdays) + ' | ' + shiftLabel(active.shift) + ' | с ' + formatDateStr(active.valid_from) + ' | действует';
+      editBtn.style.display = '';
+      addBtn.style.display = 'none';
+      currentActiveSchedule = active;
+    } else {
+      content.innerHTML = 'Расписание не задано';
+      editBtn.style.display = 'none';
+      addBtn.style.display = '';
+      currentActiveSchedule = null;
+    }
+  }
+
+  function renderScheduleHistory(list) {
+    var el = document.getElementById('schedule-history-content');
+    var closed = list.filter(function (s) { return s.valid_to != null; });
+    if (closed.length === 0) {
+      el.innerHTML = '<p style="color:#9ca3af;font-size:0.9rem;">Нет записей в истории</p>';
+      return;
+    }
+    var rows = closed.map(function (s) {
+      var period = formatDateStr(s.valid_from) + ' – ' + formatDateStr(s.valid_to);
+      var closedInfo = s.closed_at ? ' Закрыто: ' + formatDateStr(s.closed_at) : '';
+      var reason = s.change_reason ? ' | Причина: ' + s.change_reason : '';
+      return '<tr><td>' + formatWeekdays(s.weekdays) + '</td><td>' + shiftLabel(s.shift) + '</td><td>' + period + '</td><td>' + closedInfo + reason + '</td></tr>';
+    });
+    el.innerHTML = '<table class="r-schedule-history-table"><thead><tr><th>Дни</th><th>Смена</th><th>Период</th><th>Закрытие</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+  }
+
+  window._openScheduleModal = async function (patientId, patientName) {
+    currentSchedulePatientId = patientId;
+    currentActiveSchedule = null;
+    document.getElementById('schedule-modal-title').textContent = 'Расписание диализа — ' + (patientName || 'Пациент #' + patientId);
+    scheduleModal.classList.add('visible');
+    document.getElementById('schedule-current-content').textContent = 'Загрузка...';
+    document.getElementById('schedule-history-content').innerHTML = '';
+    try {
+      var resp = await fetch('/api/v1/patients/' + patientId + '/schedules', { credentials: 'include' });
+      if (!resp.ok) {
+        document.getElementById('schedule-current-content').textContent = 'Ошибка загрузки';
+        return;
+      }
+      scheduleList = await resp.json();
+      var active = scheduleList.find(function (s) { return s.valid_to == null; });
+      renderScheduleCurrent(active, patientName);
+      renderScheduleHistory(scheduleList);
+    } catch (e) {
+      document.getElementById('schedule-current-content').textContent = 'Ошибка соединения';
+    }
+  };
+
+  document.getElementById('schedule-modal-close').addEventListener('click', function () {
+    scheduleModal.classList.remove('visible');
+  });
+
+  document.getElementById('schedule-edit-btn').addEventListener('click', function () {
+    document.getElementById('schedule-form-title').textContent = 'Изменить расписание';
+    var tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    document.getElementById('schedule-valid-from').min = tomorrow.toISOString().slice(0, 10);
+    document.getElementById('schedule-valid-from').value = '';
+    document.getElementById('schedule-reason').value = '';
+    document.querySelectorAll('#form-schedule input[name=wd]').forEach(function (cb) { cb.checked = false; });
+    scheduleFormModal.classList.add('visible');
+  });
+
+  document.getElementById('schedule-add-btn').addEventListener('click', function () {
+    document.getElementById('schedule-form-title').textContent = 'Добавить расписание';
+    document.getElementById('schedule-valid-from').removeAttribute('min');
+    document.getElementById('schedule-valid-from').value = '';
+    document.getElementById('schedule-reason').value = '';
+    document.querySelectorAll('#form-schedule input[name=wd]').forEach(function (cb) { cb.checked = false; });
+    scheduleFormModal.classList.add('visible');
+  });
+
+  document.getElementById('schedule-form-cancel').addEventListener('click', function () {
+    scheduleFormModal.classList.remove('visible');
+  });
+
+  document.getElementById('form-schedule').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var wd = [];
+    document.querySelectorAll('#form-schedule input[name=wd]:checked').forEach(function (cb) {
+      wd.push(parseInt(cb.value, 10));
+    });
+    if (wd.length === 0) {
+      alert('Выберите хотя бы один день недели');
+      return;
+    }
+    var shift = document.getElementById('schedule-shift').value;
+    var validFrom = document.getElementById('schedule-valid-from').value;
+    var reason = document.getElementById('schedule-reason').value.trim() || null;
+    var patientId = currentSchedulePatientId;
+    var body = { weekdays: wd, shift: shift, valid_from: validFrom, change_reason: reason };
+
+    if (currentActiveSchedule) {
+      var msg = 'Текущее расписание (' + formatWeekdays(currentActiveSchedule.weekdays) + ', ' + shiftLabel(currentActiveSchedule.shift).toLowerCase() + ') будет закрыто до ' + validFrom + '. Продолжить?';
+      if (!confirm(msg)) return;
+      var submitBtn = document.getElementById('schedule-form-submit');
+      submitBtn.disabled = true;
+      try {
+        var resp = await fetch('/api/v1/schedules/' + currentActiveSchedule.id + '/close-and-replace', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          var err = await resp.json().catch(function () { return {}; });
+          alert(err.detail && err.detail.message ? err.detail.message : 'Ошибка изменения расписания');
+          return;
+        }
+        scheduleFormModal.classList.remove('visible');
+        var data = await fetch('/api/v1/patients/' + patientId + '/schedules', { credentials: 'include' }).then(function (r) { return r.json(); });
+        scheduleList = data;
+        var active = scheduleList.find(function (s) { return s.valid_to == null; });
+        renderScheduleCurrent(active, null);
+        renderScheduleHistory(scheduleList);
+      } catch (err) {
+        alert('Ошибка соединения');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    } else {
+      var submitBtn = document.getElementById('schedule-form-submit');
+      submitBtn.disabled = true;
+      try {
+        var resp = await fetch('/api/v1/patients/' + patientId + '/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          var err = await resp.json().catch(function () { return {}; });
+          alert(err.detail && (err.detail.message || err.detail) || 'Ошибка создания расписания');
+          return;
+        }
+        scheduleFormModal.classList.remove('visible');
+        var data = await fetch('/api/v1/patients/' + patientId + '/schedules', { credentials: 'include' }).then(function (r) { return r.json(); });
+        scheduleList = data;
+        var active = scheduleList.find(function (s) { return s.valid_to == null; });
+        renderScheduleCurrent(active, null);
+        renderScheduleHistory(scheduleList);
+      } catch (err) {
+        alert('Ошибка соединения');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
   });
 
   // =========================================================================
