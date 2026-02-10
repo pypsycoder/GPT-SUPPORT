@@ -2,7 +2,7 @@
 # Pages Router: Маршруты статических HTML-страниц
 # ============================================
 # Раздача HTML-страниц пациента и исследователя через FastAPI.
-# Включает session-based маршруты (/patient/...) и legacy-маршруты (/p/{token}/...).
+# Включает session-based маршруты (/patient/...) 
 
 from pathlib import Path
 
@@ -137,73 +137,7 @@ async def serve_patient_profile():
     return FileResponse(FRONTEND_DIR / "patient" / "profile.html")
 
 
-# ============================================
-#   Legacy — старые маршруты /p/{token}/...
-# ============================================
-
-_LEGACY_PREFIX = "/p"
-_legacy = APIRouter(prefix=_LEGACY_PREFIX, tags=["pages-legacy"])
-
-
-@_legacy.get("/{patient_token}/home", include_in_schema=False)
-async def legacy_home_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "home.html")
-
-
-@_legacy.get("/{patient_token}/vitals", include_in_schema=False)
-async def legacy_vitals_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "vitals.html")
-
-
-@_legacy.get("/{patient_token}/education", include_in_schema=False)
-async def legacy_education_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "education.html")
-
-
-@_legacy.get("/{patient_token}/education_overview", include_in_schema=False)
-async def legacy_education_overview_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "education_overview.html")
-
-
-@_legacy.get("/{patient_token}/education_lesson", include_in_schema=False)
-async def legacy_education_lesson_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "education.html")
-
-
-@_legacy.get("/{patient_token}/education_test.html", include_in_schema=False)
-async def legacy_education_test_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "education_test.html")
-
-
-@_legacy.get("/{patient_token}/hads", include_in_schema=False)
-async def legacy_hads_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "hads.html")
-
-
-@_legacy.get("/{patient_token}/scales", include_in_schema=False)
-async def legacy_scales_overview_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "scales_overview.html")
-
-
-@_legacy.get("/{patient_token}/kop25a", include_in_schema=False)
-async def legacy_kop25a_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "kop25a.html")
-
-
-@_legacy.get("/{patient_token}/tobol", include_in_schema=False)
-async def legacy_tobol_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "tobol.html")
-
-
-@_legacy.get("/{patient_token}/psqi", include_in_schema=False)
-async def legacy_psqi_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "psqi.html")
-
-
-@_legacy.get("/{patient_token}/profile", include_in_schema=False)
-async def legacy_profile_page(patient_token: str):
-    return FileResponse(FRONTEND_DIR / "patient" / "profile.html")
-
-
-# Include legacy router
-router.include_router(_legacy)
+@router.get("/patient/sleep_tracker", include_in_schema=False)
+async def serve_patient_sleep_tracker():
+    """Рутинная оценка сна (Sleep Tracker)."""
+    return FileResponse(FRONTEND_DIR / "patient" / "sleep_tracker.html")

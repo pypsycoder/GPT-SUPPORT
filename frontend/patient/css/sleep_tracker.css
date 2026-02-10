@@ -1,0 +1,333 @@
+/* === Sleep Tracker — рутинная оценка сна === */
+/* Крупный шрифт (минимум 16px текст, 18px кнопки), сенсорные кнопки min-height 48px, без анимаций. */
+
+.sleep-hidden {
+    display: none !important;
+}
+
+/* Экран выбора ночи */
+.sleep-night-screen {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding-bottom: 2rem;
+}
+
+.sleep-night-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+
+.sleep-night-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sleep-night-option {
+    min-height: 48px;
+    width: 100%;
+    font-size: 18px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: #f3f4f6;
+    border: 2px solid #cbd5e1;
+    color: #111827;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.sleep-night-option:hover {
+    background: #e5e7eb;
+}
+
+.sleep-night-option.selected {
+    background: #dbeafe;
+    border-color: #2563eb;
+    color: #1e40af;
+}
+
+.sleep-night-actions {
+    margin-top: 0.5rem;
+}
+
+/* Диалог дубликата */
+.sleep-duplicate-dialog {
+    padding: 1.5rem;
+    border-radius: 12px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    margin-bottom: 1.5rem;
+}
+
+.sleep-duplicate-title {
+    font-size: 16px;
+    color: #111827;
+    margin: 0 0 1rem;
+}
+
+.sleep-duplicate-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.sleep-btn-dialog {
+    min-height: 48px;
+    padding: 12px 20px;
+    font-size: 18px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.sleep-btn-edit {
+    background: #2563eb;
+    color: #fff;
+}
+
+.sleep-btn-edit:hover {
+    background: #1d4ed8;
+}
+
+.sleep-btn-cancel {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.sleep-btn-cancel:hover {
+    background: #d1d5db;
+}
+
+.sleep-form-wrap {
+    display: block;
+}
+
+.sleep-form {
+    font-size: 16px;
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding-bottom: 5rem;
+}
+
+.sleep-q {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sleep-q-label {
+    font-size: 16px;
+    font-weight: 500;
+    color: #111827;
+}
+
+.sleep-q-hint {
+    font-size: 14px;
+    color: #6b7280;
+}
+
+/* Ряд времени: Ч : М (24-часовой формат) */
+.sleep-time-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sleep-time-part {
+    font-size: 18px;
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #f9fafb;
+    width: 4rem;
+    min-height: 48px;
+    box-sizing: border-box;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.sleep-time-part:focus {
+    outline: none;
+    border-color: #3b82f6;
+    background: #fff;
+}
+
+.sleep-time-sep {
+    font-size: 18px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.sleep-number {
+    font-size: 18px;
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #f9fafb;
+    max-width: 120px;
+    min-height: 48px;
+    box-sizing: border-box;
+    font-variant-numeric: tabular-nums;
+}
+
+.sleep-number:focus {
+    outline: none;
+    border-color: #3b82f6;
+    background: #fff;
+}
+
+.sleep-se-display {
+    font-size: 16px;
+    color: #4b5563;
+    margin-top: 4px;
+}
+
+/* Кнопки выбора: крупные, на всю ширину */
+.sleep-btn-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sleep-btn {
+    min-height: 48px;
+    width: 100%;
+    font-size: 18px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: #f3f4f6;
+    border: 1px solid #cbd5e1;
+    color: #111827;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.sleep-btn:hover {
+    background: #e5e7eb;
+}
+
+.sleep-btn.selected {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+
+/* Мультивыбор Q7 */
+.sleep-check-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+}
+
+.sleep-check {
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    min-height: 48px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+}
+
+.sleep-check input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    accent-color: #2563eb;
+}
+
+.sleep-check-none {
+    font-weight: 500;
+}
+
+/* Предупреждения */
+.sleep-warning {
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+    font-size: 16px;
+}
+
+.sleep-warning-hidden {
+    display: none;
+}
+
+.sleep-warning-btn {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 8px 14px;
+    font-size: 16px;
+    border-radius: 8px;
+    background: #f59e0b;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+}
+
+/* Статус отправки */
+.sleep-status {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 16px;
+    margin-bottom: 12px;
+}
+
+.sleep-status-hidden {
+    display: none;
+}
+
+.sleep-status.success {
+    background: #d1fae5;
+    border: 1px solid #10b981;
+    color: #065f46;
+}
+
+.sleep-status.error {
+    background: #fee2e2;
+    border: 1px solid #ef4444;
+    color: #991b1b;
+}
+
+/* Кнопка отправки — фиксирована внизу контента */
+.sleep-submit-wrap {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px 0;
+    background: linear-gradient(180deg, transparent 0%, #fff 12px);
+}
+
+.sleep-submit {
+    width: 100%;
+    min-height: 52px;
+    font-size: 18px;
+    font-weight: 600;
+    padding: 14px 20px;
+    border-radius: 10px;
+    border: none;
+    background: #2563eb;
+    color: #fff;
+    cursor: pointer;
+}
+
+.sleep-submit:hover:not(:disabled) {
+    background: #1d4ed8;
+}
+
+.sleep-submit:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+}

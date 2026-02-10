@@ -311,5 +311,3 @@ users.users (id) ←→ scales.responses (user_id)
 ## Комманда запуска приложения:
 (.venv) PS D:\PROJECT\GPT-SUPPORT> uvicorn app.main:app --reload
 
-## Просмотр страницы с отладочным токеном:
-http://localhost:8000/p/q1pHYT3PKKO7sH6m1rVqkV-eqYxw6zJt/home

@@ -43,3 +43,28 @@ async def accept_consent(
     await session.commit()
     logger.info("[consent] user %s accepted consent", user.id)
     return user
+
+
+async def revoke_consent(
+    session: AsyncSession,
+    user: User,
+    *,
+    revoke_personal_data: bool = False,
+    revoke_bot_use: bool = False,
+) -> User:
+    """Отозвать указанные согласия пациента."""
+    if revoke_personal_data:
+        user.consent_personal_data = False
+    if revoke_bot_use:
+        user.consent_bot_use = False
+    if revoke_personal_data and revoke_bot_use:
+        user.consent_given_at = None
+    elif revoke_personal_data or revoke_bot_use:
+        # При частичном отзыве дату не сбрасываем (остаётся момент последнего принятия)
+        pass
+    await session.commit()
+    logger.info(
+        "[consent] user %s revoked consent: personal_data=%s, bot_use=%s",
+        user.id, revoke_personal_data, revoke_bot_use,
+    )
+    return user

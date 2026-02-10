@@ -15,3 +15,9 @@ class ConsentStatus(BaseModel):
 class ConsentAcceptRequest(BaseModel):
     consent_personal_data: bool = True
     consent_bot_use: bool = True
+
+
+class ConsentRevokeRequest(BaseModel):
+    """Какие согласия отозвать (хотя бы одно True)."""
+    revoke_personal_data: bool = False
+    revoke_bot_use: bool = False

@@ -105,6 +105,24 @@
     return response.json();
   }
 
+  async function revokeConsent(revokePersonalData, revokeBotUse) {
+    const url = `/api/v1/consent/revoke`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        revoke_personal_data: revokePersonalData,
+        revoke_bot_use: revokeBotUse,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `Ошибка отзыва: ${response.status}`);
+    }
+    return response.json();
+  }
+
   // ========================================
   // Отрисовка данных
   // ========================================
@@ -131,17 +149,25 @@
   function renderConsents(profile) {
     const personalIcon = document.getElementById('consent-personal-icon');
     const botIcon = document.getElementById('consent-bot-icon');
+    const revokePersonalBtn = document.getElementById('revoke-personal-btn');
+    const revokeBotBtn = document.getElementById('revoke-bot-btn');
 
     if (personalIcon) {
       personalIcon.textContent = profile.consent_personal_data ? '✅' : '❌';
       personalIcon.classList.toggle('consent-yes', profile.consent_personal_data);
       personalIcon.classList.toggle('consent-no', !profile.consent_personal_data);
     }
+    if (revokePersonalBtn) {
+      revokePersonalBtn.style.display = profile.consent_personal_data ? '' : 'none';
+    }
 
     if (botIcon) {
       botIcon.textContent = profile.consent_bot_use ? '✅' : '❌';
       botIcon.classList.toggle('consent-yes', profile.consent_bot_use);
       botIcon.classList.toggle('consent-no', !profile.consent_bot_use);
+    }
+    if (revokeBotBtn) {
+      revokeBotBtn.style.display = profile.consent_bot_use ? '' : 'none';
     }
   }
 
@@ -320,6 +346,38 @@
     }
   }
 
+  function initRevokeButtons(reloadProfile) {
+    const revokePersonalBtn = document.getElementById('revoke-personal-btn');
+    const revokeBotBtn = document.getElementById('revoke-bot-btn');
+
+    function doRevoke(revokePersonal, revokeBot, label) {
+      if (!confirm(`Вы уверены, что хотите отозвать ${label}? После отзыва соответствующие возможности сервиса могут быть ограничены.`)) {
+        return;
+      }
+      setStatus('none', '');
+      revokeConsent(revokePersonal, revokeBot)
+        .then(() => {
+          setStatus('success', 'Доступ отозван.');
+          reloadProfile();
+        })
+        .catch((err) => {
+          console.error('Ошибка отзыва согласия:', err);
+          setStatus('error', err.message || 'Не удалось отозвать доступ.');
+        });
+    }
+
+    if (revokePersonalBtn) {
+      revokePersonalBtn.addEventListener('click', () => {
+        doRevoke(true, false, 'согласие на обработку персональных данных');
+      });
+    }
+    if (revokeBotBtn) {
+      revokeBotBtn.addEventListener('click', () => {
+        doRevoke(false, true, 'согласие на использование бота');
+      });
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     // Авторизация происходит через session cookies
     // Загрузка данных профиля
@@ -328,5 +386,6 @@
 
     // Инициализация управления
     initEditControls(reloadProfile);
+    initRevokeButtons(reloadProfile);
   });
 })();
