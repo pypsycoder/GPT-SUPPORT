@@ -17,7 +17,13 @@ venv.bak/
 # 🧩 IDEs and editors
 .idea/
 .vscode/
+.cursor/
+.cursorignore
+.claude/
 *.iml
+
+# 📝 Cursor AI logs
+Cursor_log/
 
 # 📦 Distribution / packaging
 build/
