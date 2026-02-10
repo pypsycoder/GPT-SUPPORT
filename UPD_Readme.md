@@ -1,8 +1,9 @@
 # GPT Support — Платформа поддержки пациентов на гемодиализе
 
 Цифровая платформа для мониторинга состояния пациентов на программном гемодиализе.
-Включает психометрические шкалы, трекинг витальных показателей, образовательные модули,
-панель исследователя и Telegram-бота.
+Включает психометрические шкалы, трекинг витальных показателей,
+рутинный мониторинг сна, управление центрами и расписаниями диализа,
+образовательные модули, панель исследователя и Telegram-бота.
 
 ---
 
@@ -60,7 +61,7 @@ python -m app.bots.tg_bot.main
 
 - **FastAPI** — REST API для всех модулей
 - **aiogram** — Telegram-бот с FSM для ввода витальных
-- **PostgreSQL** — 4 схемы: `users`, `scales`, `vitals`, `education`
+- **PostgreSQL** — 5 схем: `users`, `scales`, `vitals`, `education`, `sleep` + таблицы в `public`
 - **Alembic** — версионирование схемы БД
 - **Frontend** — статические HTML/JS/CSS для пациента и исследователя
 
@@ -113,6 +114,19 @@ python -m app.bots.tg_bot.main
 │   │   ├── import_md.py          # Импорт из Markdown
 │   │   ├── models.py             # ORM: Lesson, LessonCard, LessonTest
 │   │   └── schemas.py            # Pydantic-схемы
+│   ├── dialysis/                 # Центры и расписания диализа
+│   │   ├── router.py             # API: центры, расписания, CSV-импорт
+│   │   ├── service.py            # is_dialysis_day() — определение дня диализа
+│   │   ├── crud.py               # CRUD центров и расписаний
+│   │   ├── csv_import.py         # Парсинг CSV и preview-подтверждение
+│   │   ├── models.py             # ORM: Center, DialysisSchedule
+│   │   └── schemas.py            # Pydantic-схемы + импорт
+│   ├── sleep_tracker/            # Рутинная оценка сна
+│   │   ├── router.py             # API: /sleep/me (CRUD)
+│   │   ├── service.py            # TIB, SE%, late_entry, dialysis_day
+│   │   ├── crud.py               # CRUD записей сна
+│   │   ├── models.py             # ORM: SleepRecord (схема sleep)
+│   │   └── schemas.py            # Pydantic + enums качества сна
 │   ├── consent/                  # Согласия пациента
 │   │   ├── router.py             # GET/POST согласий
 │   │   ├── service.py            # Бизнес-логика
@@ -152,11 +166,14 @@ python -m app.bots.tg_bot.main
 │   │   ├── tobol.html            # Опросник ТОБОЛ
 │   │   ├── psqi.html             # Опросник PSQI
 │   │   ├── consent.html          # Согласия
+│   │   ├── sleep_tracker.html    # Рутинная оценка сна
 │   │   ├── js/                   # JavaScript-модули
 │   │   └── css/                  # Стили
 │   ├── researcher/               # Интерфейс исследователя
 │   │   ├── login.html            # Вход
-│   │   └── dashboard.html        # Панель управления
+│   │   ├── dashboard.html        # Панель управления
+│   │   ├── centers.html          # Управление центрами диализа
+│   │   └── import_schedules.html # Импорт расписаний из CSV
 │   └── doctor/                   # Интерфейс врача (прототип)
 ├── core/                         # Ядро (БД)
 │   └── db/
@@ -238,6 +255,29 @@ python -m app.bots.tg_bot.main
 - Создание пациентов с автогенерацией номера и PIN
 - Сброс PIN
 - Просмотр списка пациентов и их данных
+- Управление центрами диализа
+- Назначение расписаний диализа пациентам
+- Импорт расписаний из CSV (preview → подтверждение → применение)
+
+### Диализные центры и расписания (`app/dialysis/`)
+- Справочник центров диализа (название, город, часовой пояс)
+- Расписания диализа: привязка пациента к дням недели и сменам (утро/день/вечер)
+- Soft-close паттерн: расписания не удаляются, а закрываются (аудит-трейл)
+- CSV-импорт расписаний: двухшаговый процесс (preview → confirm) с разрешением конфликтов
+- Сервис `is_dialysis_day()` — используется другими модулями (vitals, sleep_tracker)
+- API: CRUD центров, создание/замена расписаний, импорт
+- Доступ: только для исследователей
+
+### Рутинная оценка сна (`app/sleep_tracker/`)
+- Ежедневный трекинг сна (или 3–4 раза в неделю)
+- Метрики: время засыпания/пробуждения, TIB (Time In Bed), TST (Total Sleep Time)
+- Расчёт Sleep Efficiency (SE% = TST/TIB × 100)
+- Качество сна: ночные пробуждения, латенция засыпания, утреннее самочувствие
+- Нарушения сна: боль, зуд, ноктурия, СБН, тревога, шум
+- Автоматическая привязка к дню диализа через `is_dialysis_day()`
+- Защита от дубликатов (unique constraint: patient + date)
+- Отслеживание поздних записей (после 14:00) и ретроспективных записей
+- API: POST/PUT/GET /sleep/me с пагинацией
 
 ### Telegram-бот (`app/bots/tg_bot/`)
 - aiogram 3.x с FSM
@@ -248,6 +288,7 @@ python -m app.bots.tg_bot.main
 ### Страницы (`app/pages/`)
 - Раздача HTML для пациента и исследователя
 - Session-based маршруты: `/patient/...`, `/researcher/...`
+- Новые маршруты: `/patient/sleep_tracker`, `/researcher/centers`, `/researcher/import/schedules`
 - Legacy-маршруты: `/p/{token}/...` (обратная совместимость)
 
 ---
@@ -262,12 +303,16 @@ PostgreSQL с разделением по схемам:
 | `scales` | Результаты прохождения шкал (ScaleResult) |
 | `vitals` | Измерения АД, пульса, веса, воды |
 | `education` | Уроки, тесты, прогресс, практики |
-| `public` | Служебные (alembic_version) |
+| `sleep` | Записи рутинной оценки сна (SleepRecord) |
+| `public` | Служебные (alembic_version), центры диализа, расписания |
 
 ### Ключевые связи
 - `users.users.id` <- `scales.scale_results.user_id`
 - `users.users.id` <- `vitals.bp_measurements.user_id` (и другие витальные)
 - `users.users.id` <- `education.lesson_progress.user_id`
+- `users.users.id` <- `sleep.sleep_records.patient_id`
+- `users.users.id` <- `dialysis_schedules.patient_id`
+- `users.users.center_id` -> `centers.id`
 
 ---
 
@@ -279,12 +324,15 @@ PostgreSQL с разделением по схемам:
 - Ввод витальных показателей с графиками
 - Прохождение психометрических шкал
 - Обучающие материалы (карточки)
+- Рутинная оценка сна (выбор ночи, 7 вопросов, детекция дубликатов)
 - Профиль с агрегированной сводкой
 
 ### Интерфейс исследователя (`frontend/researcher/`)
 - Вход по логину/паролю
 - Панель управления пациентами
 - Создание новых пациентов, сброс PIN
+- Управление центрами диализа
+- Импорт расписаний из CSV (3-шаговый процесс: загрузка → preview → применение)
 
 ---
 
