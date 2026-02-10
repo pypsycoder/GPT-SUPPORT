@@ -52,7 +52,7 @@ async def get_profile_summary_endpoint(
         ) from exc
 
 
-@router.patch("/", response_model=UserPublic)
+@router.patch("/update", response_model=UserPublic)
 async def update_profile_endpoint(
     data: ProfileUpdate,
     user: User = Depends(get_current_user),

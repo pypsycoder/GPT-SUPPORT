@@ -1,3 +1,9 @@
+# ============================================
+# Auth Service: Аутентификация пациентов и исследователей
+# ============================================
+# Проверка PIN (пациенты) и пароля (исследователи),
+# блокировка после MAX_PIN_ATTEMPTS неудачных попыток.
+
 """Authentication business logic for patients and researchers."""
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ from app.researchers.models import Researcher
 
 logger = logging.getLogger("gpt-support-auth")
 
-MAX_PIN_ATTEMPTS = 5
+MAX_PIN_ATTEMPTS = 7
 
 
 # ---------------------------------------------------------------------------

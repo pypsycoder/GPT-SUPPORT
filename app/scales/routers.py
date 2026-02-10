@@ -1,3 +1,10 @@
+# ============================================
+# Scales API: Эндпоинты психологических шкал
+# ============================================
+# REST API для прохождения психометрических шкал (HADS, TOBOL, KOP-25A, PSQI).
+# Каждая шкала: GET — структура опросника, POST — приём ответов и расчёт результата.
+# Также: сводка по всем шкалам (/overview) и история прохождений (/{code}/history).
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -24,6 +31,10 @@ from core.db.session import get_async_session
 
 router = APIRouter(tags=["scales"])
 
+
+# ============================================
+#   Pydantic-схемы запросов и ответов
+# ============================================
 
 class ScaleOptionOut(BaseModel):
     id: str
@@ -98,6 +109,10 @@ class ScaleHistoryItem(BaseModel):
 
 
 
+# ============================================
+#   HADS — Госпитальная шкала тревоги и депрессии
+# ============================================
+
 @router.get("/HADS", response_model=ScaleDefinitionOut)
 async def get_hads_definition() -> ScaleDefinitionOut:
     """Отдаём структуру шкалы HADS без баллов."""
@@ -119,6 +134,10 @@ async def get_hads_definition() -> ScaleDefinitionOut:
         questions=questions_for_output,
     )
 
+
+# ============================================
+#   TOBOL — Тип отношения к болезни
+# ============================================
 
 @router.get("/TOBOL", response_model=ScaleDefinitionOut)
 async def get_tobol_definition() -> ScaleDefinitionOut:
@@ -232,6 +251,10 @@ async def submit_tobol(
     )
 
 
+# ============================================
+#   KOP-25A — Шкала приверженности лечению
+# ============================================
+
 @router.get("/KOP25A", response_model=ScaleDefinitionOut)
 async def get_kop25a_definition() -> ScaleDefinitionOut:
     scale_config = get_scale_config("KOP25A")
@@ -299,6 +322,10 @@ async def submit_kop25a(
     )
 
 
+# ============================================
+#   PSQI — Питтсбургский опросник качества сна
+# ============================================
+
 @router.get("/PSQI")
 async def get_psqi_definition():
     """Отдаём структуру опросника PSQI (блоки с вопросами)."""
@@ -348,6 +375,10 @@ async def submit_psqi(
         measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.now(timezone.utc),
     )
 
+
+# ============================================
+#   Сводка и история прохождений
+# ============================================
 
 def _get_scale_title(scale_code: str) -> str:
     try:

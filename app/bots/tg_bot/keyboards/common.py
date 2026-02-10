@@ -1,4 +1,7 @@
-# DEPRECATED: старые reply-клавиатуры для меню. Не используются.
+# ============================================
+# [DEPRECATED] Telegram Bot: Reply-клавиатуры (старые)
+# ============================================
+# Не используются. Заменены inline-клавиатурами (inline.py).
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 

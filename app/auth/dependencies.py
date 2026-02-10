@@ -1,3 +1,8 @@
+# ============================================
+# Auth Dependencies: Извлечение текущего пользователя
+# ============================================
+# FastAPI Depends для получения User/Researcher из session cookie.
+
 """FastAPI dependencies for authentication — extract current user/researcher from session cookies."""
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-# DEPRECATED: старое reply-меню. Не подключается и не должно использоваться.
+# ============================================
+# [DEPRECATED] Telegram Bot: Reply-меню (старое)
+# ============================================
+# Не подключается и не должно использоваться.
+# Заменено inline-меню (menu_inline.py).
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession

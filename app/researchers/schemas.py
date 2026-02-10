@@ -1,3 +1,8 @@
+# ============================================
+# Researchers Schemas: Pydantic-схемы исследователя
+# ============================================
+# Схемы для создания пациентов, сброса PIN, ответы с данными.
+
 """Pydantic schemas for researcher module."""
 
 from pydantic import BaseModel, ConfigDict

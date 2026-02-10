@@ -1,3 +1,9 @@
+# ============================================
+# GPT Support API: Точка входа FastAPI-приложения
+# ============================================
+# Инициализация FastAPI, регистрация роутеров, CORS,
+# статика, подключение к PostgreSQL и создание схем.
+
 from __future__ import annotations
 
 # stdlib
@@ -27,7 +33,7 @@ from core.db.engine import engine
 
 from fastapi.routing import APIRoute
 
-# --- настройка логгера ---
+# --- Настройка логгера ---
 
 logger = logging.getLogger("gpt-support-api")
 logging.basicConfig(
@@ -35,7 +41,9 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
-# === БАЗОВЫЕ ПУТИ ===
+# ============================================
+#   Базовые пути
+# ============================================
 # BASE_DIR -> D:\PROJECT\GPT-SUPPORT (корень проекта)
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -43,11 +51,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 
 
-# === Инициализация FastAPI-приложения ===
+# --- Инициализация FastAPI ---
 app = FastAPI(title="GPT Support API")
 
 
-# === CORS конфигурация ===
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost", "http://127.0.0.1"],
@@ -57,7 +65,7 @@ app.add_middleware(
 )
 
 
-# === Статика (общий фронтенд) ===
+# --- Статика ---
 # Всё, что лежит в папке frontend/, доступно по /frontend/...
 app.mount(
     "/frontend",
@@ -66,7 +74,7 @@ app.mount(
 )
 
 
-# === Корневой маршрут ===
+# --- Корневой маршрут ---
 
 
 @app.get("/", include_in_schema=False)
@@ -76,7 +84,9 @@ async def serve_root():
     return RedirectResponse(url="/login")
 
 
-# === Регистрация роутеров API/страниц ===
+# ============================================
+#   Регистрация роутеров
+# ============================================
 app.include_router(vitals_router, prefix="/api/v1")
 app.include_router(users_api_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
@@ -97,7 +107,9 @@ for route in app.routes:
         )
 
 
-# === Cобытие старта приложения ===
+# ============================================
+#   Startup и healthcheck
+# ============================================
 @app.on_event("startup")
 async def startup() -> None:
     """
@@ -133,7 +145,7 @@ async def startup() -> None:
         )
 
 
-# === Эндпоинт здоровья сервиса ===
+# --- Healthcheck ---
 @app.get("/health")
 async def healthcheck() -> dict[str, str]:
     """
@@ -142,7 +154,7 @@ async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
-# === Функция локального запуска через python -m app.main ===
+# --- Локальный запуск ---
 def run() -> None:
     """
     Локальный запуск приложения через uvicorn.

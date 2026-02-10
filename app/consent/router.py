@@ -1,3 +1,8 @@
+# ============================================
+# Consent Router: Эндпоинты согласий пациента
+# ============================================
+# GET — статус согласия, POST — принятие согласия.
+
 """API endpoints for patient consent management."""
 
 from __future__ import annotations

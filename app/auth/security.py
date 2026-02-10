@@ -1,3 +1,8 @@
+# ============================================
+# Auth Security: Хэширование и токены
+# ============================================
+# bcrypt-хэширование PIN/паролей, генерация session token.
+
 """Cryptographic helpers: PIN/password hashing and session token generation."""
 
 import secrets

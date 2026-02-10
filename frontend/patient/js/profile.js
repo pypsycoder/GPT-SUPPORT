@@ -92,7 +92,7 @@
   }
 
   async function updateProfile(data) {
-    const url = `/api/v1/profile/`;
+    const url = `/api/v1/profile/update`;
     const response = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

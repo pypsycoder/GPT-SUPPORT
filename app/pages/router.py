@@ -1,3 +1,9 @@
+# ============================================
+# Pages Router: Маршруты статических HTML-страниц
+# ============================================
+# Раздача HTML-страниц пациента и исследователя через FastAPI.
+# Включает session-based маршруты (/patient/...) и legacy-маршруты (/p/{token}/...).
+
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -11,9 +17,9 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 router = APIRouter(tags=["pages"])
 
 
-# =====================================================================
-# Авторизация и согласия — публичные страницы
-# =====================================================================
+# ============================================
+#   Авторизация и согласия — публичные страницы
+# ============================================
 
 @router.get("/login", include_in_schema=False)
 async def serve_login_page():
@@ -27,9 +33,9 @@ async def serve_consent_page():
     return FileResponse(FRONTEND_DIR / "patient" / "consent.html")
 
 
-# =====================================================================
-# Исследователь — страницы
-# =====================================================================
+# ============================================
+#   Исследователь — страницы
+# ============================================
 
 @router.get("/researcher/login", include_in_schema=False)
 async def serve_researcher_login():
@@ -43,9 +49,9 @@ async def serve_researcher_dashboard():
     return FileResponse(FRONTEND_DIR / "researcher" / "dashboard.html")
 
 
-# =====================================================================
-# Пациент — session-based страницы (/patient/...)
-# =====================================================================
+# ============================================
+#   Пациент — session-based страницы (/patient/...)
+# ============================================
 
 @router.get("/patient/home", include_in_schema=False)
 async def serve_patient_home():
@@ -119,9 +125,9 @@ async def serve_patient_profile():
     return FileResponse(FRONTEND_DIR / "patient" / "profile.html")
 
 
-# =====================================================================
-# Legacy — старые маршруты /p/{token}/... (обратная совместимость)
-# =====================================================================
+# ============================================
+#   Legacy — старые маршруты /p/{token}/...
+# ============================================
 
 _LEGACY_PREFIX = "/p"
 _legacy = APIRouter(prefix=_LEGACY_PREFIX, tags=["pages-legacy"])

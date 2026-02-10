@@ -1,3 +1,8 @@
+# ============================================
+# Auth Router: Эндпоинты авторизации
+# ============================================
+# Login/logout для пациентов (PIN) и исследователей (пароль).
+
 """Authentication API endpoints for patients and researchers."""
 
 from __future__ import annotations

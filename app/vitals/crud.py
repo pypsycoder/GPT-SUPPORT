@@ -1,3 +1,9 @@
+# ============================================
+# Vitals CRUD: Генерик-CRUD витальных показателей
+# ============================================
+# Универсальный CRUD-класс для BPMeasurement, PulseMeasurement,
+# WeightMeasurement и WaterIntake с фильтрацией и сортировкой.
+
 from __future__ import annotations
 
 from datetime import datetime

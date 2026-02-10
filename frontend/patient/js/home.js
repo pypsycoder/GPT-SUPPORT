@@ -189,13 +189,22 @@
       '#ef4444'  //  3: Гипертония 3 ст. (красный)
     ];
 
-    // Создаем SVG
+    // Толщина столбика и интервал: столбик в 2 раза уже, интервал = 1/2 толщины
+    const barWidth = 4;
+    const gap = barWidth / 2; // 2
+    const step = barWidth + gap; // 6
+    const paddingLeft = 1;
+    const viewBoxW = values.length * step + paddingLeft * 2;
+
+    // Создаем SVG (высота 140px — график выше и всегда внутри карточки за счёт overflow: hidden на контейнере)
+    const chartHeight = 140;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', '100%');
-    svg.setAttribute('height', '100%');
-    svg.setAttribute('viewBox', `0 0 ${values.length * 20} 100`);
+    svg.setAttribute('height', String(chartHeight));
+    svg.setAttribute('viewBox', `0 0 ${viewBoxW} 100`);
     svg.setAttribute('preserveAspectRatio', 'none');
     svg.style.overflow = 'visible';
+    svg.style.display = 'block';
 
     // Рисуем коридоры нормы (пунктирные линии)
     const normRanges = [
@@ -209,7 +218,7 @@
       const y = 100 - ((norm.value - minVal) / range * 100);
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', '0');
-      line.setAttribute('x2', values.length * 20);
+      line.setAttribute('x2', String(viewBoxW));
       line.setAttribute('y1', y);
       line.setAttribute('y2', y);
       line.setAttribute('stroke', '#94a3b8');
@@ -219,25 +228,25 @@
       svg.appendChild(line);
     });
 
-    // Рисуем линии для каждого измерения
+    // Рисуем линии для каждого измерения (слева направо, интервал = 1/2 толщины столбика)
     values.forEach((item, index) => {
       const sys = item.systolic || 0;
       const dia = item.diastolic || 0;
       const level = getBPLevel(sys, dia);
       const color = colors[level + 3]; // Сдвигаем индекс: -3 -> 0, 0 -> 3, 3 -> 6
 
-      const x = index * 20 + 10;
+      const x = paddingLeft + index * step + barWidth / 2;
       const y1 = 100 - ((sys - minVal) / range * 100);
       const y2 = 100 - ((dia - minVal) / range * 100);
 
-      // Вертикальная линия от диастолического до систолического
+      // Вертикальная линия от диастолического до систолического (толщина в 2 раза уже)
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', x);
       line.setAttribute('x2', x);
       line.setAttribute('y1', y1);
       line.setAttribute('y2', y2);
       line.setAttribute('stroke', color);
-      line.setAttribute('stroke-width', '8');
+      line.setAttribute('stroke-width', String(barWidth));
       line.setAttribute('stroke-linecap', 'round');
       line.setAttribute('class', 'bp-range-line');
 
@@ -248,12 +257,12 @@
 
       svg.appendChild(line);
 
-      // Точки на концах для лучшей видимости
+      // Точки на концах (радиус уменьшен пропорционально толщине)
       [y1, y2].forEach(y => {
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         circle.setAttribute('cx', x);
         circle.setAttribute('cy', y);
-        circle.setAttribute('r', '4');
+        circle.setAttribute('r', '2');
         circle.setAttribute('fill', color);
         svg.appendChild(circle);
       });

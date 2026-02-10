@@ -1,3 +1,10 @@
+# ============================================
+# Vitals API: Эндпоинты витальных показателей
+# ============================================
+# REST API для записи и чтения витальных данных пациента:
+# артериальное давление, пульс, вес, водный баланс.
+# Каждый тип имеет общие эндпоинты и /me-эндпоинты (текущий пользователь).
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -26,9 +33,9 @@ def _parse_order(order_by: Optional[str]) -> str:
     return order_by
 
 
-# =========================
-#  АД
-# =========================
+# ============================================
+#   АД (артериальное давление)
+# ============================================
 
 @router.post("/bp", response_model=schemas.BPMeasurementRead)
 async def create_bp(
@@ -107,9 +114,9 @@ async def create_bp_me(
     return measurement
 
 
-# =========================
-#  Пульс
-# =========================
+# ============================================
+#   Пульс
+# ============================================
 
 @router.post("/pulse", response_model=schemas.PulseMeasurementRead)
 async def create_pulse(
@@ -180,9 +187,9 @@ async def create_pulse_me(
     return measurement
 
 
-# =========================
-#  Вес
-# =========================
+# ============================================
+#   Вес
+# ============================================
 
 @router.post("/weight", response_model=schemas.WeightMeasurementRead)
 async def create_weight(
@@ -253,9 +260,9 @@ async def create_weight_me(
     return measurement
 
 
-# =========================
-#  Вода
-# =========================
+# ============================================
+#   Вода (водный баланс)
+# ============================================
 
 @router.post("/water", response_model=schemas.WaterIntakeRead)
 async def create_water(

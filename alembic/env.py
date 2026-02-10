@@ -1,3 +1,9 @@
+# ============================================
+# Alembic Env: Конфигурация миграций БД
+# ============================================
+# Настройка Alembic для работы с PostgreSQL через asyncpg.
+# Поддержка .env, кастомные схемы (users, scales, vitals, education).
+
 """Alembic environment setup (sync engine, .env support, minimal config)."""
 from __future__ import annotations
 

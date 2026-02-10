@@ -1,4 +1,9 @@
-# Актуальное inline-меню бота. Используется как единственный источник правды для меню.
+# ============================================
+# Telegram Bot: Inline-меню бота
+# ============================================
+# Главное меню на inline-кнопках: обработка /menu,
+# переходы между разделами, единственный источник правды для меню.
+
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -1,6 +1,12 @@
+# ============================================
+# Telegram Bot: Inline-клавиатуры
+# ============================================
+# Все inline-клавиатуры бота: главное меню, подменю разделов,
+# клавиатуры контекста витальных, шкалы и т.д.
+
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# # Главное меню (inline)
+# --- Главное меню ---
 def main_menu_ikb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🧪 Шкалы", callback_data="menu:scales")],

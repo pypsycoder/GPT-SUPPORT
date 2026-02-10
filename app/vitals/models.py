@@ -1,3 +1,9 @@
+# ============================================
+# Vitals Models: ORM-модели витальных показателей
+# ============================================
+# BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake.
+# Схема vitals в PostgreSQL.
+
 from __future__ import annotations
 
 from uuid import uuid4

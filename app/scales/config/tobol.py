@@ -1,3 +1,11 @@
+# ============================================
+# TOBOL Config: Тип отношения к болезни (12 профилей)
+# ============================================
+# Парсит утверждения и диагностические коэффициенты из tobol.md.
+# 12 профилей: Гармоничный, Эргопатический, Анозогнозический,
+# Тревожный, Ипохондрический, Неврастенический, Меланхолический,
+# Апатический, Сензитивный, Эгоцентрический, Паранойяльный, Дисфорический.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +20,10 @@ RESOURCE_PATH = Path(__file__).resolve().parent.parent / "resources" / "tobol.md
 SCALE_ID = "TOBOL"
 SCALE_TITLE = "Тип отношения к болезни (ТОБОЛ)"
 
+
+# ============================================
+#   Dataclass и константы
+# ============================================
 
 @dataclass(frozen=True)
 class TobolItem:
@@ -57,6 +69,10 @@ _CYRILLIC_TO_PROFILE = {
 }
 
 
+# ============================================
+#   Парсинг утверждений из tobol.md
+# ============================================
+
 def _parse_items() -> list[TobolItem]:
     lines = RESOURCE_PATH.read_text(encoding="utf-8").splitlines()
     heading_pattern = re.compile(r"^###\s+([IVXL]+)\.\s*(.+)$")
@@ -90,6 +106,10 @@ def _parse_items() -> list[TobolItem]:
 
     return items
 
+
+# ============================================
+#   Парсинг диагностических коэффициентов
+# ============================================
 
 def _parse_coefficients(items: Iterable[TobolItem]) -> dict[str, dict[str, int | str]]:
     coeffs: dict[str, dict[str, int | str]] = {item.id: {} for item in items}
@@ -155,6 +175,10 @@ TOBOL_ITEMS: list[TobolItem] = _parse_items()
 TOBOL_COEFFS: dict[str, dict[str, int | str]] = _parse_coefficients(TOBOL_ITEMS)
 
 
+# ============================================
+#   Подготовка данных для фронтенда
+# ============================================
+
 def get_tobol_sections_for_front() -> list[dict[str, Any]]:
     """
     Готовит структуру для фронта:
@@ -204,9 +228,9 @@ def get_tobol_sections_for_front() -> list[dict[str, Any]]:
     return list(sections.values())
 
 
-# -------------------------------
+# ============================================
 #   Конфиг для API /scales/TOBOL
-# -------------------------------
+# ============================================
 
 def _build_tobol_config() -> dict[str, Any]:
     """

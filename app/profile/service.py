@@ -1,4 +1,9 @@
-# app/profile/service.py
+# ============================================
+# Profile Service: Агрегатор данных профиля пациента
+# ============================================
+# Собирает сводку профиля: витальные показатели, прогресс обучения,
+# результаты шкал. Также обновление ФИО/возраста/пола.
+
 """Сервисный слой для профиля пациента."""
 
 from __future__ import annotations
@@ -27,7 +32,10 @@ from app.users.models import User
 from app.vitals.models import BPMeasurement, PulseMeasurement, WaterIntake, WeightMeasurement
 
 
-# Названия шкал для отображения
+# ============================================
+#   Константы
+# ============================================
+
 SCALE_NAMES = {
     "HADS": "Госпитальная шкала тревоги и депрессии",
     "KOP_25A1": "КОП-25 (копинг-стратегии)",
@@ -36,6 +44,10 @@ SCALE_NAMES = {
     "PSQI": "Питтсбургский опросник качества сна",
 }
 
+
+# ============================================
+#   Сводка витальных показателей
+# ============================================
 
 async def _get_vitals_summary(session: AsyncSession, user_id: int) -> VitalsSummary:
     """Получает сводку по витальным показателям пациента."""
@@ -111,6 +123,10 @@ async def _get_vitals_summary(session: AsyncSession, user_id: int) -> VitalsSumm
     )
 
 
+# ============================================
+#   Сводка обучения
+# ============================================
+
 async def _get_education_summary(session: AsyncSession, user_id: int) -> EducationSummary:
     """Получает сводку по обучению пациента."""
 
@@ -177,6 +193,10 @@ async def _get_education_summary(session: AsyncSession, user_id: int) -> Educati
     )
 
 
+# ============================================
+#   Сводка шкал
+# ============================================
+
 async def _get_scales_summary(session: AsyncSession, user_id: int) -> ScalesSummary:
     """Получает сводку по психологическим шкалам пациента."""
 
@@ -216,6 +236,10 @@ async def _get_scales_summary(session: AsyncSession, user_id: int) -> ScalesSumm
         last_scale=last_scale,
     )
 
+
+# ============================================
+#   Профиль: сборка и обновление
+# ============================================
 
 async def get_profile_summary(
     session: AsyncSession,

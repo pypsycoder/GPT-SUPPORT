@@ -1,3 +1,10 @@
+# ============================================
+# Import Lesson Tests: CLI-импорт тестов из JSON/MD
+# ============================================
+# Парсит файлы формата nn.Название-тест.md, извлекает JSON-массив
+# вопросов и создаёт записи LessonTest + LessonTestQuestion в БД.
+# Поддерживает импорт отдельных файлов и целых папок.
+
 """
 CLI-скрипт импорта тестов уроков из JSON/MD-файлов в БД.
 
@@ -54,7 +61,10 @@ from core.db.engine import engine as async_engine
 from app.education.models import Lesson, LessonTest, LessonTestQuestion
 
 
-# slugify: транслитерация русского названия в латиницу
+# ============================================
+#   Утилиты (slugify, парсинг имени файла)
+# ============================================
+
 def slugify(text: str) -> str:
     """Преобразует русскую строку в URL-дружелюбный slug."""
     mapping = {
@@ -126,6 +136,10 @@ def guess_lesson_codes(order: int, test_title_ru: str) -> Tuple[Optional[str], O
     return lesson_code_full, lesson_code_base
 
 
+# ============================================
+#   Загрузка вопросов из файла
+# ============================================
+
 def load_questions_from_file(path: Path) -> List[dict]:
     """
     Загружаем список вопросов из файла.
@@ -148,6 +162,10 @@ def load_questions_from_file(path: Path) -> List[dict]:
         raise ValueError("Ожидался JSON-массив вопросов в файле: " + str(path))
     return data
 
+
+# ============================================
+#   Поиск урока в БД
+# ============================================
 
 async def find_lesson_for_test(session, order: int, lesson_code_full: Optional[str],
                                lesson_code_base: Optional[str]) -> Lesson:
@@ -187,6 +205,10 @@ async def find_lesson_for_test(session, order: int, lesson_code_full: Optional[s
         f"ни по order_index={order}"
     )
 
+
+# ============================================
+#   Импорт теста в БД
+# ============================================
 
 async def async_import_test(path: Path) -> None:
     """Импортирует один файл как LessonTest + LessonTestQuestion."""
@@ -307,6 +329,10 @@ async def async_main(paths: List[Path]) -> None:
         except Exception as exc:
             print(f"\n❌ Ошибка при импорте '{path}': {exc}")
 
+
+# ============================================
+#   CLI (argparse + main)
+# ============================================
 
 def parse_args() -> List[Path]:
     """Парсит аргументы командной строки и возвращает список файлов-тестов."""

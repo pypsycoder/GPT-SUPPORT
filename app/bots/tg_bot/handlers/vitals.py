@@ -1,3 +1,10 @@
+# ============================================
+# Telegram Bot: FSM-обработчики витальных показателей
+# ============================================
+# Конечные автоматы (FSM) для ввода АД, пульса и веса
+# через Telegram-бота. Каждый показатель: выбор контекста
+# измерения → ввод значения → сохранение в БД.
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -22,9 +29,9 @@ from bots.shared.utils import logger
 
 router = Router()
 
-# -------------------------------------------------------------------------
-# FSM
-# -------------------------------------------------------------------------
+# ============================================
+#   FSM States
+# ============================================
 
 class BPState(StatesGroup):
     choosing_context = State()
@@ -39,9 +46,9 @@ class WeightState(StatesGroup):
     waiting_for_value = State()
 
 
-# -------------------------------------------------------------------------
-# Helpers
-# -------------------------------------------------------------------------
+# ============================================
+#   Helpers (парсинг и сохранение)
+# ============================================
 
 async def _get_or_create_user(message: Message, session: AsyncSession):
     """
@@ -151,9 +158,9 @@ async def _save_weight(session: AsyncSession, user_id: int, weight: float, conte
     logger.info("[vitals][weight] measurement saved for user_id=%s context=%s", user_id, context)
 
 
-# -------------------------------------------------------------------------
-# Handlers
-# -------------------------------------------------------------------------
+# ============================================
+#   Handlers (callback + message)
+# ============================================
 
 @router.callback_query(F.data == "menu:vitals")
 async def open_vitals_menu(callback: CallbackQuery):
@@ -163,7 +170,7 @@ async def open_vitals_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-# -------------------- BP --------------------
+# --- АД (BP) ---
 
 @router.callback_query(F.data == "vitals:bp")
 async def start_bp_flow(callback: CallbackQuery, state: FSMContext):
@@ -212,7 +219,7 @@ async def bp_value_handler(message: Message, state: FSMContext, session: AsyncSe
         reply_markup=vitals_menu_ikb(),
     )
 
-# -------------------- Pulse --------------------
+# --- Пульс ---
 
 @router.callback_query(F.data == "vitals:pulse")
 async def start_pulse_flow(callback: CallbackQuery, state: FSMContext):
@@ -260,7 +267,7 @@ async def pulse_value_handler(message: Message, state: FSMContext, session: Asyn
         reply_markup=vitals_menu_ikb(),
     )
 
-# -------------------- Weight --------------------
+# --- Вес ---
 
 @router.callback_query(F.data == "vitals:weight")
 async def start_weight_flow(callback: CallbackQuery, state: FSMContext):

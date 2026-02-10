@@ -85,3 +85,4 @@ instance/
 # (если ты используешь OpenAI API или другие ключи — держи их вне Git)
 config.yaml
 settings_local.py
+nul

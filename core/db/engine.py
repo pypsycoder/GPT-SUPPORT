@@ -1,4 +1,8 @@
-# core/db/engine.py
+# ============================================
+# DB Engine: Асинхронный SQLAlchemy engine
+# ============================================
+# Создание async engine (asyncpg) и session factory.
+
 from __future__ import annotations
 
 import os
