@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Обучение — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Общие стили проекта -->
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+
+    <!-- Локальные стили только для навигатора обучения -->
+    <style>
+        /* ====== Общий прогресс вверху ====== */
+        .edu-global-progress {
+            background: #fff;
+            border-radius: 1rem;
+            border: 1px solid #e5e7eb;
+            padding: 1rem 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .edu-global-progress-label {
+            font-size: 0.95rem;
+            color: #374151;
+            margin-bottom: 0.5rem;
+        }
+
+        .edu-global-progress-bar {
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .edu-global-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            border-radius: 999px;
+            transition: width 0.3s ease;
+        }
+
+        /* ====== Плоский список карточек занятий ====== */
+        .edu-lessons-flat {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .edu-lesson-card {
+            padding: 1rem 1.25rem;
+            border-radius: 1rem;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            cursor: pointer;
+            transition:
+                border-color 0.15s ease,
+                box-shadow 0.15s ease,
+                transform 0.06s ease;
+        }
+
+        .edu-lesson-card:hover {
+            border-color: #c7d2fe;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
+            transform: translateY(-1px);
+        }
+
+        .edu-lesson-card:active {
+            transform: translateY(0);
+        }
+
+        .edu-lesson-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.5rem;
+        }
+
+        .edu-lesson-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+        }
+
+        .lesson-status-pill {
+            padding: 0.2rem 0.65rem;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            white-space: nowrap;
+        }
+
+        .lesson-status-pill.read-true {
+            border-color: rgba(22, 163, 74, 0.3);
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .lesson-status-pill.read-false {
+            border-color: rgba(148, 163, 184, 0.7);
+            background: #f3f4f6;
+            color: #4b5563;
+        }
+
+        .lesson-status-pill.test-true {
+            border-color: rgba(37, 99, 235, 0.4);
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .lesson-status-pill.test-false {
+            border-color: rgba(148, 163, 184, 0.7);
+            background: #f3f4f6;
+            color: #4b5563;
+        }
+
+        .edu-empty {
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+
+        @media (max-width: 768px) {
+            .edu-lesson-card {
+                padding: 0.85rem 1rem;
+            }
+            .edu-global-progress {
+                padding: 0.85rem 1rem;
+            }
+        }
+    </style>
+</head>
+
+<!-- data-page для подсветки пункта меню "Обучение" в сайдбаре -->
+<body data-page="education">
+
+<div class="page">
+
+    <!-- Глобальный хедер (рендерится через global_header.js) -->
+    <div id="global-header"></div>
+
+    <div class="layout">
+
+        <!-- Сайдбар (рендерится через sidebar.js) -->
+        <div id="sidebar-container"></div>
+
+        <!-- Основной контент -->
+        <main class="content">
+
+            <!-- Заголовок страницы -->
+            <section class="page-header">
+                <div class="page-title">
+                    📚 Обучение
+                </div>
+                <div class="page-subtitle">
+                    Выберите тему и занятие, чтобы продолжить обучение.
+                </div>
+                <div id="header-token" class="page-token">
+                    Токен пациента: …
+                </div>
+            </section>
+
+            <!-- Статусная плашка (используем .status-banner из style.css) -->
+            <div id="education-status" class="status-banner status-hidden"></div>
+
+            <!-- Корневой контейнер: общий прогресс + плоский список карточек -->
+            <section class="edu-root">
+                <div id="education-blocks-container">
+                    <div class="edu-empty">Загрузка списка занятий…</div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <footer class="footer">
+        GPT Health Support • модуль обучения • экспериментальный интерфейс
+    </footer>
+</div>
+
+<script>
+    // =========================================
+    // Управление статусной плашкой
+    // =========================================
+    function setEducationStatus(type, message) {
+        const banner = document.getElementById('education-status');
+        if (!banner) return;
+
+        // Сброс
+        banner.classList.remove('status-success', 'status-error', 'status-hidden');
+
+        if (type === 'error') {
+            banner.classList.add('status-error');
+            banner.textContent = message || 'Произошла ошибка.';
+        } else if (type === 'success') {
+            banner.classList.add('status-success');
+            banner.textContent = message || '';
+        } else {
+            banner.classList.add('status-hidden');
+            banner.textContent = '';
+        }
+    }
+
+    // =========================================
+    // Рендер: общий прогресс вверху + плоский список карточек занятий
+    // Занятие считается завершённым, если прочитано И тест пройден на проходной балл.
+    // =========================================
+    function renderEducationBlocks(data) {
+        const container = document.getElementById('education-blocks-container');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        // Собираем все занятия из всех блоков, сортируем по order_index
+        const allLessons = [];
+        if (Array.isArray(data)) {
+            data.forEach((block) => {
+                if (Array.isArray(block.lessons)) {
+                    block.lessons.forEach((l) => allLessons.push(l));
+                }
+            });
+        }
+        allLessons.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+
+        const M = allLessons.length;
+        const N = allLessons.filter((l) => l.is_read && l.is_test_passed).length;
+
+        if (M === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'edu-empty';
+            empty.textContent = 'Пока нет доступных занятий. Скажите об этом врачу или попробуйте позже.';
+            container.appendChild(empty);
+            return;
+        }
+
+        // ----- Общий прогресс вверху -----
+        const progressWrap = document.createElement('div');
+        progressWrap.className = 'edu-global-progress';
+
+        const progressLabel = document.createElement('div');
+        progressLabel.className = 'edu-global-progress-label';
+        progressLabel.textContent = `${N} из ${M} занятий завершено`;
+
+        const progressBarOuter = document.createElement('div');
+        progressBarOuter.className = 'edu-global-progress-bar';
+
+        const progressBarFill = document.createElement('div');
+        progressBarFill.className = 'edu-global-progress-fill';
+        progressBarFill.style.width = M > 0 ? `${(N / M) * 100}%` : '0%';
+
+        progressBarOuter.appendChild(progressBarFill);
+        progressWrap.appendChild(progressLabel);
+        progressWrap.appendChild(progressBarOuter);
+        container.appendChild(progressWrap);
+
+        // ----- Плоский список карточек занятий -----
+        const listWrap = document.createElement('div');
+        listWrap.className = 'edu-lessons-flat';
+
+        allLessons.forEach((lesson) => {
+            const card = document.createElement('article');
+            card.className = 'edu-lesson-card';
+            card.setAttribute('data-lesson-id', lesson.lesson_id);
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'edu-lesson-title';
+            titleEl.textContent = lesson.title || 'Без названия';
+
+            const metaRow = document.createElement('div');
+            metaRow.className = 'edu-lesson-meta';
+
+            const readPill = document.createElement('span');
+            readPill.className = 'lesson-status-pill ' + (lesson.is_read ? 'read-true' : 'read-false');
+            readPill.textContent = lesson.is_read ? 'Прочитано' : 'Не прочитано';
+
+            const testPill = document.createElement('span');
+            testPill.className = 'lesson-status-pill ' + (lesson.is_test_passed ? 'test-true' : 'test-false');
+            testPill.textContent = lesson.is_test_passed ? 'Тест ✔' : 'Тест ○';
+
+            metaRow.appendChild(readPill);
+            metaRow.appendChild(testPill);
+
+            card.appendChild(titleEl);
+            card.appendChild(metaRow);
+
+            card.addEventListener('click', () => {
+                const code = lesson.lesson_code || lesson.code;
+                if (code) {
+                    window.location.href = `/patient/education?lesson=${encodeURIComponent(code)}`;
+                }
+            });
+
+            listWrap.appendChild(card);
+        });
+
+        container.appendChild(listWrap);
+    }
+
+
+    // =========================================
+    // Загрузка overview с бэка
+    // =========================================
+    async function loadEducationOverview(patientToken) {
+        const container = document.getElementById('education-blocks-container');
+
+        // Во время загрузки статус убираем, оставляем "Загрузка..." в контенте
+        setEducationStatus('none', '');
+
+        const API_BASE = ''; // тот же хост, что и фронтенд
+
+        try {
+            const url = `${API_BASE}/api/v1/education/lessons/overview`;
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                },
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            renderEducationBlocks(data);
+            setEducationStatus('none', '');
+        } catch (err) {
+            console.error('Ошибка загрузки overview:', err);
+            setEducationStatus(
+                'error',
+                'Не удалось загрузить список занятий. Попробуйте позже или скажите об этом врачу.'
+            );
+
+            if (container) {
+                container.innerHTML = '';
+                const msg = document.createElement('div');
+                msg.className = 'edu-empty';
+                msg.textContent = 'Произошла ошибка при загрузке данных. Повторите попытку позже.';
+                container.appendChild(msg);
+            }
+        }
+    }
+
+
+    // =========================================
+    // Инициализация (сессия: без токена в URL)
+    // =========================================
+    document.addEventListener('DOMContentLoaded', async function() {
+        if (window.PatientAuth) {
+            await window.PatientAuth.requireAuth();
+        }
+        var headerToken = document.getElementById('header-token');
+        if (headerToken) headerToken.style.display = 'none';
+        loadEducationOverview();
+    });
+</script>
+
+<!-- auth -->
+<script src="/frontend/patient/js/auth.js"></script>
+<!-- Общий сайдбар -->
+<script src="/frontend/patient/js/sidebar.js"></script>
+<!-- Общий глобальный хедер -->
+<script src="/frontend/patient/js/global_header.js"></script>
+
+</body>
+</html>

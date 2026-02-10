@@ -1,32 +1,39 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime, ForeignKey
-#from sqlalchemy.orm import declarative_base
-from datetime import datetime
+from __future__ import annotations
+
+from uuid import uuid4
+
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String, func
+from sqlalchemy.dialects.postgresql import UUID
+
 from app.models import Base
 
 
+class ScaleResult(Base):
+    """ORM-модель для хранения результатов прохождения шкал."""
 
-class ScaleResponse(Base):
-    __tablename__ = "responses"
-    __table_args__ = {"schema": "scales"}
+    __tablename__ = "scale_results"
+    __table_args__ = (
+        Index("ix_scale_results_user_id", "user_id"),
+        Index("ix_scale_results_scale_code", "scale_code"),
+        Index("ix_scale_results_measured_at", "measured_at"),
+        {"schema": "scales"},
+    )
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.users.id"), nullable=False)
-    scale_code = Column(String, nullable=False)
-    version = Column(String, default="1.0")
-    started_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime)
-    raw_answers = Column(JSON)
-    result = Column(JSON)
-    interpretation = Column(String)
-
-class ScaleDraft(Base):
-    __tablename__ = "drafts"
-    __table_args__ = {"schema": "scales"}
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.users.id"), nullable=False)
-    scale_code = Column(String)
-    current_index = Column(Integer)
-    answers = Column(JSON)
-    started_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scale_code = Column(String(length=32), nullable=False)
+    scale_version = Column(String(length=16), nullable=True)
+    measured_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    result_json = Column(JSON, nullable=False)
+    answers_json = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Шкалы — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+</head>
+<body data-page="scales_overview">
+<div class="page">
+    <div id="global-header"></div>
+
+    <div class="layout">
+        <div id="sidebar-container"></div>
+
+        <main class="content">
+            <section class="page-header">
+                <div class="page-title">📊 Шкалы оценки состояния</div>
+                <div class="page-subtitle">Выберите опросник, чтобы оценить настроение или приверженность лечению.</div>
+            </section>
+
+            <section class="scales-grid" aria-label="Список доступных шкал">
+                <article class="scale-card">
+                    <div class="scale-card-header">🧠 HADS — Настроение</div>
+                    <p class="scale-card-desc">7 вопросов про тревогу и 7 про депрессию. Помогает отследить настроение и обсудить его с врачом.</p>
+                    <div class="scale-card-meta">Время прохождения: ~3–5 минут</div>
+                    <div class="scale-card-actions">
+                        <button class="scale-card-button" data-scale="hads">Пройти шкалу</button>
+                    </div>
+                </article>
+
+                <article class="scale-card">
+                    <div class="scale-card-header">💊 КОП-25 А1 — Приверженность лечению</div>
+                    <p class="scale-card-desc">25 вопросов про важность рекомендаций и готовность их выполнять: лекарства, наблюдение, образ жизни.</p>
+                    <div class="scale-card-meta">Время прохождения: ~6–8 минут</div>
+                    <div class="scale-card-actions">
+                        <button class="scale-card-button" data-scale="kop25a">Пройти шкалу</button>
+                    </div>
+                </article>
+
+                <article class="scale-card">
+                    <div class="scale-card-header">🧭 ТОБОЛ — Тип отношения к болезни</div>
+                    <p class="scale-card-desc">Профиль отношения к болезни по 12 типам: от гармоничного до тревожного и паранойяльного.</p>
+                    <div class="scale-card-meta">Время прохождения: ~5–7 минут</div>
+                    <div class="scale-card-actions">
+                        <button class="scale-card-button" data-scale="tobol">Пройти шкалу</button>
+                    </div>
+                </article>
+
+                <article class="scale-card">
+                    <div class="scale-card-header">PSQI — Качество сна</div>
+                    <p class="scale-card-desc">Питтсбургский опросник: оценка качества сна за последний месяц по 7 компонентам — от латентности до дневной дисфункции.</p>
+                    <div class="scale-card-meta">Время прохождения: ~5–7 минут</div>
+                    <div class="scale-card-actions">
+                        <button class="scale-card-button" data-scale="psqi">Пройти шкалу</button>
+                    </div>
+                </article>
+            </section>
+        </main>
+    </div>
+
+    <footer class="footer">GPT Health Support · Поддержка пациентов</footer>
+</div>
+
+<script src="/frontend/patient/js/auth.js"></script>
+<script src="/frontend/patient/js/global_header.js"></script>
+<script src="/frontend/patient/js/sidebar.js"></script>
+<script src="/frontend/patient/js/scales_overview.js"></script>
+</body>
+</html>

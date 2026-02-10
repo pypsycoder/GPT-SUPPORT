@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Вход исследователя — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/researcher/css/researcher.css">
+</head>
+<body>
+  <div class="r-login-wrapper">
+    <div class="r-login-card">
+      <div class="r-login-title">GPT Health Support</div>
+      <div class="r-login-subtitle">Вход для исследователя</div>
+
+      <form id="r-login-form" autocomplete="off">
+        <div class="r-login-field">
+          <label for="r-username">Логин</label>
+          <input type="text" id="r-username" autocomplete="username" required>
+        </div>
+
+        <div class="r-login-field">
+          <label for="r-password">Пароль</label>
+          <input type="password" id="r-password" autocomplete="current-password" required>
+        </div>
+
+        <button type="submit" class="r-login-btn" id="r-login-btn">Войти</button>
+      </form>
+
+      <div class="r-login-error" id="r-login-error"></div>
+    </div>
+  </div>
+
+  <script src="/frontend/researcher/js/auth.js"></script>
+</body>
+</html>

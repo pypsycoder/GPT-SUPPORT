@@ -24,3 +24,5 @@ pytest==8.3.3
 pytest-asyncio==0.24.0
 uvicorn==0.30.3
 aiosqlite==0.20.0
+PyYAML==6.0.2
+passlib[bcrypt]==1.7.4

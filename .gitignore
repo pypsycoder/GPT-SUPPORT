@@ -6,6 +6,7 @@ __pycache__/
 
 # 🔧 Environment / virtualenv
 .env
+.env.test
 .venv
 env/
 venv/
@@ -16,7 +17,13 @@ venv.bak/
 # 🧩 IDEs and editors
 .idea/
 .vscode/
+.cursor/
+.cursorignore
+.claude/
 *.iml
+
+# 📝 Cursor AI logs
+Cursor_log/
 
 # 📦 Distribution / packaging
 build/
@@ -84,3 +91,4 @@ instance/
 # (если ты используешь OpenAI API или другие ключи — держи их вне Git)
 config.yaml
 settings_local.py
+nul

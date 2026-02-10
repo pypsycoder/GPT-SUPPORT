@@ -1,8 +1,14 @@
+# ============================================
+# Vitals Models: ORM-модели витальных показателей
+# ============================================
+# BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake.
+# Схема vitals в PostgreSQL.
+
 from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, func
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declared_attr
 
@@ -36,21 +42,31 @@ class BPMeasurement(VitalsBase):
     systolic = Column(Integer, nullable=False)
     diastolic = Column(Integer, nullable=False)
     pulse = Column(Integer, nullable=True)
+    # контекст измерения давления (до/после диализа, дома и т.д.)
+    context = Column(String(length=32), nullable=False, server_default="na")
 
 
 class PulseMeasurement(VitalsBase):
     __tablename__ = "pulse_measurements"
 
     bpm = Column(Integer, nullable=False)
+    # контекст измерения пульса
+    context = Column(String(length=32), nullable=False, server_default="na")
 
 
 class WeightMeasurement(VitalsBase):
     __tablename__ = "weight_measurements"
 
     weight = Column(Numeric(6, 2), nullable=False)
+    # контекст измерения веса (до/после, дома утром/вечером)
+    context = Column(String(length=32), nullable=False, server_default="na")
 
 
-class TemperatureMeasurement(VitalsBase):
-    __tablename__ = "temperature_measurements"
+class WaterIntake(VitalsBase):
+    __tablename__ = "water_intake"
 
-    temperature = Column(Float, nullable=False)
+    volume_ml = Column(Integer, nullable=False)
+    # тип жидкости (опционально для будущего расширения)
+    liquid_type = Column(String(length=32), nullable=True)
+    # контекст (утро/день/вечер, с едой/без еды)
+    context = Column(String(length=32), nullable=False, server_default="na")

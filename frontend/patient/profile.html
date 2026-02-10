@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Профиль — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Общие стили -->
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+    <!-- Стили профиля -->
+    <link rel="stylesheet" href="/frontend/patient/css/profile.css">
+</head>
+
+<body data-page="profile">
+
+<div class="page">
+    <!-- Глобальный хедер -->
+    <div id="global-header"></div>
+
+    <!-- ОСНОВНАЯ СЕТКА -->
+    <div class="layout">
+        <!-- Сайдбар -->
+        <div id="sidebar-container"></div>
+
+        <!-- Контент -->
+        <main class="content">
+
+            <!-- Заголовок раздела -->
+            <section class="page-header">
+                <div class="page-title">
+                    👤 Профиль
+                </div>
+                <div class="page-subtitle">
+                    Личные данные и статистика активности
+                </div>
+            </section>
+
+            <!-- Статусная плашка -->
+            <div id="status-banner" class="status-banner status-hidden"></div>
+
+            <!-- Секция: Личные данные -->
+            <section class="profile-card" id="personal-data-card">
+                <div class="card-header">
+                    <h2 class="card-title">📝 Личные данные</h2>
+                    <button type="button" class="edit-button" id="edit-personal-btn">
+                        Редактировать
+                    </button>
+                </div>
+
+                <!-- Режим просмотра -->
+                <div id="personal-view" class="personal-view">
+                    <div class="info-row">
+                        <span class="info-label">ФИО:</span>
+                        <span class="info-value" id="view-fullname">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Возраст:</span>
+                        <span class="info-value" id="view-age">—</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Пол:</span>
+                        <span class="info-value" id="view-gender">—</span>
+                    </div>
+                </div>
+
+                <!-- Режим редактирования -->
+                <form id="personal-form" class="personal-form hidden">
+                    <div class="form-row">
+                        <label for="edit-fullname">ФИО</label>
+                        <input
+                            id="edit-fullname"
+                            type="text"
+                            maxlength="255"
+                            placeholder="Иванов Иван Иванович"
+                        >
+                    </div>
+                    <div class="form-row">
+                        <label for="edit-age">Возраст</label>
+                        <input
+                            id="edit-age"
+                            type="number"
+                            min="0"
+                            max="150"
+                            placeholder="45"
+                        >
+                    </div>
+                    <div class="form-row">
+                        <label for="edit-gender">Пол</label>
+                        <select id="edit-gender">
+                            <option value="">Не указан</option>
+                            <option value="male">Мужской</option>
+                            <option value="female">Женский</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="submit-button">
+                            Сохранить
+                        </button>
+                        <button type="button" class="cancel-button" id="cancel-edit-btn">
+                            Отмена
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Секция: Согласия -->
+            <section class="profile-card" id="consents-card">
+                <div class="card-header">
+                    <h2 class="card-title">📋 Согласия</h2>
+                </div>
+                <div class="consents-list">
+                    <div class="consent-row">
+                        <span class="consent-icon" id="consent-personal-icon">—</span>
+                        <span class="consent-text">Согласие на обработку персональных данных</span>
+                        <button type="button" class="revoke-button" id="revoke-personal-btn" title="Отозвать доступ">Отозвать</button>
+                    </div>
+                    <div class="consent-row">
+                        <span class="consent-icon" id="consent-bot-icon">—</span>
+                        <span class="consent-text">Согласие на использование бота</span>
+                        <button type="button" class="revoke-button" id="revoke-bot-btn" title="Отозвать доступ">Отозвать</button>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- Секция: Витальные показатели -->
+            <section class="profile-card" id="vitals-card">
+                <div class="card-header">
+                    <h2 class="card-title">📊 Витальные показатели</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Давление (АД)</span>
+                        <span class="stat-value" id="vitals-bp">—</span>
+                        <span class="stat-date" id="vitals-bp-date"></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Пульс</span>
+                        <span class="stat-value" id="vitals-pulse">—</span>
+                        <span class="stat-date" id="vitals-pulse-date"></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Вес</span>
+                        <span class="stat-value" id="vitals-weight">—</span>
+                        <span class="stat-date" id="vitals-weight-date"></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Вода сегодня</span>
+                        <span class="stat-value" id="vitals-water">—</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Секция: Обучение -->
+            <section class="profile-card" id="education-card">
+                <div class="card-header">
+                    <h2 class="card-title">🎓 Обучение</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Уроков пройдено</span>
+                        <span class="stat-value" id="edu-lessons">—</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Тестов сдано</span>
+                        <span class="stat-value" id="edu-tests">—</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Практик выполнено</span>
+                        <span class="stat-value" id="edu-practices">—</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Последняя активность</span>
+                        <span class="stat-value stat-value-small" id="edu-last-activity">—</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Секция: Шкалы -->
+            <section class="profile-card" id="scales-card">
+                <div class="card-header">
+                    <h2 class="card-title">📈 Психологические шкалы</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Пройдено шкал</span>
+                        <span class="stat-value" id="scales-passed">—</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Доступно шкал</span>
+                        <span class="stat-value" id="scales-available">—</span>
+                    </div>
+                    <div class="stat-item stat-item-wide">
+                        <span class="stat-label">Последняя шкала</span>
+                        <span class="stat-value stat-value-small" id="scales-last">—</span>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ФУТЕР -->
+    <footer class="footer">
+        GPT Health Support • профиль пациента
+    </footer>
+</div>
+
+<!-- Скрипты -->
+<script src="/frontend/patient/js/auth.js"></script>
+<script src="/frontend/patient/js/global_header.js"></script>
+<script src="/frontend/patient/js/sidebar.js"></script>
+<script src="/frontend/patient/js/profile.js"></script>
+</body>
+</html>

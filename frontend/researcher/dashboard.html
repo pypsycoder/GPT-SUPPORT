@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Панель исследователя — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/researcher/css/researcher.css">
+</head>
+<body>
+  <div class="r-wrapper">
+    <!-- Header -->
+    <div class="r-header">
+      <div class="r-header-title">GPT Health Support</div>
+      <div class="r-header-actions">
+        <span class="r-header-user" id="r-user-name"></span>
+        <button class="r-logout-btn" id="r-logout-btn">Выйти</button>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <div class="r-nav">
+      <button class="r-nav-btn active" data-tab="dashboard">Обзор</button>
+      <button class="r-nav-btn" data-tab="patients">Пациенты</button>
+      <a href="/researcher/centers" class="r-nav-btn">Центры</a>
+      <a href="/researcher/import/schedules" class="r-nav-btn">Импорт расписаний</a>
+    </div>
+
+    <!-- Dashboard tab -->
+    <div id="tab-dashboard">
+      <div class="r-stats">
+        <div class="r-stat-card">
+          <div class="r-stat-value" id="stat-total">—</div>
+          <div class="r-stat-label">Всего пациентов</div>
+        </div>
+        <div class="r-stat-card">
+          <div class="r-stat-value" id="stat-consented">—</div>
+          <div class="r-stat-label">Дали согласие</div>
+        </div>
+        <div class="r-stat-card">
+          <div class="r-stat-value" id="stat-locked">—</div>
+          <div class="r-stat-label">Заблокировано</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Patients tab -->
+    <div id="tab-patients" style="display:none;">
+      <div class="r-table-wrapper">
+        <div class="r-table-header">
+          <div class="r-table-title">Пациенты</div>
+          <button class="r-add-btn" id="r-add-patient-btn">+ Добавить</button>
+        </div>
+        <table class="r-table">
+          <thead>
+            <tr>
+              <th>Номер</th>
+              <th>ФИО</th>
+              <th>Возраст</th>
+              <th>Пол</th>
+              <th>Статус</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="r-patients-tbody">
+            <tr><td colspan="6" style="text-align:center;color:#9ca3af;">Загрузка...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add patient -->
+  <div class="r-modal-backdrop" id="modal-add-patient">
+    <div class="r-modal">
+      <div class="r-modal-title">Новый пациент</div>
+      <form id="form-add-patient">
+        <div class="r-modal-field">
+          <label for="add-fullname">ФИО</label>
+          <input type="text" id="add-fullname" required placeholder="Иванов Иван Иванович">
+        </div>
+        <div class="r-modal-field">
+          <label for="add-age">Возраст</label>
+          <input type="number" id="add-age" min="1" max="120" placeholder="65">
+        </div>
+        <div class="r-modal-field">
+          <label for="add-gender">Пол</label>
+          <select id="add-gender">
+            <option value="">— Не указан —</option>
+            <option value="М">Мужской</option>
+            <option value="Ж">Женский</option>
+          </select>
+        </div>
+        <div class="r-modal-actions">
+          <button type="submit" class="r-modal-btn-primary" id="add-submit">Создать</button>
+          <button type="button" class="r-modal-btn-secondary" id="add-cancel">Отмена</button>
+        </div>
+      </form>
+
+      <!-- PIN result (shown after create) -->
+      <div id="add-result" style="display:none;">
+        <div class="r-pin-result">
+          <div class="r-pin-result-label">Номер пациента</div>
+          <div class="r-pin-result-number" id="result-number"></div>
+          <div class="r-pin-result-label" style="margin-top:1rem;">PIN-код</div>
+          <div class="r-pin-result-number" id="result-pin"></div>
+          <div class="r-pin-warning">PIN показывается только один раз!</div>
+        </div>
+        <div class="r-modal-actions" style="margin-top:1rem;">
+          <button type="button" class="r-modal-btn-primary" id="result-print">Печать карточки</button>
+          <button type="button" class="r-modal-btn-secondary" id="result-close">Закрыть</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: PIN reset result -->
+  <div class="r-modal-backdrop" id="modal-pin-result">
+    <div class="r-modal">
+      <div class="r-modal-title">Новый PIN-код</div>
+      <div class="r-pin-result">
+        <div class="r-pin-result-label">Номер пациента</div>
+        <div class="r-pin-result-number" id="reset-number"></div>
+        <div class="r-pin-result-label" style="margin-top:1rem;">Новый PIN</div>
+        <div class="r-pin-result-number" id="reset-pin"></div>
+        <div class="r-pin-warning">PIN показывается только один раз!</div>
+      </div>
+      <div class="r-modal-actions" style="margin-top:1rem;">
+        <button type="button" class="r-modal-btn-primary" id="reset-print">Печать карточки</button>
+        <button type="button" class="r-modal-btn-secondary" id="reset-close">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Dialysis schedule (current + history) -->
+  <div class="r-modal-backdrop" id="modal-schedule">
+    <div class="r-modal" style="max-width:560px;">
+      <div class="r-modal-title" id="schedule-modal-title">Расписание диализа</div>
+      <div id="schedule-current-block">
+        <div class="r-schedule-section-title">Текущее расписание</div>
+        <div id="schedule-current-content">Загрузка...</div>
+        <button type="button" class="r-action-btn" id="schedule-edit-btn" style="margin-top:0.5rem;display:none;">Изменить расписание</button>
+        <button type="button" class="r-action-btn" id="schedule-add-btn" style="margin-top:0.5rem;display:none;">Добавить расписание</button>
+      </div>
+      <div class="r-schedule-section-title" style="margin-top:1.25rem;">История изменений</div>
+      <div id="schedule-history-content"></div>
+      <div class="r-modal-actions" style="margin-top:1rem;">
+        <button type="button" class="r-modal-btn-secondary" id="schedule-modal-close">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add/Edit schedule form -->
+  <div class="r-modal-backdrop" id="modal-schedule-form">
+    <div class="r-modal" style="max-width:460px;">
+      <div class="r-modal-title" id="schedule-form-title">Добавить расписание</div>
+      <form id="form-schedule">
+        <div class="r-modal-field">
+          <label>Дни диализа</label>
+          <div class="r-weekdays">
+            <label class="r-weekday-cb"><input type="checkbox" name="wd" value="1"> Пн</label>
+            <label class="r-weekday-cb"><input type="checkbox" name="wd" value="2"> Вт</label>
+            <label class="r-weekday-cb"><input type="checkbox" name="wd" value="3"> Ср</label>
+            <label class="r-weekday-cb"><input type="checkbox" name="wd" value="4"> Чт</label>
+            <label class="r-weekday-cb"><input type="checkbox" name="wd" value="5"> Пт</label>
+            <label class="r-weekday-cb"><input type="checkbox" name="wd" value="6"> Сб</label>
+            <label class="r-weekday-cb"><input type="checkbox" name="wd" value="7"> Вс</label>
+          </div>
+        </div>
+        <div class="r-modal-field">
+          <label for="schedule-shift">Смена</label>
+          <select id="schedule-shift">
+            <option value="morning">Утренняя</option>
+            <option value="afternoon">Дневная</option>
+            <option value="evening">Вечерняя</option>
+          </select>
+        </div>
+        <div class="r-modal-field">
+          <label for="schedule-valid-from">Действует с</label>
+          <input type="date" id="schedule-valid-from" required>
+        </div>
+        <div class="r-modal-field">
+          <label for="schedule-reason">Причина (опционально)</label>
+          <input type="text" id="schedule-reason" placeholder="Перевод на вечернюю смену">
+        </div>
+        <div class="r-modal-actions">
+          <button type="submit" class="r-modal-btn-primary" id="schedule-form-submit">Сохранить</button>
+          <button type="button" class="r-modal-btn-secondary" id="schedule-form-cancel">Отмена</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Hidden print area -->
+  <div class="r-print-area" id="print-area" style="display:none;">
+    <div class="r-print-card">
+      <div class="r-print-card-title">GPT Health Support</div>
+      <hr>
+      <div class="r-print-card-row">Номер пациента</div>
+      <div class="r-print-card-value" id="print-number"></div>
+      <div class="r-print-card-row">PIN-код</div>
+      <div class="r-print-card-value" id="print-pin"></div>
+      <hr>
+      <div class="r-print-card-url" id="print-url"></div>
+    </div>
+  </div>
+
+  <script src="/frontend/researcher/js/auth.js"></script>
+  <script src="/frontend/researcher/js/patients.js"></script>
+</body>
+</html>

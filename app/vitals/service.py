@@ -1,3 +1,9 @@
+# ============================================
+# Vitals Service: Валидация и подготовка данных
+# ============================================
+# Подготовка данных витальных показателей (АД, пульс, вес, вода)
+# перед сохранением: валидация диапазонов, парсинг, дефолты.
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -36,10 +42,13 @@ class VitalsService:
             raise ValueError("Недопустимое значение веса")
 
     @staticmethod
-    def validate_temperature(temperature: float) -> None:
-        if not 30 <= temperature <= 45:
-            raise ValueError("Недопустимое значение температуры")
+    def validate_water(volume_ml: int) -> None:
+        if not 0 < volume_ml <= 5000:
+            raise ValueError("Недопустимое значение объема жидкости")
 
+    # =========================
+    #  Подготовка данных АД
+    # =========================
     @classmethod
     def prepare_bp_data(
         cls,
@@ -50,6 +59,7 @@ class VitalsService:
         pulse: Optional[int] = None,
         session_id: Optional[UUID] = None,
         measured_at: Optional[datetime] = None,
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
     ) -> schemas.BPMeasurementCreate:
         cls.validate_bp(systolic, diastolic, pulse)
         normalized_measured_at = cls.normalize_measured_at(measured_at)
@@ -60,8 +70,12 @@ class VitalsService:
             pulse=pulse,
             session_id=session_id,
             measured_at=normalized_measured_at,
+            context=context,
         )
 
+    # =========================
+    #  Подготовка данных пульса
+    # =========================
     @classmethod
     def prepare_pulse_data(
         cls,
@@ -70,6 +84,7 @@ class VitalsService:
         bpm: int,
         session_id: Optional[UUID] = None,
         measured_at: Optional[datetime] = None,
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
     ) -> schemas.PulseMeasurementCreate:
         cls.validate_pulse(bpm)
         normalized_measured_at = cls.normalize_measured_at(measured_at)
@@ -78,8 +93,12 @@ class VitalsService:
             bpm=bpm,
             session_id=session_id,
             measured_at=normalized_measured_at,
+            context=context,
         )
 
+    # =========================
+    #  Подготовка данных веса
+    # =========================
     @classmethod
     def prepare_weight_data(
         cls,
@@ -88,6 +107,7 @@ class VitalsService:
         weight: float,
         session_id: Optional[UUID] = None,
         measured_at: Optional[datetime] = None,
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
     ) -> schemas.WeightMeasurementCreate:
         cls.validate_weight(weight)
         normalized_measured_at = cls.normalize_measured_at(measured_at)
@@ -96,26 +116,37 @@ class VitalsService:
             weight=weight,
             session_id=session_id,
             measured_at=normalized_measured_at,
+            context=context,
         )
 
+    # =========================
+    #  Подготовка данных воды
+    # =========================
     @classmethod
-    def prepare_temperature_data(
+    def prepare_water_data(
         cls,
         *,
         user_id: int,
-        temperature: float,
+        volume_ml: int,
+        liquid_type: Optional[str] = None,
         session_id: Optional[UUID] = None,
         measured_at: Optional[datetime] = None,
-    ) -> schemas.TemperatureMeasurementCreate:
-        cls.validate_temperature(temperature)
+        context: schemas.MeasurementContext = schemas.MeasurementContext.NA,
+    ) -> schemas.WaterIntakeCreate:
+        cls.validate_water(volume_ml)
         normalized_measured_at = cls.normalize_measured_at(measured_at)
-        return schemas.TemperatureMeasurementCreate(
+        return schemas.WaterIntakeCreate(
             user_id=user_id,
-            temperature=temperature,
+            volume_ml=volume_ml,
+            liquid_type=liquid_type,
             session_id=session_id,
             measured_at=normalized_measured_at,
+            context=context,
         )
 
+    # =========================
+    #  Парсеры текстовых значений
+    # =========================
     @staticmethod
     def parse_bp_text(text: str) -> tuple[int, int]:
         cleaned = text.replace(",", ".").strip()

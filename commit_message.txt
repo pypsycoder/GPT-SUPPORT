@@ -1,0 +1,9 @@
+feat: Add PSQI scale implementation and scale result logging
+
+- Implement PSQI (Pittsburgh Sleep Quality Index) calculator with all 7 components
+- Add PSQI configuration with 9 blocks of questions and conditional logic
+- Add comprehensive logging to save_scale_result() for debugging DB persistence
+- Verify scale result records are correctly written to database after commit
+- Add database verification query to confirm data persistence
+- Extend get_scale_config() to support PSQI scale loading
+- Create DB schema check script for troubleshooting scale_results table

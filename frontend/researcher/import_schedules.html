@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Импорт расписаний диализа — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/researcher/css/researcher.css">
+</head>
+<body>
+  <div class="r-wrapper">
+    <div class="r-header">
+      <div class="r-header-title">GPT Health Support</div>
+      <div class="r-header-actions">
+        <span class="r-header-user" id="r-user-name"></span>
+        <button class="r-logout-btn" id="r-logout-btn">Выйти</button>
+      </div>
+    </div>
+
+    <div class="r-nav">
+      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
+      <a href="/researcher/dashboard" class="r-nav-btn">Пациенты</a>
+      <a href="/researcher/centers" class="r-nav-btn">Центры</a>
+      <button class="r-nav-btn active">Импорт расписаний</button>
+    </div>
+
+    <div id="step1" class="r-import-step">
+      <div class="r-table-wrapper">
+        <div class="r-table-header">
+          <div class="r-table-title">Шаг 1: Загрузка файла</div>
+        </div>
+        <div style="padding:1.25rem;">
+          <p><a href="/frontend/researcher/schedule_import_template.csv" download class="r-action-btn">Скачать шаблон CSV</a></p>
+          <p style="margin-top:1rem;">
+            <input type="file" id="import-file" accept=".csv">
+            <button type="button" class="r-add-btn" id="import-upload-btn" style="margin-left:0.5rem;">Загрузить и проверить</button>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div id="step2" class="r-import-step" style="display:none;">
+      <div class="r-table-wrapper">
+        <div class="r-table-header">
+          <div class="r-table-title">Шаг 2: Результаты проверки</div>
+        </div>
+        <div style="padding:1.25rem;">
+          <p><strong id="preview-ready-count">0</strong> готовы к импорту. <strong id="preview-conflicts-count">0</strong> конфликтов. <strong id="preview-errors-count">0</strong> ошибок.</p>
+          <div id="preview-conflicts-table" style="margin-top:1rem;"></div>
+          <div id="preview-errors-list" style="margin-top:1rem;"></div>
+          <button type="button" class="r-add-btn" id="import-apply-btn" style="margin-top:1rem;">Применить импорт</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="step3" class="r-import-step" style="display:none;">
+      <div class="r-table-wrapper">
+        <div class="r-table-header">
+          <div class="r-table-title">Шаг 3: Результат</div>
+        </div>
+        <div style="padding:1.25rem;">
+          <p>Импортировано: <strong id="result-applied">0</strong>. Пропущено: <strong id="result-skipped">0</strong>. Ошибок: <strong id="result-errors">0</strong>.</p>
+          <div id="result-errors-list" style="margin-top:0.5rem;"></div>
+          <button type="button" class="r-modal-btn-secondary" id="result-back-btn" style="margin-top:1rem;">Загрузить другой файл</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/frontend/researcher/js/auth.js"></script>
+  <script src="/frontend/researcher/js/import_schedules.js"></script>
+</body>
+</html>

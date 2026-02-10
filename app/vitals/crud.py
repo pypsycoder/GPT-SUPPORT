@@ -1,3 +1,9 @@
+# ============================================
+# Vitals CRUD: Генерик-CRUD витальных показателей
+# ============================================
+# Универсальный CRUD-класс для BPMeasurement, PulseMeasurement,
+# WeightMeasurement и WaterIntake с фильтрацией и сортировкой.
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -106,12 +112,8 @@ class WeightMeasurementsCRUD(
     pass
 
 
-class TemperatureMeasurementsCRUD(
-    VitalsCRUDBase[
-        models.TemperatureMeasurement,
-        schemas.TemperatureMeasurementCreate,
-        schemas.TemperatureMeasurementUpdate,
-    ]
+class WaterIntakeCRUD(
+    VitalsCRUDBase[models.WaterIntake, schemas.WaterIntakeCreate, schemas.WaterIntakeUpdate]
 ):
     pass
 
@@ -119,4 +121,5 @@ class TemperatureMeasurementsCRUD(
 bp_crud = BPMeasurementsCRUD(models.BPMeasurement)
 pulse_crud = PulseMeasurementsCRUD(models.PulseMeasurement)
 weight_crud = WeightMeasurementsCRUD(models.WeightMeasurement)
-temperature_crud = TemperatureMeasurementsCRUD(models.TemperatureMeasurement)
+water_crud = WaterIntakeCRUD(models.WaterIntake)
+

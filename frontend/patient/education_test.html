@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Тест по занятию</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Подключи свой основной CSS -->
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <!-- Общий сайдбар для всех страниц пациента -->
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <!-- Общий header для всех страниц пациента -->
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+
+</head>
+
+<body data-page="education_test">
+<div class="page">
+        <!-- Глобальный хедер -->
+    <div id="global-header"></div>
+    <div class="layout">
+
+        <!-- 🔹 Сайдбар (общий компонент, как в education.html) -->
+        <div id="sidebar-container"></div>
+
+        <!-- 🔹 Основной контент: тест -->
+        <main class="content">
+
+            <!-- Заголовок страницы, тот же стиль, что в education.html -->
+            <header class="header">
+                <div class="header-title" id="lessonTitle">Тест по занятию</div>
+                <div class="header-sub" id="lessonSubtitle">Загружаем вопросы…</div>
+            </header>
+
+            <!-- Прогресс по вопросам -->
+            <section class="progress-container">
+                <div class="progress-label" id="progressLabel">Вопрос 1 из 1</div>
+                <div class="progress-bar-outer">
+                    <div class="progress-bar-inner" id="progressBar"></div>
+                </div>
+            </section>
+
+            <!-- Блок вопроса -->
+            <section id="questionSection" class="edu-topic-card edu-single-card">
+                <div class="question-text" id="questionText">Загрузка вопроса…</div>
+
+                <div class="options-list" id="optionsList">
+                    <!-- варианты ответов будут подставляться JS -->
+                </div>
+
+                <div class="controls">
+                    <button id="nextButton" class="submit-button" disabled>Дальше</button>
+                </div>
+
+                <div class="status-message" id="statusMessage"></div>
+            </section>
+
+            <!-- Блок результата (отдельный шаг) -->
+            <section id="resultSection" class="edu-topic-card edu-single-card hidden">
+                <div id="resultContainer"></div>
+            </section>
+
+            <!-- Футер, как на странице обучения -->
+            <footer class="footer">
+                GPT Health Support • модуль education • экспериментальный интерфейс
+            </footer>
+
+        </main>
+    </div>
+</div>
+
+<script>
+    // ======== Базовые настройки API ========
+
+    const API_BASE = '/api/v1/education';
+
+    function getQueryParam(name) {
+        const params = new URLSearchParams(window.location.search);
+        return params.get(name);
+    }
+
+    const lessonCode = getQueryParam('lesson');  // Lesson.code, тот же, что в education.html
+
+    // ======== Селекторы ========
+
+    const lessonTitleEl = document.getElementById('lessonTitle');
+    const lessonSubtitleEl = document.getElementById('lessonSubtitle');
+
+    const progressLabelEl = document.getElementById('progressLabel');
+    const progressBarEl = document.getElementById('progressBar');
+
+    const questionSectionEl = document.getElementById('questionSection');
+    const questionTextEl = document.getElementById('questionText');
+    const optionsListEl = document.getElementById('optionsList');
+    const nextButtonEl = document.getElementById('nextButton');
+    const statusMessageEl = document.getElementById('statusMessage');
+
+    const resultSectionEl = document.getElementById('resultSection');
+    const resultContainerEl = document.getElementById('resultContainer');
+
+    // ======== Состояние теста ========
+
+    let testId = null;
+    let questions = [];
+    let currentIndex = 0;
+    let answers = {};  // question_id -> chosen_option (1–4)
+
+    // ======== API вызовы ========
+
+    async function fetchLessonTest() {
+        if (!lessonCode) {
+            throw new Error('Не указан код занятия (?lesson=...)');
+        }
+
+        const resp = await fetch(
+            `${API_BASE}/lessons/${encodeURIComponent(lessonCode)}/test`,
+            {
+                credentials: 'include'
+            }
+        );
+
+        if (resp.status === 404) {
+            return null;
+        }
+
+        if (!resp.ok) {
+            throw new Error('Не удалось получить информацию о тесте');
+        }
+
+        return await resp.json();
+    }
+
+    async function fetchTestQuestions(testId) {
+        console.log('Fetching questions for testId:', testId);
+        const resp = await fetch(`${API_BASE}/tests/${testId}/questions`, {
+            credentials: 'include'
+        });
+
+        if (!resp.ok) {
+            console.error('Failed to fetch questions, status:', resp.status);
+            throw new Error('Не удалось загрузить вопросы теста');
+        }
+
+        const data = await resp.json();
+        console.log('Questions data received:', data);
+
+        // поддерживаем оба варианта ответа:
+        // 1) [ {...}, {...} ]
+        // 2) { test_id: 1, questions: [ {...}, {...} ] }
+        if (Array.isArray(data)) {
+            console.log('Data is array, returning as is');
+            return data;
+        }
+        if (data && Array.isArray(data.questions)) {
+            console.log('Data is object with questions array, returning questions');
+            return data.questions;
+        }
+
+        console.error('Unexpected data format:', data);
+        throw new Error('Неожиданный формат данных вопросов теста');
+    }
+
+    async function submitTestAnswers() {
+        const payload = {
+            answers: Object.entries(answers).map(([questionId, chosenOption]) => ({
+                question_id: Number(questionId),
+                chosen_option: chosenOption
+            }))
+        };
+
+        const resp = await fetch(`${API_BASE}/tests/${testId}/submit`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'include',
+            body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+            throw new Error('Не удалось отправить результаты теста');
+        }
+
+        const data = await resp.json();
+
+        if (data && typeof data === 'object' && data.result) {
+            return data.result;
+        }
+        return data;
+    }
+
+    // ======== UI: прогресс и вопросы ========
+
+    function updateProgressUI() {
+        const total = questions.length || 1;
+        const idx = currentIndex + 1;
+        progressLabelEl.textContent = `Вопрос ${idx} из ${total}`;
+        const percent = (idx / total) * 100;
+        progressBarEl.style.width = `${percent}%`;
+    }
+
+    function renderQuestion() {
+        if (!questions.length) {
+            questionTextEl.textContent = 'В этом тесте пока нет вопросов.';
+            optionsListEl.innerHTML = '';
+            nextButtonEl.disabled = true;
+            return;
+        }
+
+        const q = questions[currentIndex];
+        questionTextEl.textContent = q.question_text;
+
+        const existingAnswer = answers[q.id] ?? null;
+
+        // варианты приходят как массив q.options
+        const options = (q.options || []).map((text, idx) => ({
+            index: idx + 1,  // 1–4
+            text
+        }));
+
+        optionsListEl.innerHTML = '';
+
+        options.forEach(opt => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'option-btn';
+            btn.textContent = opt.text;
+
+            if (existingAnswer === opt.index) {
+                btn.classList.add('selected');
+            }
+
+            btn.addEventListener('click', () => {
+                answers[q.id] = opt.index;
+
+                optionsListEl
+                    .querySelectorAll('.option-btn')
+                    .forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+
+                statusMessageEl.textContent = '';
+                nextButtonEl.disabled = false;
+            });
+
+            optionsListEl.appendChild(btn);
+        });
+
+        if (currentIndex === questions.length - 1) {
+            nextButtonEl.textContent = 'Завершить';
+        } else {
+            nextButtonEl.textContent = 'Дальше';
+        }
+
+        nextButtonEl.disabled = !existingAnswer;
+        updateProgressUI();
+    }
+
+    function showResult(result) {
+        // Скрываем блок вопросов полностью
+        questionSectionEl.classList.add('hidden');
+
+        // Показываем секцию результата
+        resultSectionEl.classList.remove('hidden');
+
+        const total = result.max_score || questions.length;
+        const score = result.score || 0;
+        const passed = result.passed;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'result-block ' + (passed ? 'success' : 'fail');
+
+        const title = document.createElement('div');
+        title.className = 'result-title';
+        title.textContent = passed ? 'Тест пройден 👏' : 'Тест пока не пройден';
+
+        const details = document.createElement('div');
+        details.className = 'result-details';
+
+        const percent = total ? Math.round((score / total) * 100) : 0;
+
+        details.innerHTML = `
+        <p>Вы ответили правильно на <strong>${score}</strong> из <strong>${total}</strong> вопросов (${percent}%).</p>
+        ${
+            passed
+                ? '<p>Отлично! Мы отметим это занятие как выполненное.</p>'
+                : '<p>Это не провал. Можно вернуться к материалу и пройти тест ещё раз, когда будет удобно.</p>'
+        }
+    `;
+
+        const actions = document.createElement('div');
+        actions.className = 'result-actions';
+
+        // 🔙 Вернуться к уроку
+        const backToLessonBtn = document.createElement('button');
+        backToLessonBtn.className = 'secondary-button';
+        backToLessonBtn.textContent = 'Вернуться к уроку';
+        backToLessonBtn.addEventListener('click', () => {
+            if (lessonCode) {
+                // возвращаемся в тот же урок, что открывали тест
+                window.location.href =
+                    `/patient/education?lesson=${encodeURIComponent(lessonCode)}`;
+            } else {
+                // если по какой-то причине lessonCode нет — в навигатор
+                window.location.href =
+                    `/patient/education_overview`;
+            }
+        });
+        actions.appendChild(backToLessonBtn);
+
+        // 📚 К другим занятиям (навигатор)
+        const backToListBtn = document.createElement('button');
+        backToListBtn.className = 'secondary-button';
+        backToListBtn.textContent = 'К другим занятиям';
+        backToListBtn.addEventListener('click', () => {
+            window.location.href =
+                `/patient/education_overview`;
+        });
+        actions.appendChild(backToListBtn);
+
+        wrapper.appendChild(title);
+        wrapper.appendChild(details);
+        wrapper.appendChild(actions);
+
+        resultContainerEl.innerHTML = '';
+        resultContainerEl.appendChild(wrapper);
+    }
+
+    // ======== Обработчик кнопки "Дальше / Завершить" ========
+
+    nextButtonEl.addEventListener('click', async () => {
+        const q = questions[currentIndex];
+
+        if (!answers[q.id]) {
+            statusMessageEl.textContent = 'Пожалуйста, выберите ответ перед переходом дальше.';
+            return;
+        }
+
+        if (currentIndex < questions.length - 1) {
+            currentIndex += 1;
+            renderQuestion();
+            return;
+        }
+
+        // Последний вопрос — отправляем
+        try {
+            nextButtonEl.disabled = true;
+            statusMessageEl.textContent = 'Отправляем ответы…';
+            const result = await submitTestAnswers();
+            showResult(result);
+        } catch (err) {
+            console.error(err);
+            statusMessageEl.textContent = 'Не получилось отправить ответы. Можно попробовать ещё раз немного позже.';
+            nextButtonEl.disabled = false;
+        }
+    });
+
+    // ======== Инициализация ========
+
+    async function init() {
+        if (!lessonCode) {
+            lessonSubtitleEl.textContent = 'Не указан код занятия (?lesson=...).';
+            questionTextEl.textContent = 'Проверьте ссылку или вернитесь к списку уроков.';
+            optionsListEl.innerHTML = '';
+            nextButtonEl.disabled = true;
+            return;
+        }
+
+        lessonSubtitleEl.textContent = 'Загружаем данные теста…';
+
+        try {
+            const testInfo = await fetchLessonTest();
+            console.log('testInfo received:', testInfo);
+
+            if (!testInfo || !testInfo.test_id) {
+                console.warn('No test_id found:', testInfo);
+                lessonSubtitleEl.textContent = 'Для этого занятия тест пока не готов.';
+                questionTextEl.textContent = 'Вы можете вернуться к материалу и пройти тест позже.';
+                optionsListEl.innerHTML = '';
+                nextButtonEl.disabled = true;
+                return;
+            }
+
+            testId = testInfo.test_id;
+            console.log('testId set to:', testId);
+
+            if (testInfo.title) {
+                lessonTitleEl.textContent = `Тест по занятию: ${testInfo.title}`;
+            } else {
+                lessonTitleEl.textContent = 'Тест по занятию';
+            }
+
+            lessonSubtitleEl.textContent = 'Отвечайте на вопросы в удобном темпе.';
+
+            const questionsList = await fetchTestQuestions(testId);
+            questions = questionsList || [];
+
+            if (!questions.length) {
+                questionTextEl.textContent = 'В этом тесте пока нет вопросов.';
+                optionsListEl.innerHTML = '';
+                nextButtonEl.disabled = true;
+                return;
+            }
+
+            currentIndex = 0;
+            answers = {};
+            renderQuestion();
+        } catch (err) {
+            console.error(err);
+            lessonSubtitleEl.textContent = 'Ошибка при загрузке теста.';
+            questionTextEl.textContent = 'Попробуйте открыть страницу чуть позже.';
+            optionsListEl.innerHTML = '';
+            nextButtonEl.disabled = true;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+</script>
+
+
+<!-- auth -->
+<script src="/frontend/patient/js/auth.js"></script>
+<!-- общий сайдбар -->
+<script src="/frontend/patient/js/sidebar.js"></script>
+<!-- общий header (тот же, что в education / education_test) -->
+<script src="/frontend/patient/js/global_header.js"></script>
+</body>
+</html>

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Показатели пациента — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Подключаем стили виталов -->
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <!-- Общий сайдбар для всех страниц пациента -->
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <!-- Общий header для всех страниц пациента -->
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+</head>
+
+<!-- важно: data-page для подсветки пункта меню -->
+<body data-page="vitals">
+
+<div class="page">
+
+    <!-- Глобальный хедер -->
+    <div id="global-header"></div>
+
+    <!-- ОСНОВНАЯ СЕТКА -->
+    <div class="layout">
+
+        <!-- Сайдбар -->
+        <div id="sidebar-container"></div>
+
+        <!-- Контент -->
+        <main class="content">
+
+            <!-- Заголовок раздела -->
+            <section class="page-header">
+                <div class="page-title">
+                    📊 Показатели
+                </div>
+
+                <div class="page-subtitle">
+                    Введите ваши сегодняшние показатели.
+                </div>
+
+                <div id="header-token" class="page-token" style="display: none;"></div>
+            </section>
+
+            <!-- 🔹 Плашка статуса (ошибки / успех) -->
+            <div id="status-banner" class="status-banner status-hidden"></div>
+
+            <!-- Кнопки выбора показателя + контекст + формы -->
+            <section class="vitals-section">
+                <!-- Вкладки показателя -->
+                <div class="vitals-buttons">
+                    <button
+                        type="button"
+                        class="vitals-button active"
+                        data-target="bp"
+                    >
+                        ❤️ Давление (АД)
+                    </button>
+                    <button
+                        type="button"
+                        class="vitals-button"
+                        data-target="pulse"
+                    >
+                        💓 Пульс
+                    </button>
+                    <button
+                        type="button"
+                        class="vitals-button"
+                        data-target="weight"
+                    >
+                        ⚖️ Вес
+                    </button>
+                    <button
+                        type="button"
+                        class="vitals-button"
+                        data-target="water"
+                    >
+                        💧 Вода
+                    </button>
+                </div>
+
+                <!-- Блок выбора контекста измерения -->
+                <section class="context-card">
+                    <div class="context-title">📍 Где вы измеряли показатели?</div>
+                    <p class="context-hint">
+                        Выберите один вариант. Если не уверены — оставьте «Не важно».
+                    </p>
+
+                    <!-- Общие варианты -->
+                    <div class="context-buttons" id="context-row-common">
+                        <button type="button"
+                                class="context-button active"
+                                data-context="na">
+                            Не важно
+                        </button>
+                        <button type="button"
+                                class="context-button"
+                                data-context="pre_hd">
+                            До диализа
+                        </button>
+                        <button type="button"
+                                class="context-button"
+                                data-context="post_hd">
+                            После диализа
+                        </button>
+                        <button type="button"
+                                class="context-button"
+                                data-context="home">
+                            Дома
+                        </button>
+                        <button type="button"
+                                class="context-button"
+                                data-context="clinic">
+                            В клинике
+                        </button>
+                    </div>
+
+                    <!-- Дополнительные варианты только для веса -->
+                    <div class="context-buttons context-weight-extra hidden" id="context-row-weight">
+                        <button type="button"
+                                class="context-button"
+                                data-context="home_morning">
+                            Дома утром
+                        </button>
+                        <button type="button"
+                                class="context-button"
+                                data-context="home_evening">
+                            Дома вечером
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Форма: АД -->
+                <section id="form-bp" class="form-card">
+                    <div class="form-title">❤️ Артериальное давление</div>
+                    <p class="form-hint">
+                        Измерьте давление тонометром и введите показатели.
+                    </p>
+
+                    <form id="bp-form">
+                        <div class="form-row">
+                            <label for="bp-systolic">Верхнее (систолическое), мм рт. ст.</label>
+                            <input
+                                id="bp-systolic"
+                                type="number"
+                                inputmode="numeric"
+                                min="50"
+                                max="260"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-row">
+                            <label for="bp-diastolic">Нижнее (диастолическое), мм рт. ст.</label>
+                            <input
+                                id="bp-diastolic"
+                                type="number"
+                                inputmode="numeric"
+                                min="30"
+                                max="160"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-row">
+                            <label for="bp-note">Комментарий (необязательно)</label>
+                            <textarea
+                                id="bp-note"
+                                rows="2"
+                                placeholder="Например: головная боль, слабость…"
+                            ></textarea>
+                        </div>
+
+                        <button type="submit" class="submit-button">
+                            ✅ Отправить давление
+                        </button>
+                    </form>
+                </section>
+
+                <!-- Форма: Пульс -->
+                <section id="form-pulse" class="form-card hidden">
+                    <div class="form-title">💓 Пульс</div>
+                    <p class="form-hint">
+                        Посчитайте пульс и введите значение.
+                    </p>
+
+                    <form id="pulse-form">
+                        <div class="form-row">
+                            <label for="pulse-value">Пульс, уд/мин</label>
+                            <input
+                                id="pulse-value"
+                                type="number"
+                                inputmode="numeric"
+                                min="30"
+                                max="200"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-row">
+                            <label for="pulse-note">Комментарий (необязательно)</label>
+                            <textarea
+                                id="pulse-note"
+                                rows="2"
+                                placeholder="Например: одышка, перебои…"
+                            ></textarea>
+                        </div>
+
+                        <button type="submit" class="submit-button">
+                            ✅ Отправить пульс
+                        </button>
+                    </form>
+                </section>
+
+                <!-- Форма: Вес -->
+                <section id="form-weight" class="form-card hidden">
+                    <div class="form-title">⚖️ Масса тела</div>
+                    <p class="form-hint">
+                        Взвесьтесь на весах и введите значение.
+                    </p>
+
+                    <form id="weight-form">
+                        <div class="form-row">
+                            <label for="weight-value">Вес, кг</label>
+                            <input
+                                id="weight-value"
+                                type="number"
+                                inputmode="decimal"
+                                step="0.1"
+                                min="20"
+                                max="250"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-row">
+                            <label for="weight-note">Комментарий (необязательно)</label>
+                            <textarea
+                                id="weight-note"
+                                rows="2"
+                                placeholder="Например: отёки ног, прибавка после диализа…"
+                            ></textarea>
+                        </div>
+
+                        <button type="submit" class="submit-button">
+                            ✅ Отправить вес
+                        </button>
+                    </form>
+                </section>
+                
+                <!-- Форма: Вода -->
+                <section id="form-water" class="form-card hidden">
+                    <div class="form-title">💧 Потребление воды</div>
+                    <p class="form-hint">
+                        Введите объем выпитой жидкости.
+                    </p>
+                    
+                    <!-- Быстрые кнопки -->
+                    <div class="quick-portions" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+                        <button type="button" class="context-button" onclick="document.getElementById('water-value').value=100">100 мл</button>
+                        <button type="button" class="context-button" onclick="document.getElementById('water-value').value=200">200 мл</button>
+                        <button type="button" class="context-button" onclick="document.getElementById('water-value').value=250">250 мл</button>
+                        <button type="button" class="context-button" onclick="document.getElementById('water-value').value=300">300 мл</button>
+                        <button type="button" class="context-button" onclick="document.getElementById('water-value').value=500">500 мл</button>
+                    </div>
+
+                    <form id="water-form">
+                        <div class="form-row">
+                            <label for="water-value">Объем, мл</label>
+                            <input
+                                id="water-value"
+                                type="number"
+                                inputmode="numeric"
+                                step="10"
+                                min="10"
+                                max="2000"
+                                required
+                            >
+                        </div>
+                        
+                        <!-- Для воды время часто важно, добавим опционально, но пока используем текущее как скрытое поведение или можно добавить поле -->
+
+                        <button type="submit" class="submit-button">
+                            ✅ Отправить воду
+                        </button>
+                    </form>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <!-- 🔹 ФУТЕР НА ВСЮ ШИРИНУ -->
+    <footer class="footer">
+        GPT Health Support • модуль vitals • экспериментальный интерфейс
+    </footer>
+</div>
+
+<script>
+    // ============================
+    // Глобальное состояние: выбранный контекст
+    // ============================
+    let selectedContext = 'na';
+
+
+    // ============================
+    // Статусная плашка (успех / ошибка / скрыть)
+    // ============================
+    function setStatus(type, message) {
+        const banner = document.getElementById('status-banner');
+        if (!banner) {
+            console.warn('status-banner не найден, пропускаем сообщение:', type, message);
+            return;
+        }
+
+        banner.textContent = message || '';
+
+        banner.classList.remove('status-hidden', 'status-success', 'status-error');
+
+        if (type === 'success') {
+            banner.classList.add('status-success');
+        } else if (type === 'error') {
+            banner.classList.add('status-error');
+        } else {
+            banner.classList.add('status-hidden');
+        }
+    }
+
+    // ============================
+    // Селектор контекста измерения
+    // ============================
+    function initContextSelector() {
+        const buttons = document.querySelectorAll('.context-button');
+
+        buttons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const ctx = btn.getAttribute('data-context') || 'na';
+                selectedContext = ctx;
+
+                buttons.forEach((b) => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                setStatus('none', '');
+            });
+        });
+    }
+
+    // ============================
+    // Таб-переключатель между АД / пульсом / весом
+    // ============================
+    function initTabs() {
+        const buttons = document.querySelectorAll('.vitals-button');
+        const forms = {
+            bp: document.getElementById('form-bp'),
+            pulse: document.getElementById('form-pulse'),
+            weight: document.getElementById('form-weight'),
+            water: document.getElementById('form-water'),
+        };
+        const weightExtraRow = document.getElementById('context-row-weight');
+
+        buttons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const target = btn.getAttribute('data-target');
+
+                // Активная вкладка
+                buttons.forEach((b) => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                // Показать только нужную форму
+                Object.keys(forms).forEach((key) => {
+                    forms[key].classList.toggle('hidden', key !== target);
+                });
+
+                // Дополнительные контексты только для веса
+                if (weightExtraRow) {
+                    if (target === 'weight') {
+                        weightExtraRow.classList.remove('hidden');
+                    } else {
+                        weightExtraRow.classList.add('hidden');
+
+                        // Если был выбран "утро/вечер", а мы ушли с веса — вернёмся к "Не важно"
+                        if (selectedContext === 'home_morning' || selectedContext === 'home_evening') {
+                            selectedContext = 'na';
+                            const allCtxButtons = document.querySelectorAll('.context-button');
+                            allCtxButtons.forEach((b) => b.classList.remove('active'));
+                            const defaultBtn = document.querySelector('.context-button[data-context="na"]');
+                            if (defaultBtn) defaultBtn.classList.add('active');
+                        }
+                    }
+                }
+
+                setStatus('none', '');
+            });
+        });
+    }
+
+    // ============================
+    // Инициализация форм отправки Vitals (сессия, без токена)
+    // ============================
+    function initForms() {
+        const API_BASE = '/api/v1';
+
+        function getCurrentContext() {
+            return selectedContext || 'na';
+        }
+
+        // ------ Давление ------
+        const bpForm = document.getElementById('bp-form');
+        if (bpForm) {
+            bpForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                setStatus('none', '');
+
+                const systolicRaw = document.getElementById('bp-systolic').value.trim();
+                const diastolicRaw = document.getElementById('bp-diastolic').value.trim();
+                const systolic = systolicRaw ? parseInt(systolicRaw, 10) : NaN;
+                const diastolic = diastolicRaw ? parseInt(diastolicRaw, 10) : NaN;
+
+                if (isNaN(systolic) || isNaN(diastolic)) {
+                    setStatus('error', 'Укажите систолическое и диастолическое давление (числа).');
+                    return;
+                }
+                if (systolic < 50 || systolic > 250 || diastolic < 30 || diastolic > 150) {
+                    setStatus('error', 'Давление должно быть в допустимом диапазоне (САД 50–250, ДАД 30–150).');
+                    return;
+                }
+
+                const payload = {
+                    systolic: systolic,
+                    diastolic: diastolic,
+                    measured_at: new Date().toISOString(),
+                    context: getCurrentContext()
+                };
+
+                try {
+                    const response = await fetch(
+                        `${API_BASE}/vitals/bp/me`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify(payload)
+                        }
+                    );
+
+                    if (!response.ok) {
+                        const text = await response.text();
+                        let msg = 'Не удалось отправить данные давления.';
+                        if (response.status === 401) msg = 'Сессия истекла. Войдите снова (номер и PIN).';
+                        else if (response.status === 422) msg = 'Проверьте введённые значения давления.';
+                        else if (text) try { var j = JSON.parse(text); if (j.detail) msg = typeof j.detail === 'string' ? j.detail : (j.detail.msg || msg); } catch (e) {}
+                        throw new Error(msg);
+                    }
+
+                    setStatus('success', 'Давление успешно отправлено. Спасибо!');
+                    bpForm.reset();
+                } catch (error) {
+                    console.error(error);
+                    setStatus('error', error.message || 'Не удалось отправить данные давления. Попробуйте ещё раз или скажите об этом врачу.');
+                }
+            });
+        }
+
+        // ------ Пульс ------
+        const pulseForm = document.getElementById('pulse-form');
+        if (pulseForm) {
+            pulseForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                setStatus('none', '');
+
+                const pulse = document.getElementById('pulse-value').value;
+                const note = document.getElementById('pulse-note').value;
+
+                const payload = {
+                    bpm: pulse ? Number(pulse) : null,
+                    measured_at: new Date().toISOString(),
+                    context: getCurrentContext()
+                };
+
+                try {
+                    const response = await fetch(
+                        `${API_BASE}/vitals/pulse/me`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify(payload)
+                        }
+                    );
+
+                    if (!response.ok) throw new Error('Ошибка при отправке данных пульса');
+
+                    setStatus('success', 'Пульс успешно отправлен. Спасибо!');
+                    pulseForm.reset();
+                } catch (error) {
+                    console.error(error);
+                    setStatus('error', 'Не удалось отправить данные пульса. Попробуйте ещё раз или скажите об этом врачу.');
+                }
+            });
+        }
+
+        // ------ Вес ------
+        const weightForm = document.getElementById('weight-form');
+        if (weightForm) {
+            weightForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                setStatus('none', '');
+
+                const weight = document.getElementById('weight-value').value;
+                const note = document.getElementById('weight-note').value;
+
+                const payload = {
+                    weight: weight ? Number(weight) : null,
+                    measured_at: new Date().toISOString(),
+                    context: getCurrentContext()
+                };
+
+                try {
+                    const response = await fetch(
+                        `${API_BASE}/vitals/weight/me`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify(payload)
+                        }
+                    );
+
+                    if (!response.ok) throw new Error('Ошибка при отправке данных веса');
+
+                    setStatus('success', 'Вес успешно отправлен. Спасибо!');
+                    weightForm.reset();
+                } catch (error) {
+                    console.error(error);
+                    setStatus('error', 'Не удалось отправить данные веса. Попробуйте ещё раз или скажите об этом врачу.');
+                }
+            });
+        }
+        
+        // ------ Вода ------
+        const waterForm = document.getElementById('water-form');
+        if (waterForm) {
+            waterForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                setStatus('none', '');
+
+                const volume = document.getElementById('water-value').value;
+                // Для воды пока без комментария, но с контекстом
+
+                const payload = {
+                    volume_ml: volume ? Number(volume) : null,
+                    measured_at: new Date().toISOString(),
+                    context: getCurrentContext(),
+                    liquid_type: null
+                };
+
+                try {
+                    const response = await fetch(
+                        `${API_BASE}/vitals/water/me`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify(payload)
+                        }
+                    );
+
+                    if (!response.ok) throw new Error('Ошибка при отправке данных о воде');
+
+                    setStatus('success', 'Данные о воде успешно отправлены. Спасибо!');
+                    waterForm.reset();
+                } catch (error) {
+                    console.error(error);
+                    setStatus('error', 'Не удалось отправить данные о воде. Попробуйте ещё раз.');
+                }
+            });
+        }
+    }
+
+    // ============================
+    // Инициализация страницы (сессия: без токена в URL)
+    // ============================
+    document.addEventListener('DOMContentLoaded', async function() {
+        if (window.PatientAuth) await window.PatientAuth.requireAuth();
+        initTabs();
+        initContextSelector();
+        initForms();
+    });
+</script>
+
+<!-- auth -->
+<script src="/frontend/patient/js/auth.js"></script>
+<!-- общий сайдбар (тот же, что в education / education_test) -->
+<script src="/frontend/patient/js/sidebar.js"></script>
+<!-- общий header (тот же, что в education / education_test) -->
+<script src="/frontend/patient/js/global_header.js"></script>
+</body>
+</html>

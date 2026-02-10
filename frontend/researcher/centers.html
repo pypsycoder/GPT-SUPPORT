@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Центры диализа — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/researcher/css/researcher.css">
+</head>
+<body>
+  <div class="r-wrapper">
+    <div class="r-header">
+      <div class="r-header-title">GPT Health Support</div>
+      <div class="r-header-actions">
+        <span class="r-header-user" id="r-user-name"></span>
+        <button class="r-logout-btn" id="r-logout-btn">Выйти</button>
+      </div>
+    </div>
+
+    <div class="r-nav">
+      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
+      <a href="/researcher/dashboard" class="r-nav-btn" data-tab="patients">Пациенты</a>
+      <button class="r-nav-btn active">Центры</button>
+      <a href="/researcher/import/schedules" class="r-nav-btn">Импорт расписаний</a>
+    </div>
+
+    <div class="r-table-wrapper">
+      <div class="r-table-header">
+        <div class="r-table-title">Центры диализа</div>
+        <button class="r-add-btn" id="r-add-center-btn">+ Добавить центр</button>
+      </div>
+      <table class="r-table">
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th>Город</th>
+            <th>Часовой пояс</th>
+            <th>Действия</th>
+          </tr>
+        </thead>
+        <tbody id="r-centers-tbody">
+          <tr><td colspan="4" style="text-align:center;color:#9ca3af;">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="r-modal-backdrop" id="modal-add-center">
+    <div class="r-modal">
+      <div class="r-modal-title">Добавить центр</div>
+      <form id="form-add-center">
+        <div class="r-modal-field">
+          <label for="center-name">Название *</label>
+          <input type="text" id="center-name" required placeholder="ГКБ №52">
+        </div>
+        <div class="r-modal-field">
+          <label for="center-city">Город</label>
+          <input type="text" id="center-city" placeholder="Москва">
+        </div>
+        <div class="r-modal-field">
+          <label for="center-timezone">Часовой пояс</label>
+          <select id="center-timezone">
+            <option value="Europe/Moscow">Europe/Moscow</option>
+            <option value="Europe/Samara">Europe/Samara</option>
+            <option value="Asia/Yekaterinburg">Asia/Yekaterinburg</option>
+            <option value="Asia/Novosibirsk">Asia/Novosibirsk</option>
+            <option value="Asia/Vladivostok">Asia/Vladivostok</option>
+          </select>
+        </div>
+        <div id="center-error" class="r-login-error" style="margin-top:0.5rem;"></div>
+        <div class="r-modal-actions">
+          <button type="submit" class="r-modal-btn-primary" id="center-submit">Сохранить</button>
+          <button type="button" class="r-modal-btn-secondary" id="center-cancel">Отмена</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/frontend/researcher/js/auth.js"></script>
+  <script src="/frontend/researcher/js/centers.js"></script>
+</body>
+</html>

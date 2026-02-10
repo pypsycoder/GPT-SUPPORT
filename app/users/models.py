@@ -1,15 +1,43 @@
-# models.py — SQLAlchemy модели пользователя
-from sqlalchemy import Column, Integer, String, Boolean
-#from sqlalchemy.orm import declarative_base
-from app.models import Base  # 👈 используем общий
+"""SQLAlchemy models for user entities."""
+from sqlalchemy import (
+    Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, text,
+)
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
+
+from app.models import Base
 
 
 class User(Base):
+    """User profile stored in the ``users`` schema."""
+
     __tablename__ = "users"
     __table_args__ = {"schema": "users"}
 
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(String, unique=True)
+    center_id = Column(UUID(as_uuid=True), ForeignKey("centers.id"), nullable=True)
     full_name = Column(String)
-    consent_personal_data = Column(Boolean, default=False)
-    consent_bot_use = Column(Boolean, default=False)
+    age = Column(Integer, nullable=True)
+    gender = Column(String, nullable=True)
+    consent_personal_data = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    consent_bot_use = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    consent_given_at = Column(DateTime(timezone=True), nullable=True)
+
+    telegram_id = Column(String, unique=True, index=True, nullable=True)
+    external_ids = Column(JSON, nullable=True)
+
+    # --- PIN-авторизация ---
+    patient_number = Column(Integer, unique=True, index=True, nullable=True)
+    pin_hash = Column(String(128), nullable=True)
+    pin_attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    is_locked = Column(Boolean, nullable=False, default=False, server_default=text("false"))
