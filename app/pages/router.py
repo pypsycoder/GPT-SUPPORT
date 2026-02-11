@@ -141,3 +141,9 @@ async def serve_patient_profile():
 async def serve_patient_sleep_tracker():
     """Рутинная оценка сна (Sleep Tracker)."""
     return FileResponse(FRONTEND_DIR / "patient" / "sleep_tracker.html")
+
+
+@router.get("/patient/routine", include_in_schema=False)
+async def serve_patient_routine():
+    """Распорядок дня / рутина (d230)."""
+    return FileResponse(FRONTEND_DIR / "patient" / "routine.html")

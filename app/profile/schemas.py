@@ -75,6 +75,15 @@ class ScalesSummary(BaseModel):
     last_scale: Optional[LastScale] = None
 
 
+class DialysisSummary(BaseModel):
+    """Данные о диализном центре и расписании диализа."""
+
+    center_name: str
+    center_city: Optional[str] = None
+    shift: str  # morning | afternoon | evening
+    weekdays: list[int]  # ISO: 1=Пн .. 7=Вс
+
+
 class ProfileSummary(BaseModel):
     """Полная сводка профиля пациента."""
 
@@ -91,5 +100,8 @@ class ProfileSummary(BaseModel):
     vitals: VitalsSummary
     education: EducationSummary
     scales: ScalesSummary
+
+    # Диализный центр и расписание
+    dialysis: Optional[DialysisSummary] = None
 
     model_config = ConfigDict(from_attributes=True)

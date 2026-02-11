@@ -16,6 +16,7 @@ from app.vitals import models as vitals_models  # noqa: F401
 from app.education import models as education_models  # noqa: F401
 from app.dialysis import models as dialysis_models  # noqa: F401
 from app.sleep_tracker import models as sleep_tracker_models  # noqa: F401
+from app.routine import models as routine_models  # noqa: F401
 
 
 __all__ = [

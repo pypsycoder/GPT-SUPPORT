@@ -19,6 +19,11 @@ async def list_centers(session: AsyncSession) -> Sequence[Center]:
     return result.scalars().all()
 
 
+async def get_center_by_id(session: AsyncSession, center_id: UUID) -> Center | None:
+    result = await session.execute(select(Center).where(Center.id == center_id))
+    return result.scalar_one_or_none()
+
+
 async def create_center(
     session: AsyncSession,
     *,

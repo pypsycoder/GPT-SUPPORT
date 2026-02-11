@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.education.models import LessonProgress, LessonTestResult, PracticeLog
 from app.profile.schemas import (
+    DialysisSummary,
     EducationSummary,
     LastBP,
     LastPulse,
@@ -26,6 +27,7 @@ from app.profile.schemas import (
     ScalesSummary,
     VitalsSummary,
 )
+from app.dialysis.crud import get_active_schedule, get_center_by_id
 from app.scales.models import ScaleResult
 from app.scales.registry import SCALE_CALCULATORS
 from app.users.models import User
@@ -238,6 +240,47 @@ async def _get_scales_summary(session: AsyncSession, user_id: int) -> ScalesSumm
 
 
 # ============================================
+#   Сводка диализа
+# ============================================
+
+async def _get_dialysis_summary(
+    session: AsyncSession,
+    user: User,
+) -> Optional[DialysisSummary]:
+    """Получает данные о диализном центре и расписании пациента."""
+
+    center = None
+    if user.center_id:
+        center = await get_center_by_id(session, user.center_id)
+
+    schedule = await get_active_schedule(session, user.id)
+
+    if not center and not schedule:
+        return None
+
+    center_name = center.name if center else "—"
+    center_city = center.city if center else None
+
+    if schedule:
+        return DialysisSummary(
+            center_name=center_name,
+            center_city=center_city,
+            shift=schedule.shift,
+            weekdays=schedule.weekdays,
+        )
+
+    if center:
+        return DialysisSummary(
+            center_name=center_name,
+            center_city=center_city,
+            shift="",
+            weekdays=[],
+        )
+
+    return None
+
+
+# ============================================
 #   Профиль: сборка и обновление
 # ============================================
 
@@ -250,6 +293,7 @@ async def get_profile_summary(
     vitals = await _get_vitals_summary(session, user.id)
     education = await _get_education_summary(session, user.id)
     scales = await _get_scales_summary(session, user.id)
+    dialysis = await _get_dialysis_summary(session, user)
 
     return ProfileSummary(
         id=user.id,
@@ -262,6 +306,7 @@ async def get_profile_summary(
         vitals=vitals,
         education=education,
         scales=scales,
+        dialysis=dialysis,
     )
 
 

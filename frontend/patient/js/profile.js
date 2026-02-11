@@ -52,6 +52,25 @@
     return 'Не указан';
   }
 
+  /**
+   * Перевод смены диализа на русский
+   */
+  function formatShift(shift) {
+    if (shift === 'morning') return 'Утренняя';
+    if (shift === 'afternoon') return 'Дневная';
+    if (shift === 'evening') return 'Вечерняя';
+    return shift || '—';
+  }
+
+  /**
+   * Перевод дней недели (ISO 1–7) в строку
+   */
+  function formatWeekdays(weekdays) {
+    if (!weekdays || weekdays.length === 0) return '—';
+    const names = { 1: 'Пн', 2: 'Вт', 3: 'Ср', 4: 'Чт', 5: 'Пт', 6: 'Сб', 7: 'Вс' };
+    return weekdays.map((d) => names[d] || d).join(', ');
+  }
+
   // ========================================
   // Статусная плашка
   // ========================================
@@ -237,6 +256,27 @@
     }
   }
 
+  function renderDialysis(dialysis) {
+    const centerEl = document.getElementById('dialysis-center');
+    const shiftEl = document.getElementById('dialysis-shift');
+    const daysEl = document.getElementById('dialysis-days');
+
+    if (!dialysis) {
+      if (centerEl) centerEl.textContent = '—';
+      if (shiftEl) shiftEl.textContent = '—';
+      if (daysEl) daysEl.textContent = '—';
+      return;
+    }
+
+    const centerStr = dialysis.center_city
+      ? `${dialysis.center_name} (${dialysis.center_city})`
+      : dialysis.center_name || '—';
+
+    if (centerEl) centerEl.textContent = centerStr;
+    if (shiftEl) shiftEl.textContent = formatShift(dialysis.shift);
+    if (daysEl) daysEl.textContent = formatWeekdays(dialysis.weekdays);
+  }
+
   function renderScales(scales) {
     const passedEl = document.getElementById('scales-passed');
     const availableEl = document.getElementById('scales-available');
@@ -336,6 +376,7 @@
       const profile = await fetchProfileSummary();
 
       renderPersonalData(profile);
+      renderDialysis(profile.dialysis);
       renderConsents(profile);
       renderVitals(profile.vitals);
       renderEducation(profile.education);

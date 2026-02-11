@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Распорядок дня — GPT Health Support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+    <link rel="stylesheet" href="/frontend/patient/css/forms.css">
+    <link rel="stylesheet" href="/frontend/patient/css/routine.css">
+</head>
+<body data-page="routine">
+<div class="page">
+    <div id="global-header"></div>
+
+    <div class="layout">
+        <div id="sidebar-container"></div>
+
+        <main class="content">
+            <section class="page-header">
+                <div class="page-title">Распорядок дня</div>
+                <div class="page-subtitle">Планируйте день и отмечайте, что удалось выполнить.</div>
+            </section>
+
+            <div id="routine-status" class="routine-status routine-status-hidden"></div>
+
+            <section class="routine-tabs">
+                <button type="button" class="routine-tab active" data-tab="baseline">Мой обычный день</button>
+                <button type="button" class="routine-tab" data-tab="planner">План на день</button>
+                <button type="button" class="routine-tab" data-tab="verification">Как прошёл день</button>
+            </section>
+
+            <!-- Baseline: 4 шага онбординга -->
+            <section id="routine-baseline" class="routine-section">
+                <div class="routine-step-header">
+                    <div class="routine-step-title" id="routine-baseline-step-title">Шаг 1 из 4</div>
+                    <div class="routine-step-subtitle" id="routine-baseline-step-subtitle">
+                        Отметьте занятия, которые есть в вашей обычной жизни.
+                    </div>
+                </div>
+
+                <div id="baseline-step-1" class="routine-baseline-step">
+                    <p class="routine-text">Отметьте занятия, которые есть в вашей обычной жизни.</p>
+                    <div class="routine-activities-grid" id="baseline-activity-pool">
+                        <!-- Карточки категорий заполняются в JS -->
+                    </div>
+                </div>
+
+                <div id="baseline-step-2" class="routine-baseline-step routine-hidden">
+                    <p class="routine-text">
+                        В день диализа — что из этого вы обычно делаете?
+                        <span class="routine-text-muted">
+                            Это день, когда вы едете на процедуру. Обычно он короче и тяжелее.
+                        </span>
+                    </p>
+                    <div class="routine-activities-grid" id="baseline-dialysis-template">
+                        <!-- Карточки категорий из пула -->
+                    </div>
+                </div>
+
+                <div id="baseline-step-3" class="routine-baseline-step routine-hidden">
+                    <p class="routine-text">В обычный день без диализа — что из этого вы обычно делаете?</p>
+                    <div class="routine-activities-grid" id="baseline-non-dialysis-template">
+                        <!-- Карточки категорий из пула -->
+                    </div>
+                </div>
+
+                <div id="baseline-step-4" class="routine-baseline-step routine-hidden">
+                    <p class="routine-text">Когда вам удобнее планировать день?</p>
+                    <div class="routine-planning-time">
+                        <button type="button" class="routine-chip" data-planning-time="morning">Утром</button>
+                        <button type="button" class="routine-chip" data-planning-time="evening">Вечером накануне</button>
+                    </div>
+                </div>
+
+                <div class="routine-actions">
+                    <button type="button" id="baseline-prev" class="routine-btn secondary" disabled>Назад</button>
+                    <button type="button" id="baseline-next" class="routine-btn primary">Далее</button>
+                </div>
+            </section>
+
+            <!-- Планер -->
+            <section id="routine-planner" class="routine-section routine-hidden">
+                <header class="routine-day-header">
+                    <div>
+                        <div class="routine-day-title" id="planner-day-label">Ваш план на сегодня</div>
+                        <div class="routine-day-subtitle" id="planner-day-subtitle"></div>
+                    </div>
+                    <div class="routine-day-date">
+                        <label>
+                            Дата:
+                            <input type="date" id="planner-date">
+                        </label>
+                    </div>
+                </header>
+
+                <div id="planner-dialysis-badge" class="routine-dialysis-badge routine-hidden">
+                    Диализный день
+                </div>
+
+                <section class="routine-card">
+                    <h2 class="routine-card-title">Ваши обычные активности</h2>
+                    <div id="planner-template-activities" class="routine-activities-list">
+                        <!-- Заполняется из шаблона -->
+                    </div>
+                </section>
+
+                <section class="routine-card">
+                    <h2 class="routine-card-title">Ещё из вашего списка</h2>
+                    <div id="planner-pool-activities" class="routine-activities-list">
+                        <!-- Активности из пула, не входящие в шаблон -->
+                    </div>
+                </section>
+
+                <section class="routine-card">
+                    <h2 class="routine-card-title">Добавить своё</h2>
+                    <div id="planner-custom-activities" class="routine-custom-list">
+                        <!-- 5 слотов генерируются в JS -->
+                    </div>
+                </section>
+
+                <div class="routine-actions">
+                    <button type="button" id="planner-save" class="routine-btn primary">
+                        Сохранить план
+                    </button>
+                </div>
+            </section>
+
+            <!-- Верификация -->
+            <section id="routine-verification" class="routine-section routine-hidden">
+                <header class="routine-day-header">
+                    <div>
+                        <div class="routine-day-title" id="verification-day-label">Как прошёл день?</div>
+                        <div class="routine-day-subtitle" id="verification-day-subtitle"></div>
+                    </div>
+                    <div class="routine-day-date">
+                        <label>
+                            Дата:
+                            <input type="date" id="verification-date">
+                        </label>
+                    </div>
+                </header>
+
+                <div id="verification-dialysis-badge" class="routine-dialysis-badge routine-hidden">
+                    Диализный день
+                </div>
+
+                <section id="verification-from-plan" class="routine-card routine-hidden">
+                    <h2 class="routine-card-title">Из плана</h2>
+                    <div id="verification-planned-list" class="routine-activities-list">
+                        <!-- Активности из плана -->
+                    </div>
+                </section>
+
+                <section class="routine-card">
+                    <h2 class="routine-card-title">Что ещё было (не планировали)</h2>
+                    <div id="verification-unplanned-list" class="routine-activities-list">
+                        <!-- Категории из пула, которых нет в плане -->
+                    </div>
+                    <div class="routine-field">
+                        <label for="verification-custom-unplanned" class="routine-label">
+                            Своя активность
+                        </label>
+                        <div class="routine-custom-add-row">
+                            <input type="text" id="verification-custom-unplanned" class="routine-input"
+                                   placeholder="Например, неожиданная встреча или дела по дому">
+                            <button type="button" id="verification-add-custom-unplanned" class="routine-btn secondary">
+                                Добавить
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="routine-card">
+                    <h2 class="routine-card-title">Как прошёл день в целом?</h2>
+                    <div class="routine-slider-row">
+                        <span class="routine-slider-label">совсем не так, как планировал</span>
+                        <input type="range" id="verification-day-control" min="0" max="10" step="1">
+                        <span class="routine-slider-label">именно так, как планировал</span>
+                    </div>
+                    <div class="routine-slider-value" id="verification-day-control-value">5 / 10</div>
+                </section>
+
+                <div class="routine-actions">
+                    <button type="button" id="verification-save" class="routine-btn primary">
+                        Сохранить
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <footer class="footer">GPT Health Support · Поддержка пациентов</footer>
+</div>
+
+<script src="/frontend/patient/js/auth.js"></script>
+<script src="/frontend/patient/js/global_header.js"></script>
+<script src="/frontend/patient/js/sidebar.js"></script>
+<script src="/frontend/patient/js/routine.js"></script>
+</body>
+</html>
+

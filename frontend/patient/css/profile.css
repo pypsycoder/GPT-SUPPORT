@@ -32,7 +32,8 @@
 /* ====================================== */
 
 /* Режим просмотра */
-.personal-view {
+.personal-view,
+.dialysis-view {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
