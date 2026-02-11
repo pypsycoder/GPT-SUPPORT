@@ -27,18 +27,59 @@
 
     <!-- Dashboard tab -->
     <div id="tab-dashboard">
-      <div class="r-stats">
-        <div class="r-stat-card">
-          <div class="r-stat-value" id="stat-total">—</div>
-          <div class="r-stat-label">Всего пациентов</div>
+      <div class="r-dash-section">
+        <div class="r-dash-section-title">Пациенты</div>
+        <div class="r-stats">
+          <div class="r-stat-card">
+            <div class="r-stat-value" id="stat-total">—</div>
+            <div class="r-stat-label">Всего пациентов</div>
+          </div>
+          <div class="r-stat-card">
+            <div class="r-stat-value" id="stat-consented">—</div>
+            <div class="r-stat-label">Дали согласие</div>
+          </div>
+          <div class="r-stat-card">
+            <div class="r-stat-value" id="stat-locked">—</div>
+            <div class="r-stat-label">Заблокировано</div>
+          </div>
         </div>
-        <div class="r-stat-card">
-          <div class="r-stat-value" id="stat-consented">—</div>
-          <div class="r-stat-label">Дали согласие</div>
-        </div>
-        <div class="r-stat-card">
-          <div class="r-stat-value" id="stat-locked">—</div>
-          <div class="r-stat-label">Заблокировано</div>
+      </div>
+
+      <div class="r-dash-section">
+        <div class="r-dash-section-title">Использование приложения</div>
+        <div class="r-usage-grid">
+          <div class="r-usage-card">
+            <div class="r-usage-title">📊 Показатели (витальные)</div>
+            <div class="r-usage-row"><span>АД</span><span id="usage-vitals-bp">—</span></div>
+            <div class="r-usage-row"><span>Пульс</span><span id="usage-vitals-pulse">—</span></div>
+            <div class="r-usage-row"><span>Вес</span><span id="usage-vitals-weight">—</span></div>
+            <div class="r-usage-row"><span>Жидкость</span><span id="usage-vitals-water">—</span></div>
+            <div class="r-usage-row r-usage-row-total"><span>Пациентов</span><span id="usage-vitals-users">—</span></div>
+          </div>
+          <div class="r-usage-card">
+            <div class="r-usage-title">📈 Психометрические шкалы</div>
+            <div id="usage-scales-by-scale"></div>
+            <div class="r-usage-row r-usage-row-total"><span>Всего пациентов</span><span id="usage-scales-users">—</span></div>
+          </div>
+          <div class="r-usage-card">
+            <div class="r-usage-title">🎓 Обучение</div>
+            <div class="r-usage-row"><span>Прогресс уроков</span><span id="usage-edu-progress">—</span></div>
+            <div class="r-usage-row"><span>Тесты</span><span id="usage-edu-tests">—</span></div>
+            <div class="r-usage-row"><span>Практики</span><span id="usage-edu-practices">—</span></div>
+            <div class="r-usage-row r-usage-row-total"><span>Пациентов</span><span id="usage-edu-users">—</span></div>
+          </div>
+          <div class="r-usage-card">
+            <div class="r-usage-title">😴 Оценка сна</div>
+            <div class="r-usage-row"><span>Записей</span><span id="usage-sleep-records">—</span></div>
+            <div class="r-usage-row r-usage-row-total"><span>Пациентов</span><span id="usage-sleep-users">—</span></div>
+          </div>
+          <div class="r-usage-card">
+            <div class="r-usage-title">📅 Распорядок дня</div>
+            <div class="r-usage-row"><span>Базовые шаблоны</span><span id="usage-routine-baselines">—</span></div>
+            <div class="r-usage-row"><span>Планы</span><span id="usage-routine-plans">—</span></div>
+            <div class="r-usage-row"><span>Верификации</span><span id="usage-routine-verifications">—</span></div>
+            <div class="r-usage-row r-usage-row-total"><span>Пациентов</span><span id="usage-routine-users">—</span></div>
+          </div>
         </div>
       </div>
     </div>
@@ -57,12 +98,13 @@
               <th>ФИО</th>
               <th>Возраст</th>
               <th>Пол</th>
+              <th>Центр диализа</th>
               <th>Статус</th>
               <th>Действия</th>
             </tr>
           </thead>
           <tbody id="r-patients-tbody">
-            <tr><td colspan="6" style="text-align:center;color:#9ca3af;">Загрузка...</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:#9ca3af;">Загрузка...</td></tr>
           </tbody>
         </table>
       </div>
@@ -146,6 +188,25 @@
       <div class="r-modal-actions" style="margin-top:1rem;">
         <button type="button" class="r-modal-btn-secondary" id="schedule-modal-close">Закрыть</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal: Assign dialysis center -->
+  <div class="r-modal-backdrop" id="modal-assign-center">
+    <div class="r-modal" style="max-width:420px;">
+      <div class="r-modal-title" id="assign-center-modal-title">Назначить центр диализа</div>
+      <form id="form-assign-center">
+        <div class="r-modal-field">
+          <label for="assign-center-select">Центр</label>
+          <select id="assign-center-select">
+            <option value="">— Не назначен —</option>
+          </select>
+        </div>
+        <div class="r-modal-actions">
+          <button type="submit" class="r-modal-btn-primary" id="assign-center-submit">Сохранить</button>
+          <button type="button" class="r-modal-btn-secondary" id="assign-center-cancel">Отмена</button>
+        </div>
+      </form>
     </div>
   </div>
 

@@ -101,7 +101,6 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
-  margin-bottom: 2rem;
 }
 
 .r-stat-card {
@@ -122,6 +121,62 @@ body {
   font-size: 0.9rem;
   color: #6b7280;
   margin-top: 0.25rem;
+}
+
+/* --- Dashboard sections --- */
+
+.r-dash-section {
+  margin-bottom: 2rem;
+}
+
+.r-dash-section:last-child {
+  margin-bottom: 0;
+}
+
+.r-dash-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 1rem;
+}
+
+.r-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.r-usage-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+}
+
+.r-usage-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.r-usage-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  padding: 0.25rem 0;
+  color: #4b5563;
+}
+
+.r-usage-row-total {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #e5e7eb;
+  font-weight: 600;
+  color: #111827;
 }
 
 /* --- Patients table --- */

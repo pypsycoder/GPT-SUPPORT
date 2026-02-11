@@ -48,6 +48,43 @@
       document.getElementById('stat-total').textContent = data.total_patients;
       document.getElementById('stat-consented').textContent = data.consented_patients;
       document.getElementById('stat-locked').textContent = data.locked_patients;
+
+      var u = data.usage;
+      if (u) {
+        if (u.vitals) {
+          document.getElementById('usage-vitals-bp').textContent = u.vitals.bp_measurements ?? '—';
+          document.getElementById('usage-vitals-pulse').textContent = u.vitals.pulse_measurements ?? '—';
+          document.getElementById('usage-vitals-weight').textContent = u.vitals.weight_measurements ?? '—';
+          document.getElementById('usage-vitals-water').textContent = u.vitals.water_intake ?? '—';
+          document.getElementById('usage-vitals-users').textContent = u.vitals.unique_patients ?? '—';
+        }
+        if (u.scales) {
+          var scaleNames = { 'HADS': 'HADS', 'TOBOL': 'ТОБОЛ', 'KOP25A': 'КОП-25 А1', 'KOP_25A1': 'КОП-25 А1', 'PSQI': 'PSQI' };
+          var byScale = u.scales.by_scale || [];
+          var container = document.getElementById('usage-scales-by-scale');
+          container.innerHTML = byScale.length ? byScale.map(function (s) {
+            var name = scaleNames[s.scale_code] || s.scale_code;
+            return '<div class="r-usage-row"><span>' + name + '</span><span>' + s.records + ' пр. / ' + s.unique_patients + ' пац.</span></div>';
+          }).join('') : '<div class="r-usage-row"><span>—</span><span>Нет данных</span></div>';
+          document.getElementById('usage-scales-users').textContent = u.scales.unique_patients ?? '—';
+        }
+        if (u.education) {
+          document.getElementById('usage-edu-progress').textContent = u.education.lesson_progress ?? '—';
+          document.getElementById('usage-edu-tests').textContent = u.education.test_results ?? '—';
+          document.getElementById('usage-edu-practices').textContent = u.education.practice_logs ?? '—';
+          document.getElementById('usage-edu-users').textContent = u.education.unique_patients ?? '—';
+        }
+        if (u.sleep) {
+          document.getElementById('usage-sleep-records').textContent = u.sleep.records ?? '—';
+          document.getElementById('usage-sleep-users').textContent = u.sleep.unique_patients ?? '—';
+        }
+        if (u.routine) {
+          document.getElementById('usage-routine-baselines').textContent = u.routine.baselines ?? '—';
+          document.getElementById('usage-routine-plans').textContent = u.routine.plans ?? '—';
+          document.getElementById('usage-routine-verifications').textContent = u.routine.verifications ?? '—';
+          document.getElementById('usage-routine-users').textContent = u.routine.unique_patients ?? '—';
+        }
+      }
     } catch (e) {
       console.warn('Failed to load stats', e);
     }
@@ -67,14 +104,22 @@
     return '<span class="r-badge r-badge-active">Активен</span>';
   }
 
+  function centerDisplay(p) {
+    if (p.center_name) {
+      return (p.center_city ? p.center_name + ' (' + p.center_city + ')' : p.center_name);
+    }
+    return '—';
+  }
+
   function renderPatients(patients) {
     if (!patients || patients.length === 0) {
-      patientsBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:2rem;">Нет пациентов</td></tr>';
+      patientsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">Нет пациентов</td></tr>';
       return;
     }
 
     patientsBody.innerHTML = patients.map(function (p) {
       var actions = '';
+      actions += '<button class="r-action-btn" onclick="window._openAssignCenterModal(' + p.id + ', \'' + (p.full_name || '').replace(/'/g, "\\'") + '\', \'' + (p.center_id || '').replace(/'/g, "\\'") + '\')">Центр диализа</button>';
       actions += '<button class="r-action-btn" onclick="window._openScheduleModal(' + p.id + ', \'' + (p.full_name || '').replace(/'/g, "\\'") + '\')">Расписание диализа</button>';
       if (p.is_locked) {
         actions += '<button class="r-action-btn" onclick="window._unlockPatient(' + p.id + ')">Разблокировать</button>';
@@ -85,6 +130,7 @@
         '<td>' + (p.full_name || '—') + '</td>' +
         '<td>' + (p.age || '—') + '</td>' +
         '<td>' + (p.gender || '—') + '</td>' +
+        '<td>' + centerDisplay(p) + '</td>' +
         '<td>' + statusBadge(p) + '</td>' +
         '<td>' + actions + '</td>' +
         '</tr>';
@@ -207,6 +253,72 @@
     var number = document.getElementById('reset-number').textContent;
     var pin = document.getElementById('reset-pin').textContent;
     printCard(number, pin);
+  });
+
+  // =========================================================================
+  // Assign dialysis center modal
+  // =========================================================================
+
+  var assignCenterModal = document.getElementById('modal-assign-center');
+  var assignCenterForm = document.getElementById('form-assign-center');
+  var assignCenterSelect = document.getElementById('assign-center-select');
+  var assignCenterPatientId = null;
+
+  window._openAssignCenterModal = async function (patientId, patientName, currentCenterId) {
+    assignCenterPatientId = patientId;
+    document.getElementById('assign-center-modal-title').textContent = 'Центр диализа — ' + (patientName || 'Пациент #' + patientId);
+    assignCenterSelect.innerHTML = '<option value="">— Не назначен —</option>';
+    assignCenterModal.classList.add('visible');
+
+    try {
+      var resp = await fetch('/api/v1/centers', { credentials: 'include' });
+      if (!resp.ok) return;
+      var centers = await resp.json();
+      centers.forEach(function (c) {
+        var opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.city ? c.name + ' (' + c.city + ')' : c.name;
+        assignCenterSelect.appendChild(opt);
+      });
+      assignCenterSelect.value = currentCenterId || '';
+    } catch (e) {
+      console.warn('Failed to load centers', e);
+    }
+  };
+
+  document.getElementById('assign-center-cancel').addEventListener('click', function () {
+    assignCenterModal.classList.remove('visible');
+  });
+
+  assignCenterForm.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var patientId = assignCenterPatientId;
+    if (!patientId) return;
+    var centerId = assignCenterSelect.value.trim() || null;
+    var submitBtn = document.getElementById('assign-center-submit');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Сохранение...';
+    try {
+      var resp = await fetch('/api/v1/researcher/patients/' + patientId + '/center', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ center_id: centerId }),
+      });
+      if (!resp.ok) {
+        var err = await resp.json().catch(function () { return {}; });
+        var msg = typeof err.detail === 'string' ? err.detail : (err.detail && (err.detail.detail || err.detail.message || err.detail.msg)) || 'Ошибка сохранения';
+        alert(msg);
+        return;
+      }
+      assignCenterModal.classList.remove('visible');
+      loadPatients();
+    } catch (err) {
+      alert('Ошибка соединения');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Сохранить';
+    }
   });
 
   // =========================================================================

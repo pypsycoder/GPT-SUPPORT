@@ -8,6 +8,7 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +38,9 @@ class PatientListItem(BaseModel):
     is_locked: bool = False
     consent_personal_data: bool = False
     consent_bot_use: bool = False
+    center_id: Optional[str] = None  # UUID as string for JSON
+    center_name: Optional[str] = None
+    center_city: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -57,3 +61,8 @@ class PatientCardData(BaseModel):
 class PinResetResponse(BaseModel):
     patient_number: int
     new_pin: str
+
+
+class PatientCenterAssign(BaseModel):
+    """Request body for assigning a dialysis center to a patient."""
+    center_id: Optional[UUID] = None  # None = clear assignment

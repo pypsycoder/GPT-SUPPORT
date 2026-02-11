@@ -3,6 +3,7 @@ from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.models import Base
@@ -16,6 +17,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     center_id = Column(UUID(as_uuid=True), ForeignKey("centers.id"), nullable=True)
+    center = relationship("Center", foreign_keys=[center_id], lazy="selectin")
     full_name = Column(String)
     age = Column(Integer, nullable=True)
     gender = Column(String, nullable=True)

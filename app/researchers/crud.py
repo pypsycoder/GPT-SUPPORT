@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import secrets
 from typing import Optional, Sequence
+from uuid import UUID
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,11 +78,24 @@ async def create_patient(
 
 
 async def list_patients(session: AsyncSession) -> Sequence[User]:
-    """Return all patients ordered by id desc."""
+    """Return all patients ordered by id desc, with center loaded."""
+    from sqlalchemy.orm import selectinload
     result = await session.execute(
-        select(User).order_by(User.id.desc())
+        select(User).options(selectinload(User.center)).order_by(User.id.desc())
     )
     return result.scalars().all()
+
+
+async def update_patient_center(
+    session: AsyncSession,
+    user: User,
+    center_id: Optional[UUID],
+) -> User:
+    """Assign or clear dialysis center for a patient."""
+    user.center_id = center_id
+    await session.commit()
+    await session.refresh(user)
+    return user
 
 
 async def get_patient_by_id(
@@ -169,4 +183,97 @@ async def get_patients_stats(session: AsyncSession) -> dict:
         "total_patients": total.scalar_one(),
         "locked_patients": locked.scalar_one(),
         "consented_patients": consented.scalar_one(),
+    }
+
+
+async def get_usage_stats(session: AsyncSession) -> dict:
+    """Return usage statistics for modules (vitals, scales, education, sleep, routine)."""
+    from app.vitals.models import BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake
+    from app.scales.models import ScaleResult
+    from app.education.models import LessonProgress, LessonTestResult, PracticeLog
+    from app.sleep_tracker.models import SleepRecord
+    from app.routine.models import BaselineRoutine, DailyPlan, DailyVerification
+
+    async def _count(model, col=None):
+        c = col or model.id
+        r = await session.execute(select(func.count(c)))
+        return r.scalar_one()
+
+    async def _count_distinct(model, col):
+        r = await session.execute(select(func.count(func.distinct(col))))
+        return r.scalar_one()
+
+    # Vitals
+    vitals_bp = await _count(BPMeasurement)
+    vitals_pulse = await _count(PulseMeasurement)
+    vitals_weight = await _count(WeightMeasurement)
+    vitals_water = await _count(WaterIntake)
+    vitals_users = await _count_distinct(BPMeasurement, BPMeasurement.user_id)
+
+    # Scales — по каждой шкале отдельно
+    scales_group = await session.execute(
+        select(
+            ScaleResult.scale_code,
+            func.count(ScaleResult.id).label("records"),
+            func.count(func.distinct(ScaleResult.user_id)).label("unique_patients"),
+        )
+        .group_by(ScaleResult.scale_code)
+    )
+    scales_by_code = [
+        {
+            "scale_code": row.scale_code,
+            "records": row.records,
+            "unique_patients": row.unique_patients,
+        }
+        for row in scales_group.all()
+    ]
+    scales_total = sum(s["records"] for s in scales_by_code)
+    scales_users = await _count_distinct(ScaleResult, ScaleResult.user_id)
+
+    # Education
+    education_progress = await _count(LessonProgress)
+    education_tests = await _count(LessonTestResult)
+    education_practices = await _count(PracticeLog)
+    education_users = await _count_distinct(LessonProgress, LessonProgress.user_id)
+
+    # Sleep
+    sleep_records = await _count(SleepRecord)
+    sleep_users = await _count_distinct(SleepRecord, SleepRecord.patient_id)
+
+    # Routine
+    routine_baselines = await _count(BaselineRoutine)
+    routine_plans = await _count(DailyPlan)
+    routine_verifications = await _count(DailyVerification)
+    routine_users = await _count_distinct(DailyPlan, DailyPlan.patient_id)
+
+    return {
+        "vitals": {
+            "bp_measurements": vitals_bp,
+            "pulse_measurements": vitals_pulse,
+            "weight_measurements": vitals_weight,
+            "water_intake": vitals_water,
+            "total": vitals_bp + vitals_pulse + vitals_weight + vitals_water,
+            "unique_patients": vitals_users,
+        },
+        "scales": {
+            "total_records": scales_total,
+            "unique_patients": scales_users,
+            "by_scale": scales_by_code,
+        },
+        "education": {
+            "lesson_progress": education_progress,
+            "test_results": education_tests,
+            "practice_logs": education_practices,
+            "unique_patients": education_users,
+        },
+        "sleep": {
+            "records": sleep_records,
+            "unique_patients": sleep_users,
+        },
+        "routine": {
+            "baselines": routine_baselines,
+            "plans": routine_plans,
+            "verifications": routine_verifications,
+            "unique_patients": routine_users,
+        },
     }
