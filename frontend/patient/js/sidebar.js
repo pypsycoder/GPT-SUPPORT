@@ -5,6 +5,7 @@
     vitals:          '/patient/vitals',
     sleep_tracker:   '/patient/sleep_tracker',
     routine:         '/patient/routine',
+    medications:     '/patient/medications',
     education:       '/patient/education_overview',
     hads:            '/patient/hads',
     scales_overview: '/patient/scales',

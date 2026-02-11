@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Препараты — GPT Health Support</title>
+    <link rel="stylesheet" href="/frontend/patient/css/style.css">
+    <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+    <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+    <link rel="stylesheet" href="/frontend/patient/css/medications.css">
+</head>
+<body data-page="medications">
+
+<div class="page">
+    <div id="global-header"></div>
+
+    <div class="layout">
+        <div id="sidebar-container"></div>
+
+        <main class="content medications-content">
+            <section class="page-header medications-page-header">
+                <div>
+                    <div class="page-title">💊 Препараты</div>
+                    <div class="page-subtitle">Управление приёмом назначенных препаратов</div>
+                </div>
+                <div class="page-actions">
+                    <button id="btnAddPrescription" class="btn btn-secondary" type="button">
+                        <i class="icon-plus-circle"></i>
+                        Добавить препарат
+                    </button>
+                    <button id="btnAddIntake" class="btn btn-primary" type="button">
+                        <i class="icon-check"></i>
+                        Отметить приём
+                    </button>
+                </div>
+            </section>
+
+            <section class="prescriptions-section">
+                <div class="section-header">
+                    <h2>Текущие назначения</h2>
+                    <div class="section-actions"></div>
+                </div>
+
+                <div id="prescriptionsContainer" class="prescriptions-grid">
+                    <div class="loading-spinner">Загрузка...</div>
+                </div>
+
+                <div id="emptyState" class="empty-state" style="display: none;">
+                    <i class="icon-info-circle"></i>
+                    <p>У вас пока нет активных назначений</p>
+                    <p class="text-muted">Назначения от врача появятся здесь</p>
+                </div>
+            </section>
+
+            <section id="historySection" class="history-section" style="display: none;">
+                <div class="section-header">
+                    <h2>История всех приёмов</h2>
+                    <button id="btnToggleHistory" class="btn btn-secondary" type="button">
+                        Скрыть историю
+                    </button>
+                </div>
+                <div id="historyContainer"></div>
+            </section>
+        </main>
+    </div>
+</div>
+
+<!-- Модальное окно: Отметка приёма -->
+<div id="modalAddIntake" class="modal" role="dialog" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Отметить приём препарата</h2>
+                <button class="modal-close" type="button" aria-label="Закрыть">
+                    <i class="icon-close"></i>
+                </button>
+            </div>
+
+            <form id="formAddIntake" class="modal-body">
+                <div class="form-group">
+                    <label for="selectPrescription" class="form-label required">Препарат</label>
+                    <select id="selectPrescription" class="form-control" required>
+                        <option value="">-- Выберите препарат --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="intakeDate" class="form-label required">Дата приёма</label>
+                    <input type="date" id="intakeDate" class="form-control" required>
+                    <small class="form-hint">Можно отметить приём до 24 часов назад</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="intakeTime" class="form-label required">Время приёма</label>
+                    <input type="time" id="intakeTime" class="form-control" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="actualDose" class="form-label required">Фактическая доза</label>
+                    <div class="input-group">
+                        <input type="number" id="actualDose" class="form-control" step="0.01" min="0" required>
+                        <span id="doseUnit" class="input-suffix">ед.</span>
+                    </div>
+                    <small id="prescribedDoseHint" class="form-hint">Назначено: --</small>
+                    <div id="doseWarning" class="form-warning" style="display: none;">
+                        <i class="icon-warning"></i>
+                        Доза отличается от назначенной более чем на 50%
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="intakeNotes" class="form-label">
+                        Примечания
+                        <span class="text-muted">(необязательно)</span>
+                    </label>
+                    <textarea id="intakeNotes" class="form-control" rows="3"
+                        placeholder="Например: принял после еды, была лёгкая тошнота"
+                        maxlength="500"></textarea>
+                    <small class="form-hint"><span id="notesCharCount">0</span>/500 символов</small>
+                </div>
+            </form>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelIntake">Отмена</button>
+                <button type="submit" form="formAddIntake" class="btn btn-primary" id="btnSubmitIntake">
+                    <i class="icon-check"></i>
+                    Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Детали назначения -->
+<div id="modalPrescriptionDetails" class="modal" role="dialog" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog modal-large">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="detailsTitle">Детали назначения</h2>
+                <button class="modal-close" type="button" aria-label="Закрыть">
+                    <i class="icon-close"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="detailsContent">
+                <div class="loading-spinner">Загрузка...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCloseDetails">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Добавить препарат (самоназначение) -->
+<div id="modalAddPrescription" class="modal" role="dialog" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Добавить препарат</h2>
+                <button class="modal-close" type="button" aria-label="Закрыть">
+                    <i class="icon-close"></i>
+                </button>
+            </div>
+            <form id="formAddPrescription" class="modal-body">
+                <div class="form-group">
+                    <label for="newMedicationName" class="form-label required">Название препарата</label>
+                    <input type="text" id="newMedicationName" class="form-control" placeholder="Например: Аспирин" required maxlength="200">
+                    <small class="form-hint">Введите торговое или международное название</small>
+                </div>
+                <div class="form-group">
+                    <label for="newDose" class="form-label required">Доза</label>
+                    <div class="input-group input-group-dose">
+                        <input type="number" id="newDose" class="form-control" step="0.01" min="0" required placeholder="500">
+                        <select id="newDoseUnit" class="form-control form-control-unit">
+                            <option value="мг">мг</option>
+                            <option value="г">г</option>
+                            <option value="мл">мл</option>
+                            <option value="мкг">мкг</option>
+                            <option value="МЕ">МЕ</option>
+                            <option value="таб">таб</option>
+                            <option value="капс">капс</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="newFrequency" class="form-label required">Частота приёма в день</label>
+                    <input type="number" id="newFrequency" class="form-control" min="1" max="10" required placeholder="2">
+                    <small class="form-hint">Сколько раз в день нужно принимать</small>
+                </div>
+                <div class="form-group">
+                    <label for="newRoute" class="form-label required">Способ приёма</label>
+                    <select id="newRoute" class="form-control" required>
+                        <option value="">-- Выберите --</option>
+                        <option value="перорально">Перорально (внутрь)</option>
+                        <option value="сублингвально">Сублингвально (под язык)</option>
+                        <option value="местно">Местно (на кожу/слизистые)</option>
+                        <option value="ингаляционно">Ингаляционно</option>
+                        <option value="внутримышечно">Внутримышечно</option>
+                        <option value="подкожно">Подкожно</option>
+                        <option value="внутривенно">Внутривенно</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="newStartDate" class="form-label required">Дата начала приёма</label>
+                    <input type="date" id="newStartDate" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="newEndDate" class="form-label">Дата окончания <span class="text-muted">(необязательно)</span></label>
+                    <input type="date" id="newEndDate" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="newIndication" class="form-label">Для чего принимаете <span class="text-muted">(необязательно)</span></label>
+                    <textarea id="newIndication" class="form-control" rows="2" placeholder="Например: для снижения давления" maxlength="500"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="newInstructions" class="form-label">Особые указания <span class="text-muted">(необязательно)</span></label>
+                    <textarea id="newInstructions" class="form-control" rows="2" placeholder="Например: принимать после еды" maxlength="500"></textarea>
+                </div>
+            </form>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelAddPrescription">Отмена</button>
+                <button type="submit" form="formAddPrescription" class="btn btn-primary" id="btnSubmitPrescription">
+                    <i class="icon-check"></i>
+                    Добавить препарат
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Редактирование приёма (UI готов, бэкенд может не поддерживать) -->
+<div id="modalEditIntake" class="modal" role="dialog" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Редактировать приём</h2>
+                <button class="modal-close" type="button" aria-label="Закрыть">
+                    <i class="icon-close"></i>
+                </button>
+            </div>
+            <form id="formEditIntake" class="modal-body">
+                <input type="hidden" id="editIntakeId">
+                <div class="form-group">
+                    <label class="form-label">Препарат</label>
+                    <input type="text" id="editMedicationName" class="form-control" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="editIntakeDate" class="form-label required">Дата приёма</label>
+                    <input type="date" id="editIntakeDate" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="editIntakeTime" class="form-label required">Время приёма</label>
+                    <input type="time" id="editIntakeTime" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="editActualDose" class="form-label required">Фактическая доза</label>
+                    <div class="input-group">
+                        <input type="text" id="editActualDose" class="form-control" required>
+                        <span id="editDoseUnit" class="input-suffix">ед.</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="editIntakeNotes" class="form-label">Примечания</label>
+                    <textarea id="editIntakeNotes" class="form-control" rows="3" maxlength="500"></textarea>
+                </div>
+            </form>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnCancelEdit">Отмена</button>
+                <button type="submit" form="formEditIntake" class="btn btn-primary">
+                    <i class="icon-check"></i>
+                    Сохранить изменения
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="toastContainer" class="toast-container"></div>
+
+<script src="/frontend/patient/js/auth.js"></script>
+<script src="/frontend/patient/js/global_header.js"></script>
+<script src="/frontend/patient/js/sidebar.js"></script>
+<script src="/frontend/patient/js/medications.js"></script>
+</body>
+</html>

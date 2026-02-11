@@ -59,6 +59,7 @@ import app.scales.models  # noqa: F401
 import app.vitals.models  # noqa: F401
 import app.dialysis.models  # noqa: F401
 import app.sleep_tracker.models  # noqa: F401
+import app.medications.models  # noqa: F401
 
 target_metadata = Base.metadata
 
