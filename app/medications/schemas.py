@@ -1,212 +1,136 @@
 # ============================================
-# Medications: Pydantic schemas for API
+# Medications: Pydantic schemas for Prescriptions & Intakes API
 # ============================================
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
-from uuid import UUID
+from datetime import date, datetime
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.medications.models import (
-    FoodRelation,
-    FrequencyType,
-    IntakeStatus,
-    MedicationCategory,
-)
+
+# --- Prescriptions ---
 
 
-# --- Reference (справочник) ---
+class PrescriptionCreate(BaseModel):
+    medication_name: str = Field(..., min_length=1, max_length=200)
+    dose: float
+    dose_unit: str = Field(..., min_length=1, max_length=20)
+    frequency_times_per_day: int
+    intake_schedule: list[str]
+    route: str = Field(..., min_length=1, max_length=50)
+    start_date: date
+    end_date: Optional[date] = None
+    indication: Optional[str] = Field(None, max_length=500)
+    instructions: Optional[str] = Field(None, max_length=500)
+    status: str = "active"
+    prescribed_by: Optional[int] = None
 
+    @field_validator("dose")
+    @classmethod
+    def dose_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("Доза должна быть больше 0")
+        return v
 
-class MedicationReferenceOut(BaseModel):
-    """Препарат из справочника для автокомплита."""
+    @field_validator("frequency_times_per_day")
+    @classmethod
+    def freq_range(cls, v: int) -> int:
+        if not 1 <= v <= 6:
+            raise ValueError("Частота приёма: от 1 до 6 раз в день")
+        return v
 
-    id: UUID
-    name_ru: str
-    name_trade: str | None
-    category: MedicationCategory
-    typical_doses: list[str]
-    food_relation_hint: FoodRelation | None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class MedicationReferenceListOut(BaseModel):
-    """Список препаратов справочника."""
-
-    items: list[MedicationReferenceOut]
-    total: int
-
-
-# --- Medication (препараты пациента) ---
-
-
-class MedicationCreate(BaseModel):
-    """Создание препарата."""
-
-    reference_id: UUID | None = None
-    custom_name: str | None = None
-    dose: str = Field(..., min_length=1, max_length=100)
-    frequency_type: FrequencyType
-    days_of_week: list[int] | None = None  # 0-6
-    times_of_day: list[time] = Field(..., min_length=1)
-    relation_to_food: FoodRelation | None = None
-    notes: str | None = Field(None, max_length=1000)
+    @field_validator("end_date")
+    @classmethod
+    def end_after_start(cls, v: date | None, info) -> date | None:
+        if v and "start_date" in info.data and info.data["start_date"] and v < info.data["start_date"]:
+            raise ValueError("Дата окончания не может быть раньше даты начала")
+        return v
 
     @model_validator(mode="after")
-    def validate_name_source(self) -> MedicationCreate:
-        if self.reference_id is None and not self.custom_name:
-            raise ValueError("Укажите препарат из справочника или введите название")
+    def schedule_valid(self) -> PrescriptionCreate:
+        allowed = {"morning", "afternoon", "evening"}
+        freq = self.frequency_times_per_day
+        schedule = self.intake_schedule
+        if len(schedule) != freq:
+            raise ValueError(
+                f"Количество слотов ({len(schedule)}) должно совпадать с частотой приёма ({freq})"
+            )
+        for slot in schedule:
+            if slot not in allowed:
+                raise ValueError(f"Недопустимый слот: {slot}. Допустимые: morning, afternoon, evening")
         return self
 
-    @field_validator("days_of_week")
-    @classmethod
-    def validate_days(cls, v: list[int] | None) -> list[int] | None:
-        if v is not None:
-            if not all(0 <= d <= 6 for d in v):
-                raise ValueError("Дни недели должны быть от 0 (пн) до 6 (вс)")
-            if len(v) == 0:
-                raise ValueError("Выберите хотя бы один день")
-        return v
+
+class PrescriptionUpdate(PrescriptionCreate):
+    """Полная замена полей назначения (PUT)."""
+    pass
 
 
-class MedicationUpdate(BaseModel):
-    """Обновление препарата."""
-
-    dose: str | None = Field(None, min_length=1, max_length=100)
-    frequency_type: FrequencyType | None = None
-    days_of_week: list[int] | None = None
-    times_of_day: list[time] | None = None
-    relation_to_food: FoodRelation | None = None
-    notes: str | None = Field(None, max_length=1000)
-    change_reason: str | None = Field(None, max_length=500)
-
-    @field_validator("days_of_week")
-    @classmethod
-    def validate_days(cls, v: list[int] | None) -> list[int] | None:
-        if v is not None and not all(0 <= d <= 6 for d in v):
-            raise ValueError("Дни недели должны быть от 0 (пн) до 6 (вс)")
-        return v
-
-
-class MedicationOut(BaseModel):
-    """Препарат пациента (полный)."""
-
-    id: UUID
-    display_name: str
-    dose: str
-    frequency_type: FrequencyType
-    days_of_week: list[int] | None
-    times_of_day: list[time]
-    relation_to_food: FoodRelation | None
-    notes: str | None
-    is_active: bool
+class PrescriptionResponse(BaseModel):
+    id: int
+    patient_id: int
+    medication_name: str
+    dose: float
+    dose_unit: str
+    frequency_times_per_day: int
+    intake_schedule: list[str]
+    route: str
+    start_date: date
+    end_date: Optional[date]
+    indication: Optional[str]
+    instructions: Optional[str]
+    status: str
+    prescribed_by: Optional[int]
+    adherence_rate: float
     created_at: datetime
     updated_at: datetime
-    reference: MedicationReferenceOut | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class MedicationListOut(BaseModel):
-    """Список препаратов пациента."""
-
-    items: list[MedicationOut]
-    total: int
+# --- Intakes ---
 
 
-# --- History ---
+class IntakeCreate(BaseModel):
+    prescription_id: int
+    intake_datetime: datetime
+    actual_dose: float
+    intake_slot: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("actual_dose")
+    @classmethod
+    def dose_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("Доза должна быть больше 0")
+        return v
 
 
-class MedicationHistoryOut(BaseModel):
-    """Запись истории изменений."""
+class IntakeUpdate(BaseModel):
+    intake_datetime: Optional[datetime] = None
+    actual_dose: Optional[float] = None
+    intake_slot: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=500)
 
-    id: UUID
-    dose: str
-    frequency_type: FrequencyType
-    days_of_week: list[int] | None
-    times_of_day: list[time]
-    relation_to_food: FoodRelation | None
-    notes: str | None
-    changed_at: datetime
-    change_reason: str | None
-
-    model_config = ConfigDict(from_attributes=True)
+    @field_validator("actual_dose")
+    @classmethod
+    def dose_positive(cls, v: float | None) -> float | None:
+        if v is not None and v <= 0:
+            raise ValueError("Доза должна быть больше 0")
+        return v
 
 
-# --- Schedule ---
-
-
-class ScheduleSlot(BaseModel):
-    """Один слот в расписании (один приём)."""
-
-    medication_id: UUID
-    medication_name: str
-    dose: str
-    scheduled_time: time
-    relation_to_food: FoodRelation | None
-    notes: str | None
-    intake_status: IntakeStatus | None = None  # None = не отмечено
-    taken_at: datetime | None = None
-
-
-class ScheduleTimeGroup(BaseModel):
-    """Группа приёмов на одно время."""
-
-    time: time
-    slots: list[ScheduleSlot]
-
-
-class DayScheduleOut(BaseModel):
-    """Расписание на день."""
-
-    date: date
-    day_of_week: int  # 0-6
-    day_name: str  # "понедельник"
-    groups: list[ScheduleTimeGroup]
-    tracking_enabled: bool
-
-
-# --- Intake ---
-
-
-class IntakeRecordCreate(BaseModel):
-    """Отметка о приёме/пропуске."""
-
-    medication_id: UUID
-    scheduled_date: date
-    scheduled_time: time
-    status: IntakeStatus
-    taken_at: datetime | None = None  # Для status=taken, по умолчанию now()
-
-
-class IntakeRecordOut(BaseModel):
-    """Запись о приёме."""
-
-    id: UUID
-    medication_id: UUID
-    medication_name: str
-    scheduled_date: date
-    scheduled_time: time
-    status: IntakeStatus
-    taken_at: datetime | None
+class IntakeResponse(BaseModel):
+    id: int
+    prescription_id: int
+    patient_id: int
+    intake_datetime: datetime
+    actual_dose: float
+    intake_slot: Optional[str]
+    notes: Optional[str]
+    is_retrospective: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-
-# --- Settings ---
-
-
-class MedicationSettingsOut(BaseModel):
-    """Настройки модуля."""
-
-    tracking_enabled: bool
-
-
-class MedicationSettingsUpdate(BaseModel):
-    """Обновление настроек."""
-
-    tracking_enabled: bool

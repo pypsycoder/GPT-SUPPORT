@@ -1,368 +1,234 @@
 # ============================================
-# Medications Service: schedule, CRUD, history, intake, settings
+# Medications Service: Prescriptions & Intakes CRUD, adherence, validations
 # ============================================
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Sequence
-from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.medications.models import (
-    FoodRelation,
-    FrequencyType,
-    IntakeStatus,
-    Medication,
-    MedicationHistory,
-    MedicationIntake,
-    MedicationReference,
-    UserMedicationSettings,
-)
-
-from app.medications import schemas
+from app.medications.models import MedicationIntake, MedicationPrescription
 
 
-# --- Day names (0=пн .. 6=вс) ---
-
-DAY_NAMES_RU = {
-    0: "понедельник",
-    1: "вторник",
-    2: "среда",
-    3: "четверг",
-    4: "пятница",
-    5: "суббота",
-    6: "воскресенье",
-}
-
-DAY_NAMES_SHORT_RU = {
-    0: "пн",
-    1: "вт",
-    2: "ср",
-    3: "чт",
-    4: "пт",
-    5: "сб",
-    6: "вс",
-}
+# --- Adherence Rate ---
 
 
-def get_day_name_ru(day: int, short: bool = False) -> str:
-    names = DAY_NAMES_SHORT_RU if short else DAY_NAMES_RU
-    return names.get(day, "")
+def calculate_adherence_rate(
+    prescription: MedicationPrescription,
+    intakes: Sequence[MedicationIntake],
+    period_days: int = 30,
+) -> float:
+    """
+    Доля принятых доз за последние period_days дней.
+    Ожидаемое = frequency_times_per_day × кол-во активных дней в периоде
+    Фактическое = кол-во записей в intakes за этот период
+    Возвращает float 0.0–1.0
+    """
+    today = date.today()
+    start = max(prescription.start_date, today - timedelta(days=period_days))
+    end = prescription.end_date or today
+
+    days_active = max(0, (min(today, end) - start).days + 1)
+    if days_active == 0:
+        return 0.0
+
+    expected = days_active * prescription.frequency_times_per_day
+    if expected == 0:
+        return 0.0
+
+    cutoff = datetime.combine(start, time.min).replace(tzinfo=timezone.utc)
+    actual = sum(1 for i in intakes if i.intake_datetime >= cutoff)
+
+    return min(1.0, actual / expected)
 
 
-FOOD_RELATION_LABELS = {
-    FoodRelation.before: "до еды",
-    FoodRelation.with_meal: "во время еды",
-    FoodRelation.after: "после еды",
-    FoodRelation.none: "",
-}
+# --- Prescriptions CRUD ---
 
 
-def format_food_relation(relation: FoodRelation | None) -> str:
-    if relation is None or relation == FoodRelation.none:
-        return ""
-    return FOOD_RELATION_LABELS.get(relation, "")
-
-
-# --- Reference search ---
-
-
-async def search_references(
+async def list_prescriptions(
     session: AsyncSession,
-    search: str | None = None,
-    category: str | None = None,
-    limit: int = 50,
-) -> tuple[list[MedicationReference], int]:
-    """Search references: ILIKE on name_ru, name_trade, search_keywords; filter by category; sort by sort_order, name_ru."""
-    stmt = select(MedicationReference)
-    if search and search.strip():
-        term = f"%{search.strip()}%"
-        stmt = stmt.where(
-            or_(
-                MedicationReference.name_ru.ilike(term),
-                MedicationReference.name_trade.ilike(term),
-                MedicationReference.search_keywords.ilike(term),
-            )
-        )
-    if category:
-        stmt = stmt.where(MedicationReference.category == category)
-    stmt = stmt.order_by(MedicationReference.sort_order, MedicationReference.name_ru)
+    patient_id: int,
+    status: str = "active",
+) -> list[MedicationPrescription]:
+    stmt = select(MedicationPrescription).where(
+        MedicationPrescription.patient_id == patient_id
+    )
+    if status != "all":
+        stmt = stmt.where(MedicationPrescription.status == status)
+    stmt = stmt.order_by(MedicationPrescription.created_at.desc())
     result = await session.execute(stmt)
-    all_rows = result.scalars().all()
-    total = len(all_rows)
-    items = all_rows[:limit]
-    return list(items), total
+    return list(result.scalars().all())
 
 
-# --- Medications CRUD ---
-
-
-async def list_medications(
+async def get_prescription(
     session: AsyncSession,
-    user_id: int,
-    active_only: bool = True,
-) -> Sequence[Medication]:
-    stmt = select(Medication).where(Medication.user_id == user_id)
-    if active_only:
-        stmt = stmt.where(Medication.is_active.is_(True))
-    stmt = stmt.order_by(Medication.created_at.desc())
-    result = await session.execute(stmt)
-    return result.scalars().all()
-
-
-async def get_medication(
-    session: AsyncSession,
-    medication_id: UUID,
-    user_id: int | None = None,
-) -> Medication | None:
-    stmt = select(Medication).where(Medication.id == medication_id)
-    if user_id is not None:
-        stmt = stmt.where(Medication.user_id == user_id)
+    prescription_id: int,
+    patient_id: int,
+) -> MedicationPrescription | None:
+    stmt = select(MedicationPrescription).where(
+        MedicationPrescription.id == prescription_id,
+        MedicationPrescription.patient_id == patient_id,
+    )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
 
-async def create_medication(
+async def create_prescription(
     session: AsyncSession,
-    user_id: int,
-    payload: schemas.MedicationCreate,
-) -> Medication:
-    days = payload.days_of_week if payload.frequency_type == FrequencyType.specific_days else None
-    med = Medication(
-        user_id=user_id,
-        reference_id=payload.reference_id,
-        custom_name=payload.custom_name,
+    patient_id: int,
+    payload,
+) -> MedicationPrescription:
+    prescription = MedicationPrescription(
+        patient_id=patient_id,
+        medication_name=payload.medication_name,
         dose=payload.dose,
-        frequency_type=payload.frequency_type.value,
-        days_of_week=days,
-        times_of_day=payload.times_of_day,
-        relation_to_food=payload.relation_to_food.value if payload.relation_to_food else None,
-        notes=payload.notes,
+        dose_unit=payload.dose_unit,
+        frequency_times_per_day=payload.frequency_times_per_day,
+        intake_schedule=payload.intake_schedule,
+        route=payload.route,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        indication=payload.indication,
+        instructions=payload.instructions,
+        status=payload.status,
+        prescribed_by=payload.prescribed_by,
     )
-    session.add(med)
+    session.add(prescription)
     await session.flush()
-    await session.refresh(med)
-    return med
+    await session.refresh(prescription)
+    return prescription
 
 
-async def update_medication(
+async def update_prescription(
     session: AsyncSession,
-    medication_id: UUID,
-    user_id: int,
-    payload: schemas.MedicationUpdate,
-    change_reason: str | None = None,
-) -> Medication | None:
-    med = await get_medication(session, medication_id, user_id)
-    if med is None:
+    prescription_id: int,
+    patient_id: int,
+    payload,
+) -> MedicationPrescription | None:
+    prescription = await get_prescription(session, prescription_id, patient_id)
+    if prescription is None:
         return None
-    # Save current state to history
-    hist = MedicationHistory(
-        medication_id=med.id,
-        dose=med.dose,
-        frequency_type=med.frequency_type,
-        days_of_week=med.days_of_week,
-        times_of_day=med.times_of_day,
-        relation_to_food=med.relation_to_food,
-        notes=med.notes,
-        change_reason=change_reason or payload.change_reason,
-    )
-    session.add(hist)
-    # Apply updates
-    if payload.dose is not None:
-        med.dose = payload.dose
-    if payload.frequency_type is not None:
-        med.frequency_type = payload.frequency_type.value
-        if payload.frequency_type == FrequencyType.daily:
-            med.days_of_week = None
-    if payload.days_of_week is not None:
-        med.days_of_week = payload.days_of_week
-    if payload.times_of_day is not None:
-        med.times_of_day = payload.times_of_day
-    if payload.relation_to_food is not None:
-        med.relation_to_food = payload.relation_to_food.value
-    if payload.notes is not None:
-        med.notes = payload.notes
+
+    prescription.medication_name = payload.medication_name
+    prescription.dose = payload.dose
+    prescription.dose_unit = payload.dose_unit
+    prescription.frequency_times_per_day = payload.frequency_times_per_day
+    prescription.intake_schedule = payload.intake_schedule
+    prescription.route = payload.route
+    prescription.start_date = payload.start_date
+    prescription.end_date = payload.end_date
+    prescription.indication = payload.indication
+    prescription.instructions = payload.instructions
+    prescription.status = payload.status
+
     await session.flush()
-    await session.refresh(med)
-    return med
+    await session.refresh(prescription)
+    return prescription
 
 
-async def archive_medication(
+async def delete_prescription(
     session: AsyncSession,
-    medication_id: UUID,
-    user_id: int,
-) -> bool:
-    med = await get_medication(session, medication_id, user_id)
-    if med is None:
-        return False
-    from datetime import timezone
-    med.is_active = False
-    med.archived_at = datetime.now(timezone.utc)
+    prescription_id: int,
+    patient_id: int,
+) -> MedicationPrescription | None:
+    prescription = await get_prescription(session, prescription_id, patient_id)
+    if prescription is None:
+        return None
+    await session.delete(prescription)
     await session.flush()
-    return True
+    return prescription
 
 
-# --- History ---
+# --- Intakes for a prescription (for adherence calc) ---
 
 
-async def get_medication_history(
+async def get_intakes_for_prescription(
     session: AsyncSession,
-    medication_id: UUID,
-    user_id: int,
-) -> Sequence[MedicationHistory]:
-    med = await get_medication(session, medication_id, user_id)
-    if med is None:
-        return []
+    prescription_id: int,
+) -> list[MedicationIntake]:
     stmt = (
-        select(MedicationHistory)
-        .where(MedicationHistory.medication_id == medication_id)
-        .order_by(MedicationHistory.changed_at.desc())
+        select(MedicationIntake)
+        .where(MedicationIntake.prescription_id == prescription_id)
+        .order_by(MedicationIntake.intake_datetime.desc())
     )
     result = await session.execute(stmt)
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
-# --- Schedule (on-the-fly) ---
+# --- Intakes CRUD ---
 
 
-async def get_schedule(
+async def list_intakes(
     session: AsyncSession,
-    user_id: int,
-    target_date: date,
-) -> schemas.DayScheduleOut:
-    settings = await get_or_create_settings(session, user_id)
-    stmt = select(Medication).where(
-        Medication.user_id == user_id,
-        Medication.is_active.is_(True),
+    patient_id: int,
+    prescription_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[MedicationIntake]:
+    stmt = select(MedicationIntake).where(
+        MedicationIntake.patient_id == patient_id
     )
+    if prescription_id is not None:
+        stmt = stmt.where(MedicationIntake.prescription_id == prescription_id)
+    stmt = stmt.order_by(MedicationIntake.intake_datetime.desc())
+    stmt = stmt.limit(limit).offset(offset)
     result = await session.execute(stmt)
-    medications = result.scalars().all()
-    day_of_week = target_date.weekday()  # 0=пн, 6=вс
-    slots: list[schemas.ScheduleSlot] = []
-    for med in medications:
-        if med.frequency_type == FrequencyType.daily.value:
-            takes_today = True
-        else:
-            takes_today = day_of_week in (med.days_of_week or [])
-        if not takes_today:
-            continue
-        for t in med.times_of_day:
-            intake_status = None
-            taken_at = None
-            if settings.tracking_enabled:
-                intake = await find_intake(session, med.id, target_date, t)
-                if intake:
-                    intake_status = IntakeStatus(intake.status)
-                    taken_at = intake.taken_at
-            slot = schemas.ScheduleSlot(
-                medication_id=med.id,
-                medication_name=med.display_name,
-                dose=med.dose,
-                scheduled_time=t,
-                relation_to_food=FoodRelation(med.relation_to_food) if med.relation_to_food else None,
-                notes=med.notes,
-                intake_status=intake_status,
-                taken_at=taken_at,
-            )
-            slots.append(slot)
-    groups = _group_slots_by_time(slots)
-    return schemas.DayScheduleOut(
-        date=target_date,
-        day_of_week=day_of_week,
-        day_name=get_day_name_ru(day_of_week),
-        groups=groups,
-        tracking_enabled=settings.tracking_enabled,
-    )
+    return list(result.scalars().all())
 
 
-def _group_slots_by_time(slots: list[schemas.ScheduleSlot]) -> list[schemas.ScheduleTimeGroup]:
-    by_time: dict[time, list[schemas.ScheduleSlot]] = defaultdict(list)
-    for slot in slots:
-        by_time[slot.scheduled_time].append(slot)
-    return [
-        schemas.ScheduleTimeGroup(time=t, slots=sorted(sl, key=lambda s: s.medication_name))
-        for t, sl in sorted(by_time.items())
-    ]
-
-
-async def find_intake(
+async def get_intake(
     session: AsyncSession,
-    medication_id: UUID,
-    scheduled_date: date,
-    scheduled_time: time,
+    intake_id: int,
+    patient_id: int,
 ) -> MedicationIntake | None:
     stmt = select(MedicationIntake).where(
-        MedicationIntake.medication_id == medication_id,
-        MedicationIntake.scheduled_date == scheduled_date,
-        MedicationIntake.scheduled_time == scheduled_time,
+        MedicationIntake.id == intake_id,
+        MedicationIntake.patient_id == patient_id,
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
 
-# --- Settings ---
-
-
-async def get_or_create_settings(
+async def check_duplicate_intake(
     session: AsyncSession,
-    user_id: int,
-) -> UserMedicationSettings:
-    stmt = select(UserMedicationSettings).where(UserMedicationSettings.user_id == user_id)
+    prescription_id: int,
+    intake_datetime: datetime,
+    threshold_minutes: int = 5,
+) -> bool:
+    """Проверяет, есть ли приём для этого prescription_id с |diff| < threshold_minutes."""
+    lower = intake_datetime - timedelta(minutes=threshold_minutes)
+    upper = intake_datetime + timedelta(minutes=threshold_minutes)
+    stmt = select(func.count()).select_from(MedicationIntake).where(
+        MedicationIntake.prescription_id == prescription_id,
+        MedicationIntake.intake_datetime >= lower,
+        MedicationIntake.intake_datetime <= upper,
+    )
     result = await session.execute(stmt)
-    row = result.scalar_one_or_none()
-    if row is not None:
-        return row
-    settings = UserMedicationSettings(user_id=user_id, tracking_enabled=True)
-    session.add(settings)
-    await session.flush()
-    await session.refresh(settings)
-    return settings
+    count = result.scalar_one()
+    return count > 0
 
 
-async def update_settings(
+async def create_intake(
     session: AsyncSession,
-    user_id: int,
-    payload: schemas.MedicationSettingsUpdate,
-) -> UserMedicationSettings:
-    settings = await get_or_create_settings(session, user_id)
-    settings.tracking_enabled = payload.tracking_enabled
-    await session.flush()
-    await session.refresh(settings)
-    return settings
+    patient_id: int,
+    payload,
+) -> MedicationIntake:
+    now = datetime.now(timezone.utc)
 
+    # is_retrospective: если intake_datetime < now() - 30 мин
+    is_retrospective = payload.intake_datetime < (now - timedelta(minutes=30))
 
-# --- Intake ---
-
-
-async def upsert_intake(
-    session: AsyncSession,
-    user_id: int,
-    payload: schemas.IntakeRecordCreate,
-) -> MedicationIntake | None:
-    med = await get_medication(session, payload.medication_id, user_id)
-    if med is None or not med.is_active:
-        return None
-    taken_at = payload.taken_at
-    if payload.status.value == "taken" and taken_at is None:
-        from datetime import timezone
-        taken_at = datetime.now(timezone.utc)
-    existing = await find_intake(session, payload.medication_id, payload.scheduled_date, payload.scheduled_time)
-    if existing:
-        existing.status = payload.status.value
-        existing.taken_at = taken_at
-        await session.flush()
-        await session.refresh(existing)
-        return existing
     intake = MedicationIntake(
-        medication_id=payload.medication_id,
-        scheduled_date=payload.scheduled_date,
-        scheduled_time=payload.scheduled_time,
-        status=payload.status.value,
-        taken_at=taken_at,
+        prescription_id=payload.prescription_id,
+        patient_id=patient_id,
+        intake_datetime=payload.intake_datetime,
+        actual_dose=payload.actual_dose,
+        intake_slot=payload.intake_slot,
+        notes=payload.notes,
+        is_retrospective=is_retrospective,
     )
     session.add(intake)
     await session.flush()
@@ -370,27 +236,38 @@ async def upsert_intake(
     return intake
 
 
-async def list_intakes(
+async def update_intake(
     session: AsyncSession,
-    user_id: int,
-    from_date: date | None = None,
-    to_date: date | None = None,
-    medication_id: UUID | None = None,
-    status: str | None = None,
-) -> Sequence[MedicationIntake]:
-    stmt = (
-        select(MedicationIntake)
-        .join(Medication, MedicationIntake.medication_id == Medication.id)
-        .where(Medication.user_id == user_id)
-    )
-    if from_date is not None:
-        stmt = stmt.where(MedicationIntake.scheduled_date >= from_date)
-    if to_date is not None:
-        stmt = stmt.where(MedicationIntake.scheduled_date <= to_date)
-    if medication_id is not None:
-        stmt = stmt.where(MedicationIntake.medication_id == medication_id)
-    if status is not None:
-        stmt = stmt.where(MedicationIntake.status == status)
-    stmt = stmt.order_by(MedicationIntake.scheduled_date.desc(), MedicationIntake.scheduled_time.desc())
-    result = await session.execute(stmt)
-    return result.scalars().all()
+    intake_id: int,
+    patient_id: int,
+    payload,
+) -> MedicationIntake | None:
+    intake = await get_intake(session, intake_id, patient_id)
+    if intake is None:
+        return None
+
+    if payload.intake_datetime is not None:
+        intake.intake_datetime = payload.intake_datetime
+    if payload.actual_dose is not None:
+        intake.actual_dose = payload.actual_dose
+    if payload.intake_slot is not None:
+        intake.intake_slot = payload.intake_slot
+    if payload.notes is not None:
+        intake.notes = payload.notes
+
+    await session.flush()
+    await session.refresh(intake)
+    return intake
+
+
+async def delete_intake(
+    session: AsyncSession,
+    intake_id: int,
+    patient_id: int,
+) -> MedicationIntake | None:
+    intake = await get_intake(session, intake_id, patient_id)
+    if intake is None:
+        return None
+    await session.delete(intake)
+    await session.flush()
+    return intake

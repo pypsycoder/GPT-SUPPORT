@@ -44,4 +44,9 @@ class User(Base):
     pin_attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))
     is_locked = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
-    medications = relationship("Medication", back_populates="user", lazy="select")
+    prescriptions = relationship(
+        "MedicationPrescription",
+        back_populates="patient",
+        foreign_keys="MedicationPrescription.patient_id",
+        lazy="select",
+    )
