@@ -171,99 +171,120 @@
       return;
     }
 
-    // Определяем диапазон значений
     const allValues = values.flatMap(v => [v.systolic || 0, v.diastolic || 0]);
-    const minVal = 40; // Фиксированная нижняя граница для лучшей видимости низких значений
+    const minVal = 40;
     const maxVal = Math.max(...allValues, 200);
     const range = maxVal - minVal || 1;
 
-    // Цвета для уровней
-    // Индексы: -3, -2, -1, 0, 1, 2, 3
     const colors = [
-      '#1e40af', // -3: Гипотония III (темно-синий)
-      '#3b82f6', // -2: Гипотония II (синий)
-      '#60a5fa', // -1: Гипотония I (светло-синий)
-      '#22c55e', //  0: Норма (зеленый)
-      '#eab308', //  1: Гипертония 1 ст. (желтый)
-      '#f97316', //  2: Гипертония 2 ст. (оранжевый)
-      '#ef4444'  //  3: Гипертония 3 ст. (красный)
+      '#1e40af', '#3b82f6', '#60a5fa',
+      '#22c55e',
+      '#eab308', '#f97316', '#ef4444'
     ];
 
-    // Толщина столбика и интервал: столбик в 2 раза уже, интервал = 1/2 толщины
-    const barWidth = 4;
-    const gap = barWidth / 2; // 2
-    const step = barWidth + gap; // 6
-    const paddingLeft = 1;
-    const viewBoxW = values.length * step + paddingLeft * 2;
+    // Fixed coordinate space
+    const VW = 100;
+    const VH = 100;
+    const padTop = 8;
+    const padBottom = 4;
+    const drawH = VH - padTop - padBottom;
 
-    // Создаем SVG (высота 140px — график выше и всегда внутри карточки за счёт overflow: hidden на контейнере)
-    const chartHeight = 140;
+    // Y helper — clamps inside padded area
+    const toY = val =>
+      padTop + drawH - Math.min(Math.max((val - minVal) / range, 0), 1) * drawH;
+
+    // Dynamic bar width: fills full width for any 1–7 points
+    const n = values.length;
+    const slotW = VW / n;
+    const barW = Math.max(4, slotW * 0.5);
+
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', '100%');
-    svg.setAttribute('height', String(chartHeight));
-    svg.setAttribute('viewBox', `0 0 ${viewBoxW} 100`);
-    svg.setAttribute('preserveAspectRatio', 'none');
-    svg.style.overflow = 'visible';
+    svg.setAttribute('height', '100%');
+    svg.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
+    // No preserveAspectRatio — use default xMidYMid meet
     svg.style.display = 'block';
+    svg.style.overflow = 'hidden';
 
-    // Рисуем коридоры нормы (пунктирные линии)
-    const normRanges = [
-      { value: 120, label: 'САД мин' },
-      { value: 130, label: 'САД макс' },
-      { value: 80, label: 'ДАД мин' },
-      { value: 85, label: 'ДАД макс' }
+    // Normal zone bands (soft green fill)
+    const zones = [
+      { lo: 120, hi: 130 },  // systolic
+      { lo: 80,  hi: 85  }   // diastolic
     ];
+    zones.forEach(({ lo, hi }) => {
+      const yTop = toY(hi);
+      const yBot = toY(lo);
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', '0');
+      rect.setAttribute('y', String(yTop));
+      rect.setAttribute('width', String(VW));
+      rect.setAttribute('height', String(yBot - yTop));
+      rect.setAttribute('fill', '#22c55e');
+      rect.setAttribute('opacity', '0.10');
+      svg.appendChild(rect);
+    });
 
-    normRanges.forEach(norm => {
-      const y = 100 - ((norm.value - minVal) / range * 100);
+    // Reference lines at 120 and 80
+    [120, 80].forEach(val => {
+      const y = toY(val);
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', '0');
-      line.setAttribute('x2', String(viewBoxW));
-      line.setAttribute('y1', y);
-      line.setAttribute('y2', y);
-      line.setAttribute('stroke', '#94a3b8');
-      line.setAttribute('stroke-width', '1.5');
-      line.setAttribute('stroke-dasharray', '4,3');
-      line.setAttribute('opacity', '0.8');
+      line.setAttribute('x2', String(VW));
+      line.setAttribute('y1', String(y));
+      line.setAttribute('y2', String(y));
+      line.setAttribute('stroke', '#e2e8f0');
+      line.setAttribute('stroke-width', '0.8');
       svg.appendChild(line);
     });
 
-    // Рисуем линии для каждого измерения (слева направо, интервал = 1/2 толщины столбика)
+    // Data bars
     values.forEach((item, index) => {
       const sys = item.systolic || 0;
       const dia = item.diastolic || 0;
       const level = getBPLevel(sys, dia);
-      const color = colors[level + 3]; // Сдвигаем индекс: -3 -> 0, 0 -> 3, 3 -> 6
+      const color = colors[level + 3];
 
-      const x = paddingLeft + index * step + barWidth / 2;
-      const y1 = 100 - ((sys - minVal) / range * 100);
-      const y2 = 100 - ((dia - minVal) / range * 100);
+      const x = slotW * index + slotW / 2;
+      const y1 = toY(sys);
+      const y2 = toY(dia);
 
-      // Вертикальная линия от диастолического до систолического (толщина в 2 раза уже)
+      // Main bar
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', x);
-      line.setAttribute('x2', x);
-      line.setAttribute('y1', y1);
-      line.setAttribute('y2', y2);
+      line.setAttribute('x1', String(x));
+      line.setAttribute('x2', String(x));
+      line.setAttribute('y1', String(y1));
+      line.setAttribute('y2', String(y2));
       line.setAttribute('stroke', color);
-      line.setAttribute('stroke-width', String(barWidth));
+      line.setAttribute('stroke-width', String(barW));
       line.setAttribute('stroke-linecap', 'round');
       line.setAttribute('class', 'bp-range-line');
-
-      // Tooltip
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
       title.textContent = `${sys}/${dia} • ${formatDateLabel(item.date)}`;
       line.appendChild(title);
-
       svg.appendChild(line);
 
-      // Точки на концах (радиус уменьшен пропорционально толщине)
-      [y1, y2].forEach(y => {
+      // White separator overlay
+      const sep = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      sep.setAttribute('x1', String(x));
+      sep.setAttribute('x2', String(x));
+      sep.setAttribute('y1', String(y1));
+      sep.setAttribute('y2', String(y2));
+      sep.setAttribute('stroke', 'white');
+      sep.setAttribute('stroke-width', '1.5');
+      sep.setAttribute('stroke-linecap', 'round');
+      sep.setAttribute('opacity', '0.35');
+      sep.setAttribute('pointer-events', 'none');
+      svg.appendChild(sep);
+
+      // Endpoint dots
+      [y1, y2].forEach(cy => {
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', x);
-        circle.setAttribute('cy', y);
-        circle.setAttribute('r', '2');
+        circle.setAttribute('cx', String(x));
+        circle.setAttribute('cy', String(cy));
+        circle.setAttribute('r', '2.5');
         circle.setAttribute('fill', color);
+        circle.setAttribute('stroke', 'white');
+        circle.setAttribute('stroke-width', '1.5');
         svg.appendChild(circle);
       });
     });
@@ -608,12 +629,18 @@
   }
 
   function initNavigation() {
-    const vitalsCards = ['card-bp', 'card-pulse', 'card-weight', 'card-water'];
-    vitalsCards.forEach((id) => {
+    const vitalsCardToTab = {
+      'card-bp': 'bp',
+      'card-pulse': 'pulse',
+      'card-weight': 'weight',
+      'card-water': 'water',
+    };
+    Object.keys(vitalsCardToTab).forEach((id) => {
       const card = document.getElementById(id);
-      if (card) {
+      const tab = vitalsCardToTab[id];
+      if (card && tab) {
         card.addEventListener('click', () => {
-          window.location.href = '/patient/vitals';
+          window.location.href = '/patient/vitals#' + tab;
         });
       }
     });

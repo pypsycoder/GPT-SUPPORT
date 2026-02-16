@@ -392,6 +392,14 @@
                 setStatus('none', '');
             });
         });
+
+        // Открыть вкладку по хешу при переходе с главной (карточки АД/Пульс/Вес/Вода)
+        const hash = (window.location.hash || '').replace(/^#/, '');
+        const validTargets = ['bp', 'pulse', 'weight', 'water'];
+        if (validTargets.includes(hash)) {
+            const tabBtn = document.querySelector('.vitals-button[data-target="' + hash + '"]');
+            if (tabBtn) tabBtn.click();
+        }
     }
 
     // ============================

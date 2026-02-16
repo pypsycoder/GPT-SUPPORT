@@ -31,7 +31,7 @@ class SleepRecord(Base):
         )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    patient_id = Column(Integer, ForeignKey("users.users.id"), nullable=False)
+    patient_id = Column(Integer, ForeignKey("users.users.id", name="fk_sleep_records_patient_id"), nullable=False)
     sleep_date = Column(Date, nullable=False)  # дата ночи (день отхода ко сну)
     submitted_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

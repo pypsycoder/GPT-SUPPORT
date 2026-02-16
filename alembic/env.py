@@ -17,6 +17,7 @@ from pathlib import Path
 from alembic import context
 from sqlalchemy import engine_from_config, pool, text
 from dotenv import load_dotenv
+from datetime import datetime as _dt
 
 
 print("### USING ALEMBIC ENV FILE:", __file__)
@@ -82,6 +83,68 @@ def _debug_log(*, run_id: str, hypothesis_id: str, location: str, message: str, 
         return
 
 # ------------------------------------------------------------------------------
+# Revision ID: дата вместо хеша (YYYYMMDD_NN)
+# ------------------------------------------------------------------------------
+
+def process_revision_directives(context, revision, directives):
+    """
+    Генерирует revision_id вида YYYYMMDD_NN вместо случайного хеша.
+    Например: 20260216_01, 20260216_02 и т.д.
+    Берёт максимальный существующий номер за день и увеличивает на 1.
+    """
+    if not directives:
+        return
+
+    migration_script = directives[0]
+    date_str = _dt.now().strftime("%Y%m%d")
+
+    from alembic.script import ScriptDirectory
+    script_dir = ScriptDirectory.from_config(context.config)
+
+    # Собираем номера существующих ревизий за сегодня
+    existing_nums = []
+    for s in script_dir.walk_revisions():
+        if s.revision and s.revision.startswith(date_str + "_"):
+            try:
+                num = int(s.revision.split("_")[1])
+                existing_nums.append(num)
+            except (IndexError, ValueError):
+                pass
+
+    idx = max(existing_nums, default=0) + 1
+    migration_script.rev_id = f"{date_str}_{idx:02d}"
+
+
+# ------------------------------------------------------------------------------
+# Фильтр схем для autogenerate
+# ------------------------------------------------------------------------------
+
+# Только эти схемы участвуют в autogenerate.
+# Всё остальное (системные схемы, сторонние таблицы) — игнорируется.
+_MANAGED_SCHEMAS = {"public", "users", "scales", "vitals", "education", "sleep"}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    """
+    Ограничивает autogenerate только управляемыми схемами.
+    Исключает: alembic_version, cross-schema FK (known autogenerate limitation).
+    """
+    # Служебная таблица alembic
+    if type_ == "table" and name == "alembic_version":
+        return False
+
+    # FK между разными схемами autogenerate не умеет сравнивать корректно —
+    # всегда генерирует ложный drop+create. Пишем FK руками в миграциях.
+    if type_ == "foreign_key_constraint":
+        return False
+
+    schema = getattr(object, "schema", None)
+    if schema is not None and schema not in _MANAGED_SCHEMAS:
+        return False
+    return True
+
+
+# ------------------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------------------
 
@@ -143,6 +206,8 @@ def run_migrations_offline() -> None:
         version_table="alembic_version",
         version_table_schema="public",
         include_schemas=True,
+        include_object=include_object,
+        process_revision_directives=process_revision_directives,
     )
 
     with context.begin_transaction():
@@ -183,9 +248,10 @@ def run_migrations_online() -> None:
         db_name, server_addr, server_port = result.fetchone()
         print(f"\n[ALEMBIC DEBUG] DB={db_name}, host={server_addr}, port={server_port}\n")
 
-        # создаём схемы, НО НЕ ТРОГАЕМ alembic_version
+        # создаём схемы и сразу коммитим — отдельно от миграций
         for schema in ("users", "scales", "vitals"):
             connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+        connection.commit()
 
         context.configure(
             connection=connection,
@@ -194,12 +260,13 @@ def run_migrations_online() -> None:
             include_schemas=True,
             version_table="alembic_version",
             version_table_schema="public",
+            include_object=include_object,
+            process_revision_directives=process_revision_directives,
+            transaction_per_migration=True,
         )
 
         with context.begin_transaction():
             context.run_migrations()
-
-        connection.commit()
 
 
 # ------------------------------------------------------------------------------

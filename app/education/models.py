@@ -103,6 +103,9 @@ class LessonCard(Base):
 
     # markdown-текст карточки
     content_md: Mapped[str] = mapped_column(Text)
+    actions_json: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, default=None
+    )
 
     # связь
     lesson: Mapped["Lesson"] = relationship(back_populates="cards")
