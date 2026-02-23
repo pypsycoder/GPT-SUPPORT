@@ -123,6 +123,39 @@
             color: #6b7280;
         }
 
+        /* ====== Вкладки блоков (Внутрення опора / Жизнь на диализе) ====== */
+        .edu-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.25rem;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 0;
+        }
+        .edu-tab {
+            padding: 0.65rem 1.25rem;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #6b7280;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            transition: color 0.15s ease, border-color 0.15s ease;
+        }
+        .edu-tab:hover {
+            color: #374151;
+        }
+        .edu-tab.active {
+            color: #2563eb;
+            border-bottom-color: #2563eb;
+        }
+        .edu-tab-panel {
+            display: none;
+        }
+        .edu-tab-panel.active {
+            display: block;
+        }
+
         @media (max-width: 768px) {
             .edu-lesson-card {
                 padding: 0.85rem 1rem;
@@ -202,8 +235,8 @@
     }
 
     // =========================================
-    // Рендер: общий прогресс вверху + плоский список карточек занятий
-    // Занятие считается завершённым, если прочитано И тест пройден на проходной балл.
+    // Рендер: вкладки блоков (Внутрення опора / Жизнь на диализе) + список занятий по блоку
+    // Занятие завершено, если прочитано И тест пройден.
     // =========================================
     function renderEducationBlocks(data) {
         const container = document.getElementById('education-blocks-container');
@@ -211,17 +244,11 @@
 
         container.innerHTML = '';
 
-        // Собираем все занятия из всех блоков, сортируем по order_index
+        const blocks = Array.isArray(data) ? data : [];
         const allLessons = [];
-        if (Array.isArray(data)) {
-            data.forEach((block) => {
-                if (Array.isArray(block.lessons)) {
-                    block.lessons.forEach((l) => allLessons.push(l));
-                }
-            });
-        }
-        allLessons.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
-
+        blocks.forEach((b) => {
+            if (Array.isArray(b.lessons)) b.lessons.forEach((l) => allLessons.push(l));
+        });
         const M = allLessons.length;
         const N = allLessons.filter((l) => l.is_read && l.is_test_passed).length;
 
@@ -236,64 +263,84 @@
         // ----- Общий прогресс вверху -----
         const progressWrap = document.createElement('div');
         progressWrap.className = 'edu-global-progress';
-
         const progressLabel = document.createElement('div');
         progressLabel.className = 'edu-global-progress-label';
         progressLabel.textContent = `${N} из ${M} занятий завершено`;
-
         const progressBarOuter = document.createElement('div');
         progressBarOuter.className = 'edu-global-progress-bar';
-
         const progressBarFill = document.createElement('div');
         progressBarFill.className = 'edu-global-progress-fill';
-        progressBarFill.style.width = M > 0 ? `${(N / M) * 100}%` : '0%';
-
+        progressBarFill.style.width = `${(N / M) * 100}%`;
         progressBarOuter.appendChild(progressBarFill);
         progressWrap.appendChild(progressLabel);
         progressWrap.appendChild(progressBarOuter);
         container.appendChild(progressWrap);
 
-        // ----- Плоский список карточек занятий -----
-        const listWrap = document.createElement('div');
-        listWrap.className = 'edu-lessons-flat';
+        // ----- Вкладки + панели по блокам -----
+        const tabsWrap = document.createElement('div');
+        tabsWrap.className = 'edu-tabs';
+        const panelsWrap = document.createElement('div');
+        panelsWrap.className = 'edu-tab-panels';
 
-        allLessons.forEach((lesson) => {
-            const card = document.createElement('article');
-            card.className = 'edu-lesson-card';
-            card.setAttribute('data-lesson-id', lesson.lesson_id);
+        blocks.forEach((block, idx) => {
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'edu-tab' + (idx === 0 ? ' active' : '');
+            tab.textContent = block.block_title || block.block_code || 'Блок';
+            tab.setAttribute('data-block-index', String(idx));
+            tabsWrap.appendChild(tab);
 
-            const titleEl = document.createElement('div');
-            titleEl.className = 'edu-lesson-title';
-            titleEl.textContent = lesson.title || 'Без названия';
+            const panel = document.createElement('div');
+            panel.className = 'edu-tab-panel' + (idx === 0 ? ' active' : '');
+            panel.setAttribute('data-block-index', String(idx));
 
-            const metaRow = document.createElement('div');
-            metaRow.className = 'edu-lesson-meta';
+            const listWrap = document.createElement('div');
+            listWrap.className = 'edu-lessons-flat';
+            (block.lessons || []).forEach((lesson) => {
+                const card = document.createElement('article');
+                card.className = 'edu-lesson-card';
+                card.setAttribute('data-lesson-id', lesson.lesson_id);
 
-            const readPill = document.createElement('span');
-            readPill.className = 'lesson-status-pill ' + (lesson.is_read ? 'read-true' : 'read-false');
-            readPill.textContent = lesson.is_read ? 'Прочитано' : 'Не прочитано';
+                const titleEl = document.createElement('div');
+                titleEl.className = 'edu-lesson-title';
+                titleEl.textContent = lesson.title || 'Без названия';
 
-            const testPill = document.createElement('span');
-            testPill.className = 'lesson-status-pill ' + (lesson.is_test_passed ? 'test-true' : 'test-false');
-            testPill.textContent = lesson.is_test_passed ? 'Тест ✔' : 'Тест ○';
+                const metaRow = document.createElement('div');
+                metaRow.className = 'edu-lesson-meta';
+                const readPill = document.createElement('span');
+                readPill.className = 'lesson-status-pill ' + (lesson.is_read ? 'read-true' : 'read-false');
+                readPill.textContent = lesson.is_read ? 'Прочитано' : 'Не прочитано';
+                const testPill = document.createElement('span');
+                testPill.className = 'lesson-status-pill ' + (lesson.is_test_passed ? 'test-true' : 'test-false');
+                testPill.textContent = lesson.is_test_passed ? 'Тест ✔' : 'Тест ○';
+                metaRow.appendChild(readPill);
+                metaRow.appendChild(testPill);
 
-            metaRow.appendChild(readPill);
-            metaRow.appendChild(testPill);
-
-            card.appendChild(titleEl);
-            card.appendChild(metaRow);
-
-            card.addEventListener('click', () => {
-                const code = lesson.lesson_code || lesson.code;
-                if (code) {
-                    window.location.href = `/patient/education?lesson=${encodeURIComponent(code)}`;
-                }
+                card.appendChild(titleEl);
+                card.appendChild(metaRow);
+                card.addEventListener('click', () => {
+                    const code = lesson.lesson_code || lesson.code;
+                    if (code) window.location.href = `/patient/education?lesson=${encodeURIComponent(code)}`;
+                });
+                listWrap.appendChild(card);
             });
-
-            listWrap.appendChild(card);
+            panel.appendChild(listWrap);
+            panelsWrap.appendChild(panel);
         });
 
-        container.appendChild(listWrap);
+        tabsWrap.querySelectorAll('.edu-tab').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const idx = btn.getAttribute('data-block-index');
+                tabsWrap.querySelectorAll('.edu-tab').forEach((t) => t.classList.remove('active'));
+                panelsWrap.querySelectorAll('.edu-tab-panel').forEach((p) => p.classList.remove('active'));
+                btn.classList.add('active');
+                const panel = panelsWrap.querySelector('.edu-tab-panel[data-block-index="' + idx + '"]');
+                if (panel) panel.classList.add('active');
+            });
+        });
+
+        container.appendChild(tabsWrap);
+        container.appendChild(panelsWrap);
     }
 
 

@@ -32,7 +32,7 @@ import argparse
 import asyncio
 import re
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -70,21 +70,23 @@ def slugify(text: str) -> str:
     return slug.strip("-")
 
 
-# parse_filename: достаем номер и русское название из "nn.Название.md"
+# parse_filename: достаем номер и русское название из "nn.Название.md" или "nn_Название.md"
 def parse_filename(path: Path) -> Tuple[int, str]:
-    """Разбирает имя файла формата 'nn.Название.md' -> (order, title_ru)."""
-    stem = path.stem  # "01.Стресс"
+    """Разбирает имя файла формата 'nn.Название.md' или 'nn_Название.md' -> (order, title_ru)."""
+    stem = path.stem  # "01.Стресс" или "01_Питание"
     num_part, sep, title_part = stem.partition(".")
     if not sep:
+        num_part, sep, title_part = stem.partition("_")
+    if not sep:
         raise ValueError(
-            f"Ожидаю формат 'nn.Название.md', а получил '{path.name}'"
+            f"Ожидаю формат 'nn.Название.md' или 'nn_Название.md', а получил '{path.name}'"
         )
 
     try:
         order = int(num_part)
     except ValueError:
         raise ValueError(
-            f"Первые символы до точки должны быть числом (порядок урока): '{path.name}'"
+            f"Первые символы до разделителя должны быть числом (порядок урока): '{path.name}'"
         )
 
     title_ru = title_part.strip()
@@ -158,12 +160,12 @@ def get_lesson_title_from_md(md: str) -> str:
     return ""
 
 
-async def async_import_lesson(path: Path) -> None:
+async def async_import_lesson(path: Path, block_code: Optional[str] = None) -> None:
     """Импортирует один markdown-файл как урок и набор карточек."""
-    print(f"\n📘 Импорт урока из файла: {path}")
+    print(f"\n[Lesson] {path}")
 
     if not path.is_file():
-        print(f"  ⚠️  Файл не найден: {path}")
+        print(f"  [WARN] File not found: {path}")
         return
 
     order_from_name, title_from_name = parse_filename(path)
@@ -177,18 +179,15 @@ async def async_import_lesson(path: Path) -> None:
     # code — стабильный идентификатор урока (для API и поиска)
     lesson_code = f"{order_from_name:02d}_{slug}"
 
-    print(f"  ➜ order:      {order_from_name}")
-    print(f"  ➜ title (ru): {lesson_title}")
-    print(f"  ➜ slug/topic: {slug}")
-    print(f"  ➜ code:       {lesson_code}")
+    print(f"  order: {order_from_name}, title: {lesson_title}, code: {lesson_code}")
 
     # нарезаем карточки
     card_texts = split_into_cards(md)
     if not card_texts:
-        print("  ⚠️  В файле не найдено ни одной карточки (нет '## ' заголовков).")
+        print("  [WARN] No cards (no ## headers).")
         return
 
-    print(f"  ➜ найдено карточек: {len(card_texts)}")
+    print(f"  cards: {len(card_texts)}")
 
     async_session = async_sessionmaker(
         async_engine,
@@ -203,7 +202,7 @@ async def async_import_lesson(path: Path) -> None:
 
         if existing_lesson:
             lesson = existing_lesson
-            print(f"  ✅ урок найден в БД (id={lesson.id}), обновляем...")
+            print(f"  [OK] lesson exists id={lesson.id}, updating...")
 
             # обновляем ключевые поля (под реальные имена)
             if hasattr(lesson, "title"):
@@ -214,13 +213,15 @@ async def async_import_lesson(path: Path) -> None:
                 lesson.code = lesson_code
             if hasattr(lesson, "order_index"):
                 lesson.order_index = order_from_name
+            if block_code is not None and hasattr(lesson, "block_code"):
+                lesson.block_code = block_code
 
             # старые карточки удаляем
             await session.execute(
                 delete(LessonCard).where(LessonCard.lesson_id == lesson.id)
             )
         else:
-            print("  ➕ урока ещё нет — создаём новый.")
+            print("  [NEW] creating lesson.")
             kwargs = {}
 
             if hasattr(Lesson, "code"):
@@ -235,6 +236,8 @@ async def async_import_lesson(path: Path) -> None:
                 kwargs["order_index"] = order_from_name
             if hasattr(Lesson, "is_active"):
                 kwargs["is_active"] = True
+            if block_code is not None and hasattr(Lesson, "block_code"):
+                kwargs["block_code"] = block_code
 
             lesson = Lesson(**kwargs)
             session.add(lesson)
@@ -282,7 +285,7 @@ async def async_import_lesson(path: Path) -> None:
         await session.commit()
 
 
-    print("  ✅ Импорт завершён успешно.")
+    print("  [OK] Import done.")
 
 def get_card_title_for_model(card_md: str) -> str:
     """
@@ -301,19 +304,32 @@ def get_card_title_for_model(card_md: str) -> str:
     return ""
 
 
+# clear_all_lessons: удалить все уроки (каскадно удалятся карточки, тесты, прогресс)
+async def clear_all_lessons() -> None:
+    """Удаляет все записи Lesson (каскадно — карточки, тесты, прогресс)."""
+    async_session = async_sessionmaker(
+        async_engine,
+        expire_on_commit=False,
+    )
+    async with async_session() as session:
+        await session.execute(delete(Lesson))
+        await session.commit()
+        print("\n[OK] Vse uroki udaleny (kaskadno - kartochki, testy, progress).")
+
+
 # async_main: обрабатываем несколько файлов
-async def async_main(paths: List[Path]) -> None:
+async def async_main(paths: List[Path], block_code: Optional[str] = None) -> None:
     """Импортирует один или несколько файлов-уроков последовательно."""
     for path in paths:
         try:
-            await async_import_lesson(path)
+            await async_import_lesson(path, block_code=block_code)
         except Exception as exc:
-            print(f"\n❌ Ошибка при импорте '{path}': {exc}")
+            print(f"\n[ERROR] {path}: {exc}")
 
 
 # parse_args: CLI
-def parse_args() -> List[Path]:
-    """Парсит аргументы командной строки и возвращает список файлов."""
+def parse_args():
+    """Парсит аргументы командной строки. Возвращает (paths, block_code, clear)."""
     parser = argparse.ArgumentParser(
         description="Импорт markdown-уроков в БД (education.lessons / lesson_cards)."
     )
@@ -323,9 +339,20 @@ def parse_args() -> List[Path]:
         help="Папка с .md уроками (импортируются все *.md в этой папке, без вложенных).",
     )
     parser.add_argument(
+        "--block",
+        dest="block_code",
+        choices=["psychology", "nephrology"],
+        help="Код блока: psychology (Внутрення опора), nephrology (Жизнь на диализе).",
+    )
+    parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Перед импортом удалить ВСЕ уроки из БД (карточки, тесты, прогресс — каскадно).",
+    )
+    parser.add_argument(
         "files",
         nargs="*",
-        help="Пути к .md файлам (например: content/education/01.Стресс.md)",
+        help="Пути к .md файлам (например: content/education/psychology/01.Стресс.md)",
     )
 
     args = parser.parse_args()
@@ -336,7 +363,7 @@ def parse_args() -> List[Path]:
         if not base_dir.is_dir():
             parser.error(f"Папка не найдена: {base_dir}")
         for p in sorted(base_dir.glob("*.md")):
-            if p.is_file():
+            if p.is_file() and re.match(r"^\d+[._]", p.stem):
                 paths.append(p)
 
     for p_str in args.files:
@@ -344,10 +371,16 @@ def parse_args() -> List[Path]:
 
     if not paths:
         parser.error("Укажите --dir с папкой или хотя бы один файл.")
-    return paths
+    return paths, args.block_code, args.clear
 
 
 # entrypoint
 if __name__ == "__main__":
-    files_to_import = parse_args()
-    asyncio.run(async_main(files_to_import))
+    files_to_import, block_code, do_clear = parse_args()
+
+    async def run():
+        if do_clear:
+            await clear_all_lessons()
+        await async_main(files_to_import, block_code=block_code)
+
+    asyncio.run(run())

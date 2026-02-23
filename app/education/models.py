@@ -40,6 +40,9 @@ class Lesson(Base):
     # тема урока: 'stress', 'sleep', 'coping' и т.п.
     topic: Mapped[str] = mapped_column(String(50), index=True)
 
+    # блок: 'psychology' (Внутрення опора), 'nephrology' (Жизнь на диализе)
+    block_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+
     # видимый заголовок
     title: Mapped[str] = mapped_column(String(255))
 

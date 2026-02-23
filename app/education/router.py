@@ -44,6 +44,8 @@ router = APIRouter(tags=["education"])
 # Простая мапа для "человеческих" названий блоков.
 # При желании можно потом вынести в БД.
 BLOCK_TITLES: Dict[str, str] = {
+    "psychology": "Внутрення опора",
+    "nephrology": "Жизнь на диализе",
     "mental_health": "Ментальное здоровье",
     "dialysis": "Диализ",
 }
@@ -310,12 +312,11 @@ async def get_lessons_overview(
             if lesson_id is not None:
                 lesson_has_passed_test[lesson_id] = True
 
-    # --- 5. Агрегируем по блокам (topic → block_code) ---
+    # --- 5. Агрегируем по блокам (block_code, при отсутствии — topic) ---
     blocks: Dict[str, Dict[str, Any]] = {}
 
     for lesson in lessons:
-        # используем Lesson.topic как block_code
-        block_code = lesson.topic or "other"
+        block_code = getattr(lesson, "block_code", None) or lesson.topic or "other"
         block_title = map_block_title(block_code)
 
         if block_code not in blocks:
@@ -352,11 +353,13 @@ async def get_lessons_overview(
             }
         )
 
-    # порядок: уроки внутри блока по order_index; блоки — по номеру первого занятия (01, 02, ...)
+    # порядок: уроки внутри блока по order_index; блоки — psychology, затем nephrology, затем остальные
+    block_order = ("psychology", "nephrology")
+
     result_blocks: List[Dict[str, Any]] = []
     for block_code, block in blocks.items():
         block["lessons"].sort(key=lambda x: (x.get("order_index") or 0, x["lesson_id"]))
-        # заголовок блока: если один урок — показываем его название; для «Адаптация к болезни» — нейтральный текст (без названия в шапке)
+        # заголовок блока: если один урок — показываем его название; для «Адаптация к болезни» — нейтральный текст
         if len(block["lessons"]) == 1:
             first_title = block["lessons"][0].get("title") or ""
             if "adaptaciya" in (block.get("block_code") or "").lower() or "адаптаци" in first_title.lower():
@@ -365,8 +368,13 @@ async def get_lessons_overview(
                 block["block_title"] = first_title or block["block_title"]
         result_blocks.append(block)
 
-    # сортируем блоки по номеру занятия (01.Стресс, 02.Эмоции, ...), не по алфавиту
-    result_blocks.sort(key=lambda b: min((l.get("order_index") or 0) for l in b["lessons"]))
+    # сортируем блоки: psychology, nephrology, остальные по min order_index
+    def block_sort_key(b):
+        code = b.get("block_code") or ""
+        if code in block_order:
+            return (block_order.index(code), 0)
+        return (len(block_order), min((l.get("order_index") or 0) for l in b["lessons"]))
+    result_blocks.sort(key=block_sort_key)
 
     return result_blocks
 

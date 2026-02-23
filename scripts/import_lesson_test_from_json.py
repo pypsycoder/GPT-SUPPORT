@@ -94,19 +94,23 @@ def slugify(text: str) -> str:
 
 def parse_filename(path: Path) -> Tuple[int, str]:
     """
-    Разбирает имя файла формата 'nn.Название.md' -> (order, title_ru).
+    Разбирает имя файла формата 'nn.Название.md' или 'nn_Название.md' -> (order, title_ru).
     Аналогично import_lesson_from_md.py.
     """
-    stem = path.stem  # "01.Стресс-тест"
+    stem = path.stem  # "01.Стресс-тест" или "01_Стресс-тест"
     num_part, sep, title_part = stem.partition(".")
     if not sep:
-        raise ValueError(f"Ожидаю формат 'nn.Название.md', а получил '{path.name}'")
+        num_part, sep, title_part = stem.partition("_")
+    if not sep:
+        raise ValueError(
+            f"Ожидаю формат 'nn.Название.md' или 'nn_Название.md', а получил '{path.name}'"
+        )
 
     try:
         order = int(num_part)
     except ValueError:
         raise ValueError(
-            f"Первые символы до точки должны быть числом (порядок урока): '{path.name}'"
+            f"Первые символы до разделителя должны быть числом (порядок): '{path.name}'"
         )
 
     title_ru = title_part.strip()
@@ -167,42 +171,61 @@ def load_questions_from_file(path: Path) -> List[dict]:
 #   Поиск урока в БД
 # ============================================
 
-async def find_lesson_for_test(session, order: int, lesson_code_full: Optional[str],
-                               lesson_code_base: Optional[str]) -> Lesson:
+def _lesson_order_for_lookup(order_from_name: int, block_code: Optional[str]) -> int:
+    """
+    В блоке nephrology тесты могут быть названы 11_, 12_, ... 18_ (соответствуют урокам 1–8).
+    Возвращает order_index для поиска урока в БД.
+    """
+    if block_code == "nephrology" and 11 <= order_from_name <= 18:
+        return order_from_name - 10
+    return order_from_name
+
+
+async def find_lesson_for_test(
+    session,
+    order: int,
+    lesson_code_full: Optional[str],
+    lesson_code_base: Optional[str],
+    block_code: Optional[str] = None,
+) -> Lesson:
     """
     Пытаемся найти Lesson для этого теста:
-    1) по полному коду (01_stress-test)
-    2) по базовому коду (01_stress)
-    3) если есть поле order_index — по нему.
+    1) по полному коду (и опционально block_code)
+    2) по базовому коду (и опционально block_code)
+    3) по order_index + block_code (для nephrology: 11->1, 12->2, ... 18->8)
     """
+    order_lookup = _lesson_order_for_lookup(order, block_code)
+
+    def with_block(stmt):
+        if block_code is not None and hasattr(Lesson, "block_code"):
+            return stmt.where(Lesson.block_code == block_code)
+        return stmt
+
     # 1. полный код
     if lesson_code_full and hasattr(Lesson, "code"):
-        lesson = await session.scalar(
-            select(Lesson).where(Lesson.code == lesson_code_full)
-        )
+        stmt = select(Lesson).where(Lesson.code == lesson_code_full)
+        lesson = await session.scalar(with_block(stmt))
         if lesson:
             return lesson
 
     # 2. базовый код
     if lesson_code_base and hasattr(Lesson, "code"):
-        lesson = await session.scalar(
-            select(Lesson).where(Lesson.code == lesson_code_base)
-        )
+        stmt = select(Lesson).where(Lesson.code == lesson_code_base)
+        lesson = await session.scalar(with_block(stmt))
         if lesson:
             return lesson
 
-    # 3. по order_index, если такое поле есть
+    # 3. по order_index (и block_code); для nephrology используем order_lookup (1–8)
     if hasattr(Lesson, "order_index"):
-        order_field = getattr(Lesson, "order_index")
-        lesson = await session.scalar(
-            select(Lesson).where(order_field == order)
-        )
+        stmt = select(Lesson).where(Lesson.order_index == order_lookup)
+        lesson = await session.scalar(with_block(stmt))
         if lesson:
             return lesson
 
     raise RuntimeError(
         f"Не смог найти Lesson ни по code='{lesson_code_full}'/'{lesson_code_base}', "
-        f"ни по order_index={order}"
+        f"ни по order_index={order_lookup} (from file order {order})"
+        + (f" (block_code={block_code})" if block_code else "")
     )
 
 
@@ -210,7 +233,7 @@ async def find_lesson_for_test(session, order: int, lesson_code_full: Optional[s
 #   Импорт теста в БД
 # ============================================
 
-async def async_import_test(path: Path) -> None:
+async def async_import_test(path: Path, block_code: Optional[str] = None) -> None:
     """Импортирует один файл как LessonTest + LessonTestQuestion."""
     print(f"\n🧪 Импорт теста из файла: {path}")
 
@@ -239,9 +262,13 @@ async def async_import_test(path: Path) -> None:
     )
 
     async with async_session() as session:
-        # Находим Lesson
+        # Находим Lesson (с учётом block_code, если передан)
         lesson = await find_lesson_for_test(
-            session, order_from_name, lesson_code_full, lesson_code_base
+            session,
+            order_from_name,
+            lesson_code_full,
+            lesson_code_base,
+            block_code=block_code,
         )
         print(f"  ✅ урок найден (id={lesson.id}, code={getattr(lesson, 'code', None)})")
 
@@ -321,11 +348,11 @@ async def async_import_test(path: Path) -> None:
         await session.commit()
         print(f"  ✅ Импорт теста завершён: создано вопросов = {created}")
 
-async def async_main(paths: List[Path]) -> None:
+async def async_main(paths: List[Path], block_code: Optional[str] = None) -> None:
     """Импортирует один или несколько файлов-тестов последовательно."""
     for path in paths:
         try:
-            await async_import_test(path)
+            await async_import_test(path, block_code=block_code)
         except Exception as exc:
             print(f"\n❌ Ошибка при импорте '{path}': {exc}")
 
@@ -334,8 +361,8 @@ async def async_main(paths: List[Path]) -> None:
 #   CLI (argparse + main)
 # ============================================
 
-def parse_args() -> List[Path]:
-    """Парсит аргументы командной строки и возвращает список файлов-тестов."""
+def parse_args():
+    """Парсит аргументы командной строки. Возвращает (paths, block_code)."""
     parser = argparse.ArgumentParser(
         description="Импорт тестов уроков в БД (education.lesson_tests / lesson_test_questions)."
     )
@@ -343,18 +370,24 @@ def parse_args() -> List[Path]:
         "--dir",
         "--folder",
         dest="directory",
-        help="Папка с тестами (например: content/education/tests)",
+        help="Папка с тестами (например: content/education/psychology/tests)",
+    )
+    parser.add_argument(
+        "--block",
+        dest="block_code",
+        choices=["psychology", "nephrology"],
+        help="Код блока: psychology, nephrology (для поиска урока по order_index+block).",
     )
     parser.add_argument(
         "files",
         nargs="*",
-        help="Пути к .md/.json файлам с тестами (например: content/education/tests/01.Стресс-тест.md)",
+        help="Пути к .md/.json файлам с тестами (например: content/education/psychology/tests/01_Стресс-тест.md)",
     )
 
     args = parser.parse_args()
     paths: List[Path] = []
 
-    # Если указана папка — собираем все *.md и *.json в ней
+    # Если указана папка — собираем все *.md и *.json в ней (имя: nn_... или nn....)
     if args.directory:
         base_dir = Path(args.directory).resolve()
         if not base_dir.is_dir():
@@ -362,7 +395,7 @@ def parse_args() -> List[Path]:
 
         for pattern in ("*.md", "*.json"):
             for p in sorted(base_dir.glob(pattern)):
-                if p.is_file():
+                if p.is_file() and re.match(r"^\d+[._]", p.stem):
                     paths.append(p)
 
     # Плюс явно перечисленные файлы (если есть)
@@ -383,9 +416,9 @@ def parse_args() -> List[Path]:
             seen.add(p)
             unique_paths.append(p)
 
-    return unique_paths
+    return unique_paths, args.block_code
 
 
 if __name__ == "__main__":
-    files_to_import = parse_args()
-    asyncio.run(async_main(files_to_import))
+    files_to_import, block_code = parse_args()
+    asyncio.run(async_main(files_to_import, block_code=block_code))
