@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Добро пожаловать — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/patient/css/onboarding.css">
+</head>
+<body>
+  <div class="onboarding-wrapper">
+    <div class="onboarding-card">
+
+      <div class="onboarding-logo">
+        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect width="44" height="44" rx="12" fill="#2563eb"/>
+          <path d="M22 10C15.373 10 10 15.373 10 22s5.373 12 12 12 12-5.373 12-12S28.627 10 22 10zm1 17h-2v-6h2v6zm0-8h-2v-2h2v2z" fill="#fff"/>
+        </svg>
+      </div>
+
+      <h1 class="onboarding-title" id="onboarding-title">Добро пожаловать!</h1>
+      <p class="onboarding-subtitle">Здесь вы найдёте всё для поддержки вашего здоровья</p>
+
+      <div class="onboarding-grid">
+
+        <div class="feature-card">
+          <div class="feature-icon feature-icon--education">📚</div>
+          <div class="feature-body">
+            <div class="feature-name">Обучение</div>
+            <div class="feature-desc">Уроки о жизни с диализом и психологической поддержке</div>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon feature-icon--vitals">📊</div>
+          <div class="feature-body">
+            <div class="feature-name">Показатели</div>
+            <div class="feature-desc">Отслеживайте давление, пульс и вес</div>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon feature-icon--sleep">😴</div>
+          <div class="feature-body">
+            <div class="feature-name">Сон и рутина</div>
+            <div class="feature-desc">Дневник сна и распорядок дня</div>
+          </div>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon feature-icon--meds">💊</div>
+          <div class="feature-body">
+            <div class="feature-name">Препараты</div>
+            <div class="feature-desc">Контроль приёма лекарств</div>
+          </div>
+        </div>
+
+      </div>
+
+      <button class="btn-start" id="start-btn">Начать</button>
+
+      <div class="onboarding-error" id="onboarding-error"></div>
+
+    </div>
+  </div>
+
+  <script src="/frontend/patient/js/onboarding.js"></script>
+</body>
+</html>

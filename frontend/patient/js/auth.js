@@ -38,6 +38,10 @@
       window.location.href = '/consent';
       return new Promise(function () {});
     }
+    if (!user.is_onboarded) {
+      window.location.href = '/patient/onboarding';
+      return new Promise(function () {});
+    }
     return user;
   }
 

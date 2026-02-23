@@ -43,6 +43,7 @@ class User(Base):
     pin_hash = Column(String(128), nullable=True)
     pin_attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))
     is_locked = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    is_onboarded = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     prescriptions = relationship(
         "MedicationPrescription",

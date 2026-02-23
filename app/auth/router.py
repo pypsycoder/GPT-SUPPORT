@@ -77,6 +77,7 @@ async def patient_login(
     )
 
     needs_consent = not user.consent_personal_data
+    needs_onboarding = not user.is_onboarded
 
     response.set_cookie(
         key="patient_session",
@@ -86,7 +87,7 @@ async def patient_login(
         samesite="lax",
     )
 
-    return PatientLoginResponse(needs_consent=needs_consent)
+    return PatientLoginResponse(needs_consent=needs_consent, needs_onboarding=needs_onboarding)
 
 
 @router.post("/patient/logout")
@@ -113,7 +114,20 @@ async def patient_me(user: User = Depends(get_current_user)):
         "patient_number": user.patient_number,
         "consent_personal_data": user.consent_personal_data,
         "consent_bot_use": user.consent_bot_use,
+        "is_onboarded": user.is_onboarded,
     }
+
+
+@router.post("/patient/onboarding/complete")
+async def patient_onboarding_complete(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Mark onboarding as completed for the current patient."""
+    user.is_onboarded = True
+    await session.flush()
+    await session.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

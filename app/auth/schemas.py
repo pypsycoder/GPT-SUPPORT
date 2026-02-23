@@ -15,6 +15,7 @@ class PatientLoginRequest(BaseModel):
 class PatientLoginResponse(BaseModel):
     ok: bool = True
     needs_consent: bool = False
+    needs_onboarding: bool = False
     message: str = "Вход выполнен"
 
 

@@ -57,9 +57,11 @@
         return;
       }
 
-      // Success — redirect based on consent status
+      // Success — redirect based on consent / onboarding status
       if (data.needs_consent) {
         window.location.href = '/consent';
+      } else if (data.needs_onboarding) {
+        window.location.href = '/patient/onboarding';
       } else {
         window.location.href = '/patient/home';
       }

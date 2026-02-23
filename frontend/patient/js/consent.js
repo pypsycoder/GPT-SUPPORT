@@ -51,7 +51,8 @@
         return;
       }
 
-      window.location.href = '/patient/home';
+      var me = await fetch('/api/v1/auth/patient/me').then(function (r) { return r.json(); });
+      window.location.href = me.is_onboarded ? '/patient/home' : '/patient/onboarding';
     } catch (err) {
       errorDiv.textContent = 'Ошибка соединения. Попробуйте позже.';
       errorDiv.classList.add('visible');

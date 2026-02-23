@@ -153,3 +153,9 @@ async def serve_patient_routine():
 async def serve_patient_medications():
     """Препараты пациента (назначения и приёмы)."""
     return FileResponse(FRONTEND_DIR / "patient" / "medications.html")
+
+
+@router.get("/patient/onboarding", include_in_schema=False)
+async def serve_patient_onboarding():
+    """Онбординг-экран для новых пациентов."""
+    return FileResponse(FRONTEND_DIR / "patient" / "onboarding.html")
