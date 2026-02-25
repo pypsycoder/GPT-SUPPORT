@@ -95,6 +95,8 @@ class TestSubmitResponse(BaseModel):
     score: float
     max_score: float
     passed: bool
+    practice_done: bool = False
+    practice_completed_at: Optional[datetime] = None
 
 
 class TestResultResponse(BaseModel):

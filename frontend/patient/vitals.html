@@ -143,10 +143,10 @@
                             <label for="bp-systolic">Верхнее (систолическое), мм рт. ст.</label>
                             <input
                                 id="bp-systolic"
-                                type="number"
+                                type="text"
                                 inputmode="numeric"
-                                min="50"
-                                max="260"
+                                pattern="[0-9]*"
+                                autocomplete="off"
                                 required
                             >
                         </div>
@@ -155,10 +155,10 @@
                             <label for="bp-diastolic">Нижнее (диастолическое), мм рт. ст.</label>
                             <input
                                 id="bp-diastolic"
-                                type="number"
+                                type="text"
                                 inputmode="numeric"
-                                min="30"
-                                max="160"
+                                pattern="[0-9]*"
+                                autocomplete="off"
                                 required
                             >
                         </div>
@@ -190,10 +190,10 @@
                             <label for="pulse-value">Пульс, уд/мин</label>
                             <input
                                 id="pulse-value"
-                                type="number"
+                                type="text"
                                 inputmode="numeric"
-                                min="30"
-                                max="200"
+                                pattern="[0-9]*"
+                                autocomplete="off"
                                 required
                             >
                         </div>
@@ -225,11 +225,10 @@
                             <label for="weight-value">Вес, кг</label>
                             <input
                                 id="weight-value"
-                                type="number"
+                                type="text"
                                 inputmode="decimal"
-                                step="0.1"
-                                min="20"
-                                max="250"
+                                pattern="[0-9]*[.,]?[0-9]*"
+                                autocomplete="off"
                                 required
                             >
                         </div>
@@ -270,11 +269,10 @@
                             <label for="water-value">Объем, мл</label>
                             <input
                                 id="water-value"
-                                type="number"
+                                type="text"
                                 inputmode="numeric"
-                                step="10"
-                                min="10"
-                                max="2000"
+                                pattern="[0-9]*"
+                                autocomplete="off"
                                 required
                             >
                         </div>
@@ -408,6 +406,40 @@
     function initForms() {
         const API_BASE = '/api/v1';
 
+        function bindNumericInput(inputId, options) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+
+            const allowDecimal = options && options.allowDecimal;
+            const maxFractionDigits = options && options.maxFractionDigits;
+
+            input.addEventListener('input', () => {
+                let cleaned = input.value.replace(',', '.').replace(/[^\d.]/g, '');
+
+                if (!allowDecimal) {
+                    cleaned = cleaned.replace(/\./g, '');
+                } else {
+                    const dotIndex = cleaned.indexOf('.');
+                    if (dotIndex !== -1) {
+                        const intPart = cleaned.slice(0, dotIndex + 1);
+                        let fractionPart = cleaned.slice(dotIndex + 1).replace(/\./g, '');
+                        if (typeof maxFractionDigits === 'number' && maxFractionDigits >= 0) {
+                            fractionPart = fractionPart.slice(0, maxFractionDigits);
+                        }
+                        cleaned = intPart + fractionPart;
+                    }
+                }
+
+                input.value = cleaned;
+            });
+        }
+
+        bindNumericInput('bp-systolic');
+        bindNumericInput('bp-diastolic');
+        bindNumericInput('pulse-value');
+        bindNumericInput('water-value');
+        bindNumericInput('weight-value', { allowDecimal: true, maxFractionDigits: 1 });
+
         function getCurrentContext() {
             return selectedContext || 'na';
         }
@@ -514,11 +546,11 @@
                 event.preventDefault();
                 setStatus('none', '');
 
-                const weight = document.getElementById('weight-value').value;
+                const weightRaw = document.getElementById('weight-value').value.replace(',', '.');
                 const note = document.getElementById('weight-note').value;
 
                 const payload = {
-                    weight: weight ? Number(weight) : null,
+                    weight: weightRaw ? Number(weightRaw) : null,
                     measured_at: new Date().toISOString(),
                     context: getCurrentContext()
                 };

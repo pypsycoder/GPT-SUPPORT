@@ -156,6 +156,26 @@
             display: block;
         }
 
+        .lesson-practice-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            margin-top: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid rgba(234, 88, 12, 0.4);
+            background: #fff7ed;
+            color: #c2410c;
+            font-size: 0.8rem;
+            font-weight: 500;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        .lesson-practice-link:hover {
+            background: #fed7aa;
+        }
+
         @media (max-width: 768px) {
             .edu-lesson-card {
                 padding: 0.85rem 1rem;
@@ -238,7 +258,7 @@
     // Рендер: вкладки блоков (Внутрення опора / Жизнь на диализе) + список занятий по блоку
     // Занятие завершено, если прочитано И тест пройден.
     // =========================================
-    function renderEducationBlocks(data) {
+    function renderEducationBlocks(data, practicesByModuleId) {
         const container = document.getElementById('education-blocks-container');
         if (!container) return;
 
@@ -316,6 +336,18 @@
                 metaRow.appendChild(readPill);
                 metaRow.appendChild(testPill);
 
+                // ссылка на практику, если она есть для этого модуля
+                const moduleId = String(lesson.order_index || 0).padStart(2, '0');
+                const practice = practicesByModuleId && practicesByModuleId[moduleId];
+                if (practice) {
+                    const practiceLink = document.createElement('a');
+                    practiceLink.className = 'lesson-practice-link';
+                    practiceLink.href = `/patient/practice?id=${encodeURIComponent(practice.id)}`;
+                    practiceLink.textContent = 'Практика →';
+                    practiceLink.addEventListener('click', (e) => e.stopPropagation());
+                    metaRow.appendChild(practiceLink);
+                }
+
                 card.appendChild(titleEl);
                 card.appendChild(metaRow);
                 card.addEventListener('click', () => {
@@ -370,7 +402,26 @@
             }
 
             const data = await response.json();
-            renderEducationBlocks(data);
+
+            // загружаем все практики и индексируем по module_id
+            let practicesByModuleId = {};
+            try {
+                const practicesResp = await fetch('/api/practices', { credentials: 'include' });
+                if (practicesResp.ok) {
+                    const practices = await practicesResp.json();
+                    if (Array.isArray(practices)) {
+                        practices.forEach(p => {
+                            if (p.module_id && !practicesByModuleId[p.module_id]) {
+                                practicesByModuleId[p.module_id] = p;
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn('Не удалось загрузить список практик:', e);
+            }
+
+            renderEducationBlocks(data, practicesByModuleId);
             setEducationStatus('none', '');
         } catch (err) {
             console.error('Ошибка загрузки overview:', err);

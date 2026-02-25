@@ -12,6 +12,40 @@
     <!-- Общий header для всех страниц пациента -->
     <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
 
+    <style>
+        .result-practice-block {
+            margin-top: 1.25rem;
+            padding: 1rem 1.25rem;
+            background: #fff7ed;
+            border-radius: 0.75rem;
+            border: 1px solid #fdba74;
+        }
+        .result-practice-label {
+            font-size: 0.85rem;
+            color: #9a3412;
+            margin: 0 0 0.35rem;
+        }
+        .result-practice-title {
+            display: block;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.75rem;
+        }
+        .btn-practice {
+            display: inline-block;
+            padding: 0.55rem 1.25rem;
+            border-radius: 999px;
+            background: #ea580c;
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: background 0.15s ease;
+        }
+        .btn-practice:hover { background: #c2410c; }
+    </style>
+
 </head>
 
 <body data-page="education_test">
@@ -104,6 +138,7 @@
     let questions = [];
     let currentIndex = 0;
     let answers = {};  // question_id -> chosen_option (1–4)
+    let practiceForLesson = null;  // практика к этому уроку (или null)
 
     // ======== API вызовы ========
 
@@ -158,6 +193,20 @@
 
         console.error('Unexpected data format:', data);
         throw new Error('Неожиданный формат данных вопросов теста');
+    }
+
+    async function loadPracticeForLesson(moduleId) {
+        try {
+            const resp = await fetch(`/api/practices?module_id=${encodeURIComponent(moduleId)}`, {
+                credentials: 'include'
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return (Array.isArray(data) && data.length > 0) ? data[0] : null;
+        } catch (e) {
+            console.warn('Не удалось загрузить практику для модуля:', moduleId, e);
+            return null;
+        }
     }
 
     async function submitTestAnswers() {
@@ -253,7 +302,7 @@
         updateProgressUI();
     }
 
-    function showResult(result) {
+    function showResult(result, practiceData) {
         // Скрываем блок вопросов полностью
         questionSectionEl.classList.add('hidden');
 
@@ -319,6 +368,30 @@
         wrapper.appendChild(details);
         wrapper.appendChild(actions);
 
+        // блок практики — только если тест пройден и практика существует
+        if (passed && practiceData) {
+            const practiceBlock = document.createElement('div');
+            practiceBlock.className = 'result-practice-block';
+
+            const practiceLabel = document.createElement('p');
+            practiceLabel.className = 'result-practice-label';
+            practiceLabel.textContent = 'Закрепи знания на практике';
+
+            const practiceTitle = document.createElement('strong');
+            practiceTitle.className = 'result-practice-title';
+            practiceTitle.textContent = practiceData.title;
+
+            const practiceLink = document.createElement('a');
+            practiceLink.className = 'btn-practice';
+            practiceLink.href = `/patient/practice?id=${encodeURIComponent(practiceData.id)}`;
+            practiceLink.textContent = 'Пройти практику →';
+
+            practiceBlock.appendChild(practiceLabel);
+            practiceBlock.appendChild(practiceTitle);
+            practiceBlock.appendChild(practiceLink);
+            wrapper.appendChild(practiceBlock);
+        }
+
         resultContainerEl.innerHTML = '';
         resultContainerEl.appendChild(wrapper);
     }
@@ -344,7 +417,7 @@
             nextButtonEl.disabled = true;
             statusMessageEl.textContent = 'Отправляем ответы…';
             const result = await submitTestAnswers();
-            showResult(result);
+            showResult(result, practiceForLesson);
         } catch (err) {
             console.error(err);
             statusMessageEl.textContent = 'Не получилось отправить ответы. Можно попробовать ещё раз немного позже.';
@@ -380,6 +453,21 @@
 
             testId = testInfo.test_id;
             console.log('testId set to:', testId);
+
+            // загружаем практику к этому уроку (для показа после прохождения теста)
+            try {
+                const lessonsResp = await fetch(`${API_BASE}/lessons`, { credentials: 'include' });
+                if (lessonsResp.ok) {
+                    const allLessons = await lessonsResp.json();
+                    const lesson = Array.isArray(allLessons) && allLessons.find(l => l.code === lessonCode);
+                    if (lesson) {
+                        const moduleId = String(lesson.order_index || 0).padStart(2, '0');
+                        practiceForLesson = await loadPracticeForLesson(moduleId);
+                    }
+                }
+            } catch (e) {
+                console.warn('Не удалось загрузить практику к уроку:', e);
+            }
 
             if (testInfo.title) {
                 lessonTitleEl.textContent = `Тест по занятию: ${testInfo.title}`;

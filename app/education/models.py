@@ -214,6 +214,12 @@ class LessonProgress(Base):
     # завершен ли урок (все карточки + тест пройден)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # практика выполнена до/на момент закрытия модуля (soft check)
+    practice_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    practice_completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=datetime.utcnow,

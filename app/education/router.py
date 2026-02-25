@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.education.models import (
@@ -539,6 +539,24 @@ async def submit_test_answers(
 
     passed = (total_count > 0) and (score / max_score >= 0.6)
 
+    # --- Soft check: была ли выполнена практика этого модуля ---
+    practice_pattern = f"p{str(test.lesson_id).zfill(2)}_%"
+    practice_q = await session.execute(
+        text(
+            """
+            SELECT id, completed_at
+            FROM practices.practice_completions
+            WHERE patient_id = :pid
+              AND practice_id LIKE :pattern
+            LIMIT 1
+            """
+        ),
+        {"pid": user.id, "pattern": practice_pattern},
+    )
+    practice_record = practice_q.fetchone()
+    practice_done = practice_record is not None
+    practice_completed_at = practice_record.completed_at if practice_record else None
+
     result = LessonTestResult(
         test_id=test_id,
         user_id=user.id,
@@ -564,10 +582,14 @@ async def submit_test_answers(
                 lesson_id=test.lesson_id,
                 user_id=user.id,
                 is_completed=True,
+                practice_done=practice_done,
+                practice_completed_at=practice_completed_at,
             )
             session.add(progress)
         else:
             progress.is_completed = True
+            progress.practice_done = practice_done
+            progress.practice_completed_at = practice_completed_at
 
     await session.commit()
 
@@ -577,6 +599,8 @@ async def submit_test_answers(
         score=score,
         max_score=max_score,
         passed=passed,
+        practice_done=practice_done,
+        practice_completed_at=practice_completed_at,
     )
 
 
