@@ -6,6 +6,9 @@ Create Date: 2026-02-23
 
 """
 from typing import Sequence, Union
+from pathlib import Path
+import json
+import time
 
 from alembic import op
 import sqlalchemy as sa
@@ -16,6 +19,28 @@ revision: str = "20260223_02"
 down_revision: Union[str, None] = "20260223_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+# region agent log
+try:
+    with (Path(__file__).resolve().parents[2] / "debug-88164a.log").open("a", encoding="utf-8") as _f:
+        _f.write(
+            json.dumps(
+                {
+                    "sessionId": "88164a",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H1",
+                    "location": "alembic/versions/20260223_02_kdqol_module.py:revision-header",
+                    "message": "loaded kdqol migration header",
+                    "data": {"revision": revision, "down_revision": down_revision},
+                    "timestamp": int(time.time() * 1000),
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+except Exception:
+    pass
+# endregion
 
 
 def upgrade() -> None:

@@ -21,11 +21,12 @@ from app.scales.calculators.hads import calculate_hads
 from app.scales.calculators.kdqol import calculate_kdqol, get_kdqol_feedback_module
 from app.scales.calculators.kop_25a1 import calculate_kop_25a1 as calculate_kop_25a1_calc
 from app.scales.calculators.pss10 import calculate_pss10
+from app.scales.calculators.wcq_lazarus import calculate_wcq_lazarus
 from app.scales.config.hads import HADS_CONFIG
 from app.scales.config.kop_25a1 import KOP25A_CONFIG
 from app.scales.config.psqi import PSQI_CONFIG
 from app.scales.config.pss10 import PSS10_CONFIG
-from app.scales.config.tobol import TOBOL_CONFIG
+from app.scales.config.wcq_lazarus import WCQ_CONFIG
 from app.scales.models import (
     KdqolResponse,
     KdqolSubscaleScore,
@@ -45,12 +46,12 @@ def get_scale_config(scale_code: str) -> dict:
         return HADS_CONFIG
     if code in {"KOP25A", "KOP_25A1"}:
         return KOP25A_CONFIG
-    if code == "TOBOL":
-        return TOBOL_CONFIG
     if code == "PSQI":
         return PSQI_CONFIG
     if code == "PSS10":
         return PSS10_CONFIG
+    if code == "WCQ_LAZARUS":
+        return WCQ_CONFIG
     raise ValueError(f"Unknown scale code: {scale_code}")
 
 
@@ -66,13 +67,6 @@ def calculate_kop25a_result(scale_config: dict, answers: List[Union[Dict[str, st
     return calculate_kop_25a1_calc(answers)
 
 
-def calculate_tobol_result(scale_config: dict, answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]):
-    """Обертка для расчёта ТОБОЛ через реестр вычислителей."""
-
-    calculator = get_scale_calculator("TOBOL")
-    return calculator(answers)
-
-
 def calculate_psqi_result(scale_config: dict, answers: List[Union[Dict[str, Any], "PsqiAnswerIn"]]):
     """Обертка для расчёта PSQI."""
 
@@ -84,6 +78,12 @@ def calculate_pss10_result(scale_config: dict, answers: List[Union[Dict[str, str
     """Обертка для расчёта ШВС-10 (PSS-10)."""
 
     return calculate_pss10(answers)
+
+
+def calculate_wcq_lazarus_result(scale_config: dict, answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]):
+    """Обертка для расчёта WCQ (Опросник Лазаруса)."""
+
+    return calculate_wcq_lazarus(answers)
 
 
 async def save_scale_result(

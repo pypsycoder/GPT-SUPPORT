@@ -233,6 +233,27 @@ def run_migrations_online() -> None:
         data={"has_url": bool(url)},
     )
     # endregion
+    # region agent log
+    try:
+        with (BASE_DIR / "debug-88164a.log").open("a", encoding="utf-8") as _f:
+            _f.write(
+                json.dumps(
+                    {
+                        "sessionId": "88164a",
+                        "runId": "pre-fix",
+                        "hypothesisId": "H3",
+                        "location": "alembic/env.py:run_migrations_online",
+                        "message": "entered online migration setup",
+                        "data": {"has_url": bool(url), "script_location": config.get_main_option("script_location")},
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # endregion
 
     connectable = engine_from_config(
         section,

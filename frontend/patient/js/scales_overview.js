@@ -1,12 +1,12 @@
 (function () {
   function initScaleButtons() {
     var scales = {
-      hads:   '/patient/hads',
-      kop25a: '/patient/kop25a',
-      tobol:  '/patient/tobol',
-      psqi:   '/patient/psqi',
-      kdqol:  '/patient/kdqol',
-      pss10:  '/patient/pss10',
+      hads:        '/patient/hads',
+      kop25a:      '/patient/kop25a',
+      psqi:        '/patient/psqi',
+      kdqol:       '/patient/kdqol',
+      pss10:       '/patient/pss10',
+      wcq_lazarus: '/patient/wcq_lazarus',
     };
 
     Object.keys(scales).forEach(function (code) {

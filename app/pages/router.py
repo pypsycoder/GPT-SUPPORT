@@ -119,12 +119,6 @@ async def serve_patient_kop25a():
     return FileResponse(FRONTEND_DIR / "patient" / "kop25a.html")
 
 
-@router.get("/patient/tobol", include_in_schema=False)
-async def serve_patient_tobol():
-    """Шкала ТОБОЛ."""
-    return FileResponse(FRONTEND_DIR / "patient" / "tobol.html")
-
-
 @router.get("/patient/psqi", include_in_schema=False)
 async def serve_patient_psqi():
     """Опросник PSQI."""
@@ -141,6 +135,12 @@ async def serve_patient_kdqol():
 async def serve_patient_pss10():
     """Шкала воспринимаемого стресса ШВС-10 (PSS-10)."""
     return FileResponse(FRONTEND_DIR / "patient" / "pss10.html")
+
+
+@router.get("/patient/wcq_lazarus", include_in_schema=False)
+async def serve_patient_wcq_lazarus():
+    """Опросник способов совладающего поведения WCQ (Лазарус)."""
+    return FileResponse(FRONTEND_DIR / "patient" / "wcq_lazarus.html")
 
 
 @router.get("/patient/profile", include_in_schema=False)

@@ -59,7 +59,7 @@
           document.getElementById('usage-vitals-users').textContent = u.vitals.unique_patients ?? '—';
         }
         if (u.scales) {
-          var scaleNames = { 'HADS': 'HADS', 'TOBOL': 'ТОБОЛ', 'KOP25A': 'КОП-25 А1', 'KOP_25A1': 'КОП-25 А1', 'PSQI': 'PSQI' };
+          var scaleNames = { 'HADS': 'HADS', 'KOP25A': 'КОП-25 А1', 'KOP_25A1': 'КОП-25 А1', 'PSQI': 'PSQI' };
           var byScale = u.scales.by_scale || [];
           var container = document.getElementById('usage-scales-by-scale');
           container.innerHTML = byScale.length ? byScale.map(function (s) {

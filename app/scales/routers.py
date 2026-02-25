@@ -1,7 +1,7 @@
 # ============================================
 # Scales API: Эндпоинты психологических шкал
 # ============================================
-# REST API для прохождения психометрических шкал (HADS, TOBOL, KOP-25A, PSQI).
+# REST API для прохождения психометрических шкал (HADS, KOP-25A, PSQI, PSS-10, WCQ).
 # Каждая шкала: GET — структура опросника, POST — приём ответов и расчёт результата.
 # Также: сводка по всем шкалам (/overview) и история прохождений (/{code}/history).
 
@@ -24,7 +24,7 @@ from app.scales.services import (
     calculate_kop25a_result,
     calculate_psqi_result,
     calculate_pss10_result,
-    calculate_tobol_result,
+    calculate_wcq_lazarus_result,
     get_scale_config,
     kdqol_activate_point,
     kdqol_get_csv_export,
@@ -55,7 +55,6 @@ class ScaleQuestionOut(BaseModel):
     id: str
     text: str
     options: List[ScaleOptionOut]
-    # для ТОБОЛ, но опционально, чтобы не ломать HADS/KOP
     section: Optional[str] = None
     section_title: Optional[str] = None
 
@@ -72,16 +71,6 @@ class ScaleAnswerIn(BaseModel):
 
 class ScaleSubmitRequest(BaseModel):
     answers: List[ScaleAnswerIn]
-
-
-class TobolAnswerIn(BaseModel):
-    question_id: str
-    value: int
-
-
-class TobolSubmitRequest(BaseModel):
-    scale_id: str | None = None
-    answers: List[TobolAnswerIn]
 
 
 class PsqiAnswerIn(BaseModel):
@@ -145,38 +134,6 @@ async def get_hads_definition() -> ScaleDefinitionOut:
     )
 
 
-# ============================================
-#   TOBOL — Тип отношения к болезни
-# ============================================
-
-@router.get("/TOBOL", response_model=ScaleDefinitionOut)
-async def get_tobol_definition() -> ScaleDefinitionOut:
-    scale_config = get_scale_config("TOBOL")
-
-    questions_for_output: List[ScaleQuestionOut] = []
-    for question in scale_config.get("questions", []):
-        options = [
-            ScaleOptionOut(id=opt["id"], text=opt["text"])
-            for opt in question.get("options", [])
-        ]
-
-        questions_for_output.append(
-            ScaleQuestionOut(
-                id=question["id"],
-                text=question["text"],
-                options=options,
-                section=question.get("section"),
-                section_title=question.get("section_title"),
-            )
-        )
-
-    return ScaleDefinitionOut(
-        code=scale_config["code"],
-        title=scale_config["title"],
-        questions=questions_for_output,
-    )
-
-
 
 @router.post("/HADS/submit", response_model=ScaleResultOut)
 async def submit_hads(
@@ -201,48 +158,6 @@ async def submit_hads(
         ) from exc
 
     # сохраняем результат в БД
-    saved = await save_scale_result(
-        session=session,
-        user_id=user.id,
-        scale_code=scale_config["code"],
-        scale_version=scale_config.get("version", ""),
-        result_json=result_json,
-        answers_log=answers_log,
-    )
-
-    return ScaleResultOut(
-        id=saved.id,
-        scale_code=saved.scale_code,
-        scale_version=saved.scale_version,
-        result=result_json,
-        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.now(timezone.utc),
-    )
-
-
-@router.post("/TOBOL/submit", response_model=ScaleResultOut)
-async def submit_tobol(
-    payload: TobolSubmitRequest,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
-) -> ScaleResultOut:
-    """Принимаем ответы по ТОБОЛ, считаем результат и логируем в БД."""
-
-    if payload.scale_id and payload.scale_id.upper() != "TOBOL":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="scale_id должен быть TOBOL",
-        )
-
-    try:
-        scale_config = get_scale_config("TOBOL")
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    try:
-        result_json, answers_log = calculate_tobol_result(scale_config, payload.answers)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
     saved = await save_scale_result(
         session=session,
         user_id=user.id,
@@ -425,6 +340,74 @@ async def submit_pss10(
 
     try:
         result_json, answers_log = calculate_pss10_result(scale_config, payload.answers)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    saved = await save_scale_result(
+        session=session,
+        user_id=user.id,
+        scale_code=scale_config["code"],
+        scale_version=scale_config.get("version", ""),
+        result_json=result_json,
+        answers_log=answers_log,
+    )
+
+    return ScaleResultOut(
+        id=saved.id,
+        scale_code=saved.scale_code,
+        scale_version=saved.scale_version,
+        result=result_json,
+        measured_at=saved.measured_at if isinstance(saved.measured_at, datetime) else datetime.now(timezone.utc),
+    )
+
+
+# ============================================
+#   WCQ (Лазарус) — Опросник совладающего поведения
+# ============================================
+
+@router.get("/WCQ_LAZARUS", response_model=ScaleDefinitionOut)
+async def get_wcq_lazarus_definition() -> ScaleDefinitionOut:
+    """Отдаём структуру опросника WCQ (Лазарус) без баллов."""
+
+    scale_config = get_scale_config("WCQ_LAZARUS")
+
+    questions_for_output: List[ScaleQuestionOut] = []
+    for question in scale_config.get("questions", []):
+        options = [ScaleOptionOut(id=opt["id"], text=opt["text"]) for opt in question["options"]]
+        questions_for_output.append(
+            ScaleQuestionOut(id=question["id"], text=question["text"], options=options)
+        )
+
+    return ScaleDefinitionOut(
+        code=scale_config["code"],
+        title=scale_config["title"],
+        questions=questions_for_output,
+    )
+
+
+@router.post("/WCQ_LAZARUS/submit", response_model=ScaleResultOut)
+async def submit_wcq_lazarus(
+    payload: ScaleSubmitRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> ScaleResultOut:
+    """Принимаем ответы по WCQ (Лазарус), считаем субшкалы и сохраняем в БД.
+
+    Глобальный балл не используется — только 8 субшкальных сумм +
+    нормализованные баллы + adaptive_ratio.
+    Пациенту возвращается только patient_message.
+    """
+
+    try:
+        scale_config = get_scale_config("WCQ_LAZARUS")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        result_json, answers_log = calculate_wcq_lazarus_result(scale_config, payload.answers)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
