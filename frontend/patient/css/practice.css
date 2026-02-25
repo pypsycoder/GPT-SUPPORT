@@ -1,0 +1,233 @@
+/* ============================================================
+   practice.css — страница практики (мобайл-фёрст)
+   ============================================================ */
+
+/* --- Навигация --- */
+.practice-nav {
+  margin-bottom: 16px;
+}
+
+.btn-back {
+  background: none;
+  border: none;
+  color: #6b7280;
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.btn-back:hover {
+  color: #374151;
+}
+
+/* --- Заголовок практики --- */
+.practice-header {
+  margin-bottom: 24px;
+}
+
+.practice-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 8px 0;
+  line-height: 1.3;
+}
+
+.practice-tagline {
+  color: #6b7280;
+  font-size: 0.95rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* --- Инструкция --- */
+.practice-instruction {
+  padding-left: 20px;
+  margin: 0 0 28px 0;
+}
+
+.practice-instruction li {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #1f2937;
+  margin-bottom: 12px;
+  white-space: pre-line;
+}
+
+.practice-instruction li:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Таймер --- */
+.timer-block {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.timer-display {
+  font-size: 2.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #111827;
+  line-height: 1;
+  margin-bottom: 14px;
+  letter-spacing: 2px;
+}
+
+.timer-progress-track {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.timer-progress-bar {
+  height: 100%;
+  background: #2196f3;
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.8s linear;
+}
+
+.timer-controls {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.timer-btn {
+  min-width: 90px;
+  min-height: 44px;
+  font-size: 0.95rem;
+}
+
+/* --- Кнопка ВЫПОЛНЕНО --- */
+.complete-section {
+  margin-bottom: 20px;
+}
+
+.btn-full {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 12px;
+}
+
+/* --- Блок настроения --- */
+.mood-block {
+  text-align: center;
+  padding: 20px 0 8px;
+}
+
+.mood-question {
+  font-size: 1rem;
+  color: #374151;
+  margin: 0 0 18px 0;
+  font-weight: 500;
+}
+
+.mood-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.mood-btn {
+  background: #f3f4f6;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  font-size: 2.2rem;
+  line-height: 1;
+  padding: 14px 20px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  min-width: 72px;
+}
+
+.mood-btn:hover {
+  background: #e5e7eb;
+  border-color: #d1d5db;
+  transform: scale(1.08);
+}
+
+.mood-btn:active {
+  transform: scale(0.96);
+}
+
+.btn-skip {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 0.88rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+}
+
+.btn-skip:hover {
+  color: #6b7280;
+  text-decoration-color: #9ca3af;
+}
+
+/* --- Ошибка --- */
+.practice-error {
+  padding: 32px 0;
+  color: #6b7280;
+  text-align: center;
+}
+
+/* --- Toast --- */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  background: #1f2937;
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  animation: toastIn 0.25s ease;
+  pointer-events: auto;
+}
+
+.toast-success { background: #16a34a; }
+.toast-error   { background: #dc2626; }
+.toast-hide    { animation: toastOut 0.3s forwards; }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastOut {
+  to { opacity: 0; transform: translateY(8px); }
+}
+
+/* --- Адаптив --- */
+@media (max-width: 480px) {
+  .practice-title  { font-size: 1.2rem; }
+  .timer-display   { font-size: 2.2rem; }
+  .mood-btn        { font-size: 1.9rem; padding: 12px 16px; min-width: 60px; }
+  .btn-full        { min-height: 52px; font-size: 1rem; }
+}

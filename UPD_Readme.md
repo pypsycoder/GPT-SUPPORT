@@ -397,3 +397,7 @@ python .\scripts\change_researcher_password.py
 # Тесты
 pytest
 ```
+# Практики загрузка в БД
+
+python scripts/import_practices.py
+# → добавлено 9 / обновлено 0 / ошибок 0

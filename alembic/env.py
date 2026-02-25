@@ -121,7 +121,7 @@ def process_revision_directives(context, revision, directives):
 
 # Только эти схемы участвуют в autogenerate.
 # Всё остальное (системные схемы, сторонние таблицы) — игнорируется.
-_MANAGED_SCHEMAS = {"public", "users", "scales", "vitals", "education", "sleep"}
+_MANAGED_SCHEMAS = {"public", "users", "scales", "vitals", "education", "sleep", "practices"}
 
 
 def include_object(object, name, type_, reflected, compare_to):

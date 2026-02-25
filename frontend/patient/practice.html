@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Практика — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="/frontend/patient/css/style.css">
+  <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
+  <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
+  <link rel="stylesheet" href="/frontend/patient/css/practice.css">
+</head>
+
+<body data-page="practice">
+  <div class="page">
+    <div id="global-header"></div>
+
+    <div class="layout">
+      <div id="sidebar-container"></div>
+
+      <main class="content">
+        <div id="practice-error" class="practice-error" style="display:none">
+          <p>Практика не найдена.</p>
+          <button class="btn btn-secondary" onclick="history.back()">← Назад</button>
+        </div>
+
+        <div id="practice-content" style="display:none">
+          <div class="practice-nav">
+            <button class="btn-back" id="btn-back">← Назад</button>
+          </div>
+
+          <div class="practice-header">
+            <h1 id="practice-title" class="practice-title"></h1>
+            <p id="practice-tagline" class="practice-tagline"></p>
+          </div>
+
+          <ol id="practice-instruction" class="practice-instruction"></ol>
+
+          <div id="timer-block" class="timer-block" style="display:none">
+            <div class="timer-display" id="timer-display">00:00</div>
+            <div class="timer-progress-track">
+              <div class="timer-progress-bar" id="timer-progress-bar"></div>
+            </div>
+            <div class="timer-controls">
+              <button class="btn btn-secondary timer-btn" id="btn-timer-start">Старт</button>
+              <button class="btn btn-secondary timer-btn" id="btn-timer-pause" style="display:none">Пауза</button>
+              <button class="btn btn-secondary timer-btn" id="btn-timer-reset">Сброс</button>
+            </div>
+          </div>
+
+          <div class="complete-section">
+            <button class="btn btn-primary btn-full" id="btn-complete">ВЫПОЛНЕНО</button>
+          </div>
+
+          <div id="mood-block" class="mood-block" style="display:none">
+            <p id="completion-prompt" class="mood-question"></p>
+            <div class="mood-buttons">
+              <button class="mood-btn" data-mood="1" title="Плохо">😔</button>
+              <button class="mood-btn" data-mood="2" title="Нейтрально">😐</button>
+              <button class="mood-btn" data-mood="3" title="Хорошо">😊</button>
+            </div>
+            <button class="btn-skip" id="btn-skip">Пропустить</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/frontend/patient/js/auth.js"></script>
+  <script src="/frontend/patient/js/global_header.js"></script>
+  <script src="/frontend/patient/js/sidebar.js"></script>
+  <script src="/frontend/patient/js/practice.js"></script>
+</body>
+</html>

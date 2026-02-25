@@ -68,6 +68,8 @@
     let lessonTestId = null;
     // урок считается "прочитанным", когда пользователь дошёл до последней карточки
     let lessonMarkedRead = false;
+    // практика для текущего урока (null если нет)
+    let practiceTeaserData = null;
 
     // ============================
     // Отметить урок как "прочитанный"
@@ -285,6 +287,23 @@
     }
 
     // ============================
+    // Загрузка практики для урока
+    // ============================
+    async function loadPracticeForLesson(moduleId) {
+        try {
+            const resp = await fetch(`/api/practices?module_id=${encodeURIComponent(moduleId)}`, {
+                credentials: 'include'
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return (Array.isArray(data) && data.length > 0) ? data[0] : null;
+        } catch (err) {
+            console.warn('Не удалось загрузить практику для модуля:', moduleId, err);
+            return null;
+        }
+    }
+
+    // ============================
     // Рендер текущей карточки
     // ============================
     function renderCurrentCard() {
@@ -429,6 +448,30 @@
         wrapper.appendChild(testBlock);
     }
 
+    // блок практики — только на последней карточке
+    if (isLastCard && practiceTeaserData) {
+        const practiceBlock = document.createElement('div');
+        practiceBlock.className = 'edu-practice-block';
+
+        const practiceLabel = document.createElement('p');
+        practiceLabel.className = 'edu-progress-text';
+        practiceLabel.textContent = 'Практика к этому уроку';
+
+        const practiceTitle = document.createElement('strong');
+        practiceTitle.className = 'edu-practice-title';
+        practiceTitle.textContent = practiceTeaserData.title;
+
+        const practiceBtn = document.createElement('a');
+        practiceBtn.href = `/patient/practice?id=${encodeURIComponent(practiceTeaserData.id)}`;
+        practiceBtn.className = 'edu-nav-btn edu-nav-btn--secondary';
+        practiceBtn.textContent = 'Попробовать →';
+
+        practiceBlock.appendChild(practiceLabel);
+        practiceBlock.appendChild(practiceTitle);
+        practiceBlock.appendChild(practiceBtn);
+        wrapper.appendChild(practiceBlock);
+    }
+
     root.appendChild(wrapper);
     setEducationStatus('none', '');
 }
@@ -487,6 +530,10 @@
 
             // 3. пробуем узнать test_id
             await loadLessonTestInfo();
+
+            // 4. пробуем загрузить практику к этому уроку
+            const moduleId = String(currentLesson.order_index || 0).padStart(2, '0');
+            practiceTeaserData = await loadPracticeForLesson(moduleId);
 
             currentIndex = 0;
             renderCurrentCard();
