@@ -51,3 +51,11 @@ class User(Base):
         foreign_keys="MedicationPrescription.patient_id",
         lazy="select",
     )
+    measurement_points = relationship(
+        "MeasurementPoint",
+        lazy="select",
+    )
+    dialysis_schedules = relationship(
+        "DialysisSchedule",
+        lazy="select",
+    )

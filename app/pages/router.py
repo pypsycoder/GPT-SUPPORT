@@ -131,6 +131,18 @@ async def serve_patient_psqi():
     return FileResponse(FRONTEND_DIR / "patient" / "psqi.html")
 
 
+@router.get("/patient/kdqol", include_in_schema=False)
+async def serve_patient_kdqol():
+    """Опросник KDQOL-SF 1.3."""
+    return FileResponse(FRONTEND_DIR / "patient" / "kdqol.html")
+
+
+@router.get("/patient/pss10", include_in_schema=False)
+async def serve_patient_pss10():
+    """Шкала воспринимаемого стресса ШВС-10 (PSS-10)."""
+    return FileResponse(FRONTEND_DIR / "patient" / "pss10.html")
+
+
 @router.get("/patient/profile", include_in_schema=False)
 async def serve_patient_profile():
     """Профиль пациента."""

@@ -7,7 +7,7 @@
 
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 
@@ -29,6 +29,13 @@ class PatientCreateResponse(BaseModel):
     full_name: Optional[str] = None
 
 
+class KdqolPointStatus(BaseModel):
+    point_type: str  # T0 | T1 | T2
+    is_completed: bool
+    activated_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
 class PatientListItem(BaseModel):
     id: int
     patient_number: Optional[int] = None
@@ -41,6 +48,9 @@ class PatientListItem(BaseModel):
     center_id: Optional[str] = None  # UUID as string for JSON
     center_name: Optional[str] = None
     center_city: Optional[str] = None
+    kdqol_points: List[KdqolPointStatus] = []
+    active_schedule_days: Optional[List[int]] = None   # ISO weekday numbers 1–7
+    active_schedule_shift: Optional[str] = None        # morning|afternoon|evening
 
     model_config = ConfigDict(from_attributes=True)
 

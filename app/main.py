@@ -33,6 +33,7 @@ from app.dialysis.router import router as dialysis_router
 from app.sleep_tracker.router import router as sleep_tracker_router
 from app.routine.router import router as routine_router
 from app.medications.router import router as medications_router
+from app.scales.routers import kdqol_patient_router, kdqol_researcher_router
 from core.db.engine import engine
 
 from fastapi.routing import APIRoute
@@ -105,6 +106,8 @@ app.include_router(pages_router)
 app.include_router(education_router, prefix="/api/v1/education")
 app.include_router(scales_router, prefix="/api/v1/scales", tags=["scales"])
 app.include_router(profile_router, prefix="/api/v1/profile", tags=["profile"])
+app.include_router(kdqol_patient_router, prefix="/api/v1")
+app.include_router(kdqol_researcher_router, prefix="/api/v1")
 
 for route in app.routes:
     if isinstance(route, APIRoute):
@@ -139,6 +142,7 @@ async def startup() -> None:
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "scales"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "sleep"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "medications"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "kdqol"'))
 
         # лёгкий health-check
         result = await conn.execute(text("SELECT 1"))

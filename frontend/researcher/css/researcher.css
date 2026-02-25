@@ -602,8 +602,186 @@ table.r-table {
   margin-bottom: 12px;
 }
 
+/* --- KDQOL measurement points modal --- */
+
+.r-kdqol-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.r-kdqol-row:last-child {
+  border-bottom: none;
+}
+
+.r-kdqol-row-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #111827;
+  min-width: 145px;
+}
+
+.r-kdqol-row-status {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.r-kdqol-status-none {
+  color: #9ca3af;
+}
+
+.r-kdqol-status-pending {
+  color: #d97706;
+}
+
+.r-kdqol-status-done {
+  color: #16a34a;
+}
+
+.r-kdqol-activate-btn {
+  padding: 0.28rem 0.7rem;
+  border-radius: 0.45rem;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.83rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.r-kdqol-activate-btn:hover {
+  background: #1d4ed8;
+}
+
+.r-kdqol-activate-btn:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
 .r-print-card-url {
   font-size: 12px;
   color: #888;
   margin-top: 12px;
+}
+
+/* --- Actions ⋮ dropdown menu --- */
+
+.r-actions-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.r-actions-trigger {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.4rem;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #374151;
+  transition: background 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.r-actions-trigger:hover,
+.r-actions-menu.open .r-actions-trigger {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #2563eb;
+}
+
+.r-actions-dropdown {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.6rem;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  z-index: 200;
+  min-width: 175px;
+  overflow: hidden;
+}
+
+.r-actions-menu.open .r-actions-dropdown {
+  display: block;
+}
+
+.r-actions-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.9rem;
+  text-align: left;
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+
+.r-actions-dropdown button:hover {
+  background: #f0f9ff;
+  color: #2563eb;
+}
+
+.r-actions-dropdown button.danger:hover {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.r-actions-dropdown .r-dropdown-divider {
+  height: 1px;
+  background: #f3f4f6;
+  margin: 0.2rem 0;
+}
+
+/* --- KDQOL mini-badges in table --- */
+
+.r-kdqol-mini {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.r-kdqol-mini-badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.r-kdqol-mini-badge-none {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.r-kdqol-mini-badge-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.r-kdqol-mini-badge-done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+/* --- Schedule cell in table --- */
+.r-schedule-cell {
+  font-size: 0.85rem;
+  color: #374151;
+  white-space: nowrap;
 }

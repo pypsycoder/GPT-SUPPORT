@@ -9,17 +9,18 @@
 
 ## Стек технологий
 
-| Слой | Технология |
-|------|-----------|
-| **Backend** | FastAPI (ASGI, uvicorn) |
-| **Telegram-бот** | aiogram 3.4 |
-| **БД** | PostgreSQL (asyncpg) |
-| **ORM** | SQLAlchemy 2.0 async |
-| **Миграции** | Alembic |
-| **Валидация** | Pydantic 2.5 |
-| **Авторизация** | Session-based + bcrypt |
-| **Frontend** | HTML5 + Vanilla JS + CSS |
-| **Тесты** | pytest + pytest-asyncio |
+
+| Слой                   | Технология     |
+| ---------------------------- | -------------------------- |
+| **Backend**                | FastAPI (ASGI, uvicorn)  |
+| **Telegram-бот**        | aiogram 3.4              |
+| **БД**                   | PostgreSQL (asyncpg)     |
+| **ORM**                    | SQLAlchemy 2.0 async     |
+| **Миграции**       | Alembic                  |
+| **Валидация**     | Pydantic 2.5             |
+| **Авторизация** | Session-based + bcrypt   |
+| **Frontend**               | HTML5 + Vanilla JS + CSS |
+| **Тесты**             | pytest + pytest-asyncio  |
 
 ---
 
@@ -208,6 +209,7 @@ python -m app.bots.tg_bot.main
 ## Модули
 
 ### Авторизация (`app/auth/`)
+
 - **Пациенты**: вход по номеру + 4-значный PIN
 - **Исследователи**: вход по логину + пароль
 - Session-based аутентификация через cookie
@@ -215,12 +217,15 @@ python -m app.bots.tg_bot.main
 - bcrypt-хэширование, генерация session token
 
 ### Пользователи (`app/users/`)
+
 - ORM-модель User (схема `users`)
 - Поиск по telegram_id, patient_number
 - Управление согласиями и профилем
 
 ### Психометрические шкалы (`app/scales/`)
+
 **Реализованы:**
+
 - **HADS** — Госпитальная шкала тревоги и депрессии (14 вопросов)
 - **ТОБОЛ** — Тип отношения к болезни (12 профилей)
 - **КОП-25А1** — Приверженность лечению (25 вопросов, 5 групп)
@@ -229,6 +234,7 @@ python -m app.bots.tg_bot.main
 Каждая шкала: `config/` (структура опросника) + `calculators/` (расчёт баллов) + API endpoints.
 
 ### Витальные показатели (`app/vitals/`)
+
 - Артериальное давление (систолическое/диастолическое)
 - Пульс (уд/мин)
 - Вес (кг)
@@ -237,6 +243,7 @@ python -m app.bots.tg_bot.main
 - API: CRUD + /me-эндпоинты для текущего пользователя
 
 ### Обучение (`app/education/`)
+
 - Уроки (Lesson) с карточками (LessonCard) из Markdown
 - Тесты (LessonTest) с вопросами (LessonTestQuestion)
 - Прогресс прохождения (LessonProgress, LessonTestResult)
@@ -244,14 +251,17 @@ python -m app.bots.tg_bot.main
 - Темы: психология, нефрология
 
 ### Согласия (`app/consent/`)
+
 - Управление согласиями на обработку ПДн
 - GET — текущий статус, POST — принятие
 
 ### Профиль пациента (`app/profile/`)
+
 - Агрегация данных: витальные + шкалы + обучение
 - Обновление ФИО, возраста, пола
 
 ### Панель исследователя (`app/researchers/`)
+
 - Создание пациентов с автогенерацией номера и PIN
 - Сброс PIN
 - Просмотр списка пациентов и их данных
@@ -260,6 +270,7 @@ python -m app.bots.tg_bot.main
 - Импорт расписаний из CSV (preview → подтверждение → применение)
 
 ### Диализные центры и расписания (`app/dialysis/`)
+
 - Справочник центров диализа (название, город, часовой пояс)
 - Расписания диализа: привязка пациента к дням недели и сменам (утро/день/вечер)
 - Soft-close паттерн: расписания не удаляются, а закрываются (аудит-трейл)
@@ -269,6 +280,7 @@ python -m app.bots.tg_bot.main
 - Доступ: только для исследователей
 
 ### Рутинная оценка сна (`app/sleep_tracker/`)
+
 - Ежедневный трекинг сна (или 3–4 раза в неделю)
 - Метрики: время засыпания/пробуждения, TIB (Time In Bed), TST (Total Sleep Time)
 - Расчёт Sleep Efficiency (SE% = TST/TIB × 100)
@@ -280,12 +292,14 @@ python -m app.bots.tg_bot.main
 - API: POST/PUT/GET /sleep/me с пагинацией
 
 ### Telegram-бот (`app/bots/tg_bot/`)
+
 - aiogram 3.x с FSM
 - Inline-меню (/menu)
 - Ввод витальных через бота (АД, пульс, вес)
 - Обработчики: start, consent, questionnaire, vitals
 
 ### Страницы (`app/pages/`)
+
 - Раздача HTML для пациента и исследователя
 - Session-based маршруты: `/patient/...`, `/researcher/...`
 - Новые маршруты: `/patient/sleep_tracker`, `/researcher/centers`, `/researcher/import/schedules`
@@ -297,16 +311,18 @@ python -m app.bots.tg_bot.main
 
 PostgreSQL с разделением по схемам:
 
-| Схема | Назначение |
-|-------|-----------|
-| `users` | Пользователи, согласия, аутентификация |
-| `scales` | Результаты прохождения шкал (ScaleResult) |
-| `vitals` | Измерения АД, пульса, веса, воды |
-| `education` | Уроки, тесты, прогресс, практики |
-| `sleep` | Записи рутинной оценки сна (SleepRecord) |
-| `public` | Служебные (alembic_version), центры диализа, расписания |
+
+| Схема  | Назначение                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| `users`     | Пользователи, согласия, аутентификация                |
+| `scales`    | Результаты прохождения шкал (ScaleResult)                      |
+| `vitals`    | Измерения АД, пульса, веса, воды                               |
+| `education` | Уроки, тесты, прогресс, практики                              |
+| `sleep`     | Записи рутинной оценки сна (SleepRecord)                         |
+| `public`    | Служебные (alembic_version), центры диализа, расписания |
 
 ### Ключевые связи
+
 - `users.users.id` <- `scales.scale_results.user_id`
 - `users.users.id` <- `vitals.bp_measurements.user_id` (и другие витальные)
 - `users.users.id` <- `education.lesson_progress.user_id`
@@ -319,6 +335,7 @@ PostgreSQL с разделением по схемам:
 ## Frontend
 
 ### Интерфейс пациента (`frontend/patient/`)
+
 - Вход по номеру пациента + PIN
 - Главная страница с навигацией
 - Ввод витальных показателей с графиками
@@ -328,6 +345,7 @@ PostgreSQL с разделением по схемам:
 - Профиль с агрегированной сводкой
 
 ### Интерфейс исследователя (`frontend/researcher/`)
+
 - Вход по логину/паролю
 - Панель управления пациентами
 - Создание новых пациентов, сброс PIN
@@ -353,6 +371,7 @@ PostgreSQL с разделением по схемам:
 ## Реабилитационные домены (МКФ)
 
 Проект ориентирован на оценку динамики по доменам МКФ:
+
 - b130 Энергия и мотивация
 - b152 Эмоциональные функции
 - b164 Когнитивные функции
@@ -370,6 +389,10 @@ uvicorn app.main:app --reload
 
 # Telegram-бот
 python -m app.bots.tg_bot.main
+
+# Смена пароля исследователя
+python .\scripts\change_researcher_password.py
+дальше следовать инструкциям
 
 # Тесты
 pytest

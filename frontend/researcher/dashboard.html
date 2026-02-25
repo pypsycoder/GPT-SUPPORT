@@ -99,12 +99,14 @@
               <th>Возраст</th>
               <th>Пол</th>
               <th>Центр диализа</th>
+              <th>Расписание</th>
+              <th>KDQOL</th>
               <th>Статус</th>
-              <th>Действия</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="r-patients-tbody">
-            <tr><td colspan="7" style="text-align:center;color:#9ca3af;">Загрузка...</td></tr>
+            <tr><td colspan="9" style="text-align:center;color:#9ca3af;">Загрузка...</td></tr>
           </tbody>
         </table>
       </div>
@@ -248,6 +250,19 @@
           <button type="button" class="r-modal-btn-secondary" id="schedule-form-cancel">Отмена</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal: KDQOL measurement points -->
+  <div class="r-modal-backdrop" id="modal-kdqol">
+    <div class="r-modal" style="max-width:500px;">
+      <div class="r-modal-title" id="kdqol-modal-title">KDQOL — Пациент</div>
+      <div id="kdqol-points-list">
+        <div style="text-align:center;color:#9ca3af;padding:1rem;">Загрузка...</div>
+      </div>
+      <div class="r-modal-actions" style="margin-top:1.25rem;">
+        <button type="button" class="r-modal-btn-secondary" id="kdqol-modal-close">Закрыть</button>
+      </div>
     </div>
   </div>
 

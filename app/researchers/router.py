@@ -24,6 +24,7 @@ from app.researchers.schemas import (
     PatientDetail,
     PatientCenterAssign,
     PinResetResponse,
+    KdqolPointStatus,
 )
 from app.researchers import crud
 
@@ -52,8 +53,23 @@ async def researcher_stats(
 # Patient list / create
 # ---------------------------------------------------------------------------
 
-def _patient_to_list_item(p) -> PatientListItem:
-    """Build PatientListItem with center info from joined User."""
+def _patient_to_list_item(p, *, measurement_points=None, dialysis_schedules=None) -> PatientListItem:
+    """Build PatientListItem with center, KDQOL points and active schedule."""
+    mp_list = measurement_points if measurement_points is not None else getattr(p, 'measurement_points', []) or []
+    sched_list = dialysis_schedules if dialysis_schedules is not None else getattr(p, 'dialysis_schedules', []) or []
+
+    kdqol_points = [
+        KdqolPointStatus(
+            point_type=mp.point_type,
+            is_completed=mp.completed_at is not None,
+            activated_at=mp.activated_at,
+            completed_at=mp.completed_at,
+        )
+        for mp in mp_list
+    ]
+
+    active_schedule = next((s for s in sched_list if s.valid_to is None), None)
+
     return PatientListItem(
         id=p.id,
         patient_number=p.patient_number,
@@ -66,6 +82,9 @@ def _patient_to_list_item(p) -> PatientListItem:
         center_id=str(p.center_id) if p.center_id else None,
         center_name=p.center.name if p.center else None,
         center_city=p.center.city if p.center else None,
+        kdqol_points=kdqol_points,
+        active_schedule_days=list(active_schedule.weekdays) if active_schedule else None,
+        active_schedule_shift=str(active_schedule.shift) if active_schedule else None,
     )
 
 
@@ -167,7 +186,13 @@ async def assign_patient_center(
     from sqlalchemy.orm import selectinload
     from app.users.models import User
     result = await session.execute(
-        select(User).where(User.id == patient_id).options(selectinload(User.center))
+        select(User)
+        .where(User.id == patient_id)
+        .options(
+            selectinload(User.center),
+            selectinload(User.measurement_points),
+            selectinload(User.dialysis_schedules),
+        )
     )
     user = result.scalar_one()
     return _patient_to_list_item(user)

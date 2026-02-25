@@ -1,0 +1,167 @@
+{
+  "scale": {
+    "id": "pss10",
+    "name": "ШВС-10",
+    "full_name": "Шкала воспринимаемого стресса (Perceived Stress Scale-10)",
+    "authors": "Cohen S., Kamarck T., Mermelstein R. (1983). Русская адаптация: Абабков В.А. и др.",
+    "icf_domain": "d240",
+    "icf_label": "Преодоление стресса и других психологических нагрузок",
+    "period": "last_month",
+    "period_label": "За последний месяц",
+    "total_questions": 10,
+    "min_score": 0,
+    "max_score": 40,
+    "note": "Шкала находится в открытом доступе. Валидирована на русскоязычной популяции."
+  },
+
+  "instruction": "Следующие вопросы касаются ваших мыслей и чувств за последний месяц. В каждом случае укажите, как часто вы чувствовали или думали именно так.",
+
+  "response_options": [
+    { "value": 0, "label": "Никогда" },
+    { "value": 1, "label": "Почти никогда" },
+    { "value": 2, "label": "Иногда" },
+    { "value": 3, "label": "Довольно часто" },
+    { "value": 4, "label": "Очень часто" }
+  ],
+
+  "questions": [
+    {
+      "id": "pss_q1",
+      "number": 1,
+      "text": "Как часто вас расстраивало что-то неожиданное?",
+      "reverse": false,
+      "subscale": "perceived_stress"
+    },
+    {
+      "id": "pss_q2",
+      "number": 2,
+      "text": "Как часто вы чувствовали, что не можете контролировать важные вещи в своей жизни?",
+      "reverse": false,
+      "subscale": "perceived_stress"
+    },
+    {
+      "id": "pss_q3",
+      "number": 3,
+      "text": "Как часто вы чувствовали нервозность и стресс?",
+      "reverse": false,
+      "subscale": "perceived_stress"
+    },
+    {
+      "id": "pss_q4",
+      "number": 4,
+      "text": "Как часто вы чувствовали уверенность в своей способности справляться с личными проблемами?",
+      "reverse": true,
+      "subscale": "perceived_coping"
+    },
+    {
+      "id": "pss_q5",
+      "number": 5,
+      "text": "Как часто вы чувствовали, что дела идут так, как вам хочется?",
+      "reverse": true,
+      "subscale": "perceived_coping"
+    },
+    {
+      "id": "pss_q6",
+      "number": 6,
+      "text": "Как часто вы чувствовали, что не можете справиться со всем, что вам нужно сделать?",
+      "reverse": false,
+      "subscale": "perceived_stress"
+    },
+    {
+      "id": "pss_q7",
+      "number": 7,
+      "text": "Как часто вы могли контролировать раздражители в своей жизни?",
+      "reverse": true,
+      "subscale": "perceived_coping"
+    },
+    {
+      "id": "pss_q8",
+      "number": 8,
+      "text": "Как часто вы чувствовали, что держите всё под контролем?",
+      "reverse": true,
+      "subscale": "perceived_coping"
+    },
+    {
+      "id": "pss_q9",
+      "number": 9,
+      "text": "Как часто вас злили вещи, которые были вне вашего контроля?",
+      "reverse": false,
+      "subscale": "perceived_stress"
+    },
+    {
+      "id": "pss_q10",
+      "number": 10,
+      "text": "Как часто вы чувствовали, что трудностей накопилось так много, что их невозможно преодолеть?",
+      "reverse": false,
+      "subscale": "perceived_stress"
+    }
+  ],
+
+  "scoring": {
+    "method": "sum_with_reversal",
+
+    "reverse_questions": ["pss_q4", "pss_q5", "pss_q7", "pss_q8"],
+    "reverse_formula": "reversed_value = 4 - original_value",
+
+    "direct_questions": ["pss_q1", "pss_q2", "pss_q3", "pss_q6", "pss_q9", "pss_q10"],
+
+    "formula": "total = sum(direct_questions) + sum(reversed_questions)",
+    "range": { "min": 0, "max": 40 },
+
+    "example": {
+      "description": "Пример подсчёта",
+      "pss_q4_raw": 1,
+      "pss_q4_reversed": 3,
+      "note": "Вопрос 4 ответ 1 (Почти никогда) → реверс: 4 - 1 = 3"
+    },
+
+    "thresholds": [
+      {
+        "label": "Низкий уровень стресса",
+        "min": 0,
+        "max": 13,
+        "severity": "low",
+        "icf_qualifier": 0,
+        "icf_label": "Нет нарушения"
+      },
+      {
+        "label": "Умеренный уровень стресса",
+        "min": 14,
+        "max": 26,
+        "severity": "moderate",
+        "icf_qualifier": 2,
+        "icf_label": "Умеренное нарушение"
+      },
+      {
+        "label": "Высокий уровень стресса",
+        "min": 27,
+        "max": 40,
+        "severity": "high",
+        "icf_qualifier": 3,
+        "icf_label": "Тяжёлое нарушение"
+      }
+    ],
+
+    "subscales": {
+      "perceived_stress": {
+        "description": "Субшкала воспринимаемого стресса (прямые вопросы)",
+        "questions": ["pss_q1", "pss_q2", "pss_q3", "pss_q6", "pss_q9", "pss_q10"],
+        "range": { "min": 0, "max": 24 }
+      },
+      "perceived_coping": {
+        "description": "Субшкала воспринимаемого контроля/совладания (реверсированные вопросы)",
+        "questions": ["pss_q4", "pss_q5", "pss_q7", "pss_q8"],
+        "range": { "min": 0, "max": 16 },
+        "note": "Используются реверсированные значения. Высокий балл = хороший контроль."
+      }
+    },
+
+    "critical_implementation_note": "ОБЯЗАТЕЛЬНО: вопросы 4, 5, 7, 8 — реверсные. Перед суммированием применить формулу: reversed = 4 - raw. Без этого итоговый балл будет неверным."
+  },
+
+  "patient_result_texts": {
+    "low": "Уровень стресса сейчас невысокий — вы справляетесь с нагрузками.",
+    "moderate": "Стресс заметен и влияет на самочувствие. Модуль «Стресс» и раздел «Распорядок дня» могут помочь найти точки опоры.",
+    "high": "Уровень стресса сейчас высокий. Важно обсудить это с врачом или психологом — не оставайтесь с этим одни."
+  }
+}

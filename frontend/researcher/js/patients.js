@@ -111,31 +111,89 @@
     return '—';
   }
 
+  function scheduleDisplay(p) {
+    if (!p.active_schedule_days || p.active_schedule_days.length === 0) {
+      return '<span style="color:#9ca3af">—</span>';
+    }
+    var WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    var days = p.active_schedule_days.map(function (d) { return WD[d - 1] || d; }).join('/');
+    var shift = p.active_schedule_shift === 'morning' ? 'Утро'
+              : p.active_schedule_shift === 'afternoon' ? 'День'
+              : p.active_schedule_shift === 'evening' ? 'Вечер' : '';
+    return '<span class="r-schedule-cell">' + days + (shift ? ' · ' + shift : '') + '</span>';
+  }
+
+  function kdqolMiniDisplay(p) {
+    var points = p.kdqol_points || [];
+    var byType = {};
+    points.forEach(function (pt) { byType[pt.point_type] = pt; });
+    var badges = ['T0', 'T1', 'T2'].map(function (type) {
+      var pt = byType[type];
+      var cls = pt
+        ? (pt.is_completed ? 'r-kdqol-mini-badge-done' : 'r-kdqol-mini-badge-pending')
+        : 'r-kdqol-mini-badge-none';
+      return '<span class="r-kdqol-mini-badge ' + cls + '">' + type + '</span>';
+    }).join('');
+    return '<span class="r-kdqol-mini">' + badges + '</span>';
+  }
+
   function renderPatients(patients) {
     if (!patients || patients.length === 0) {
-      patientsBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:2rem;">Нет пациентов</td></tr>';
+      patientsBody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:2rem;">Нет пациентов</td></tr>';
       return;
     }
 
     patientsBody.innerHTML = patients.map(function (p) {
-      var actions = '';
-      actions += '<button class="r-action-btn" onclick="window._openAssignCenterModal(' + p.id + ', \'' + (p.full_name || '').replace(/'/g, "\\'") + '\', \'' + (p.center_id || '').replace(/'/g, "\\'") + '\')">Центр диализа</button>';
-      actions += '<button class="r-action-btn" onclick="window._openScheduleModal(' + p.id + ', \'' + (p.full_name || '').replace(/'/g, "\\'") + '\')">Расписание диализа</button>';
-      if (p.is_locked) {
-        actions += '<button class="r-action-btn" onclick="window._unlockPatient(' + p.id + ')">Разблокировать</button>';
-      }
-      actions += '<button class="r-action-btn" onclick="window._resetPin(' + p.id + ')">Сбросить PIN</button>';
+      var name = (p.full_name || '').replace(/'/g, "\\'");
+      var centerId = (p.center_id || '').replace(/'/g, "\\'");
+      var dropdown =
+        '<div class="r-actions-menu" id="am-' + p.id + '">' +
+          '<button class="r-actions-trigger" onclick="window._toggleActionsMenu(event,' + p.id + ')">&#8942;</button>' +
+          '<div class="r-actions-dropdown">' +
+            '<button onclick="window._closeAllActionsMenus();window._openAssignCenterModal(' + p.id + ',\'' + name + '\',\'' + centerId + '\')">Центр диализа</button>' +
+            '<button onclick="window._closeAllActionsMenus();window._openScheduleModal(' + p.id + ',\'' + name + '\')">Расписание диализа</button>' +
+            '<button onclick="window._closeAllActionsMenus();window._openKdqolModal(' + p.id + ',\'' + name + '\')">KDQOL</button>' +
+            '<div class="r-dropdown-divider"></div>' +
+            '<button onclick="window._closeAllActionsMenus();window._resetPin(' + p.id + ')">Сбросить PIN</button>' +
+            (p.is_locked
+              ? '<button class="danger" onclick="window._closeAllActionsMenus();window._unlockPatient(' + p.id + ')">Разблокировать</button>'
+              : '') +
+          '</div>' +
+        '</div>';
+
       return '<tr>' +
         '<td><strong>' + (p.patient_number || '—') + '</strong></td>' +
         '<td>' + (p.full_name || '—') + '</td>' +
         '<td>' + (p.age || '—') + '</td>' +
         '<td>' + (p.gender || '—') + '</td>' +
         '<td>' + centerDisplay(p) + '</td>' +
+        '<td>' + scheduleDisplay(p) + '</td>' +
+        '<td>' + kdqolMiniDisplay(p) + '</td>' +
         '<td>' + statusBadge(p) + '</td>' +
-        '<td>' + actions + '</td>' +
+        '<td style="text-align:right;">' + dropdown + '</td>' +
         '</tr>';
     }).join('');
   }
+
+  window._closeAllActionsMenus = function () {
+    document.querySelectorAll('.r-actions-menu.open').forEach(function (el) {
+      el.classList.remove('open');
+    });
+  };
+
+  window._toggleActionsMenu = function (event, patientId) {
+    event.stopPropagation();
+    var menu = document.getElementById('am-' + patientId);
+    var isOpen = menu.classList.contains('open');
+    window._closeAllActionsMenus();
+    if (!isOpen) {
+      menu.classList.add('open');
+    }
+  };
+
+  document.addEventListener('click', function () {
+    window._closeAllActionsMenus();
+  });
 
   async function loadPatients() {
     try {
@@ -532,6 +590,107 @@
       alert('Ошибка соединения');
     }
   };
+
+  // =========================================================================
+  // KDQOL measurement points
+  // =========================================================================
+
+  var kdqolModal = document.getElementById('modal-kdqol');
+
+  var KDQOL_POINT_LABELS = {
+    T0: 'T0 — исходный',
+    T1: 'T1 — 6 месяцев',
+    T2: 'T2 — 12 месяцев',
+  };
+
+  window._openKdqolModal = async function (patientId, patientName) {
+    document.getElementById('kdqol-modal-title').textContent = 'KDQOL — ' + (patientName || 'Пациент #' + patientId);
+    kdqolModal.classList.add('visible');
+    await loadKdqolPoints(patientId);
+  };
+
+  async function loadKdqolPoints(patientId) {
+    var container = document.getElementById('kdqol-points-list');
+    container.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:1rem;">Загрузка...</div>';
+    try {
+      var resp = await fetch('/api/v1/researcher/patients/' + patientId + '/measurement-points', {
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        container.innerHTML = '<div style="color:#dc2626;padding:0.5rem;">Ошибка загрузки данных</div>';
+        return;
+      }
+      var points = await resp.json();
+      renderKdqolPoints(points, patientId);
+    } catch (e) {
+      container.innerHTML = '<div style="color:#dc2626;padding:0.5rem;">Ошибка соединения</div>';
+    }
+  }
+
+  function renderKdqolPoints(points, patientId) {
+    var container = document.getElementById('kdqol-points-list');
+    var byType = {};
+    points.forEach(function (p) { byType[p.point_type] = p; });
+
+    var rows = ['T0', 'T1', 'T2'].map(function (type) {
+      var p = byType[type];
+      var label = KDQOL_POINT_LABELS[type];
+
+      if (!p) {
+        return '<div class="r-kdqol-row">' +
+          '<div class="r-kdqol-row-label">' + label + '</div>' +
+          '<div class="r-kdqol-row-status r-kdqol-status-none">Не активирована</div>' +
+          '<button class="r-kdqol-activate-btn" onclick="window._activateKdqolPoint(\'' + type + '\',' + patientId + ')">Активировать</button>' +
+          '</div>';
+      }
+
+      if (p.is_completed) {
+        return '<div class="r-kdqol-row">' +
+          '<div class="r-kdqol-row-label">' + label + '</div>' +
+          '<div class="r-kdqol-row-status r-kdqol-status-done">✓ Завершена ' + formatDateStr(p.completed_at) + '</div>' +
+          '</div>';
+      }
+
+      return '<div class="r-kdqol-row">' +
+        '<div class="r-kdqol-row-label">' + label + '</div>' +
+        '<div class="r-kdqol-row-status r-kdqol-status-pending">⏳ Ожидает пациента (с ' + formatDateStr(p.activated_at) + ')</div>' +
+        '</div>';
+    });
+
+    container.innerHTML = rows.join('');
+  }
+
+  window._activateKdqolPoint = async function (pointType, patientId) {
+    var label = KDQOL_POINT_LABELS[pointType] || pointType;
+    if (!confirm('Активировать точку измерения «' + label + '»?\nПациент сможет пройти опросник KDQOL-SF после этого.')) return;
+
+    var btns = document.querySelectorAll('.r-kdqol-activate-btn');
+    btns.forEach(function (b) { b.disabled = true; });
+
+    try {
+      var resp = await fetch('/api/v1/researcher/patients/' + patientId + '/measurement-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ point_type: pointType }),
+      });
+      if (!resp.ok) {
+        var err = await resp.json().catch(function () { return {}; });
+        var msg = typeof err.detail === 'string' ? err.detail : 'Ошибка активации';
+        alert(msg);
+        btns.forEach(function (b) { b.disabled = false; });
+        return;
+      }
+      await loadKdqolPoints(patientId);
+    } catch (e) {
+      alert('Ошибка соединения');
+      btns.forEach(function (b) { b.disabled = false; });
+    }
+  };
+
+  document.getElementById('kdqol-modal-close').addEventListener('click', function () {
+    kdqolModal.classList.remove('visible');
+  });
 
   // =========================================================================
   // Print card

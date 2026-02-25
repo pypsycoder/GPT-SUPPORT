@@ -1,0 +1,612 @@
+/* ====================================== */
+/* ============== KDQOL ================= */
+/* ====================================== */
+
+/* Primary action button (blue) */
+.kdqol-btn-primary {
+    display: inline-block;
+    background: #1d4ed8;
+    color: #fff;
+    border: none;
+    border-radius: 0.75rem;
+    padding: 0.8rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.08s ease, box-shadow 0.15s ease;
+    text-decoration: none;
+}
+
+.kdqol-btn-primary:hover {
+    background: #1e40af;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(29, 78, 216, 0.3);
+}
+
+.kdqol-btn-primary:disabled {
+    background: #93c5fd;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Next button spacing */
+.kdqol-next-btn {
+    margin-top: 1rem;
+}
+
+/* ─── START SCREEN ──────────────────────────── */
+
+.kdqol-start {
+    text-align: center;
+    padding: 1.5rem 1rem 0.5rem;
+}
+
+.kdqol-start-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.kdqol-start h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 0 0 0.75rem;
+    color: #111827;
+}
+
+.kdqol-start p {
+    color: #4b5563;
+    line-height: 1.65;
+    max-width: 520px;
+    margin: 0 auto 0.6rem;
+    font-size: 0.97rem;
+}
+
+.kdqol-start-meta {
+    font-size: 0.88rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+
+/* ─── WAITING SCREEN ────────────────────────── */
+
+.kdqol-waiting {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: #6b7280;
+}
+
+.kdqol-waiting-icon {
+    font-size: 3rem;
+    margin-bottom: 0.6rem;
+}
+
+.kdqol-waiting h2 {
+    font-size: 1.2rem;
+    color: #374151;
+    margin-bottom: 0.5rem;
+}
+
+.kdqol-waiting p {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    max-width: 420px;
+    margin: 0 auto 1.2rem;
+}
+
+/* ─── RESULT SCREEN ─────────────────────────── */
+
+.kdqol-result {
+    text-align: center;
+    padding: 1.5rem 1rem 0.5rem;
+}
+
+.kdqol-result-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.kdqol-result h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin: 0 0 0.75rem;
+    color: #111827;
+}
+
+.kdqol-result-text {
+    color: #4b5563;
+    font-size: 0.97rem;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+}
+
+.kdqol-advice {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 0.85rem;
+    padding: 0.9rem 1.1rem;
+    color: #1e40af;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    max-width: 480px;
+    margin: 0 auto 1.2rem;
+    text-align: left;
+}
+
+/* ─── SKIP BUTTON (Q20) ─────────────────────── */
+
+.kdqol-skip-row {
+    margin-bottom: 0.75rem;
+    text-align: right;
+}
+
+.kdqol-skip-btn {
+    background: transparent;
+    border: 1px solid #d1d5db;
+    border-radius: 0.6rem;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    color: #6b7280;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.kdqol-skip-btn:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+    color: #374151;
+}
+
+/* ─── COMPACT TABLE (≤ 4 options) ───────────── */
+
+.kdqol-grid-wrapper {
+    overflow-x: auto;
+    margin-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+}
+
+.kdqol-grid-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.kdqol-th-label {
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    font-weight: 500;
+    font-size: 0.82rem;
+    color: #6b7280;
+    background: #f9fafb;
+    border-bottom: 2px solid #e5e7eb;
+    min-width: 180px;
+}
+
+.kdqol-th-option {
+    text-align: center;
+    padding: 0.45rem 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #1d4ed8;
+    background: #eff6ff;
+    border-bottom: 2px solid #e5e7eb;
+    min-width: 70px;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.kdqol-tr-even {
+    background: #ffffff;
+}
+
+.kdqol-tr-odd {
+    background: #f9fafb;
+}
+
+.kdqol-tr-even:hover,
+.kdqol-tr-odd:hover {
+    background: #f0f7ff;
+}
+
+.kdqol-td-label {
+    padding: 0.55rem 0.7rem;
+    font-size: 0.9rem;
+    color: #111827;
+    border-bottom: 1px solid #f3f4f6;
+    line-height: 1.45;
+}
+
+.kdqol-td-radio {
+    text-align: center;
+    padding: 0.5rem 0.4rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.kdqol-radio {
+    cursor: pointer;
+    width: 1.15rem;
+    height: 1.15rem;
+    accent-color: #1d4ed8;
+}
+
+/* ─── STACKED LAYOUT (≥ 5 options) ─────────── */
+
+.kdqol-sub-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.9rem 0.6rem;
+    margin-bottom: 0.55rem;
+    background: #f9fafb;
+}
+
+.kdqol-sub-text {
+    font-size: 0.93rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #111827;
+    line-height: 1.4;
+}
+
+.kdqol-sub-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.kdqol-sub-opt-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0.3rem 0.55rem;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    transition: background 0.1s, border-color 0.1s;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.kdqol-sub-opt-label:hover {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+
+.kdqol-sub-opt-label input[type="radio"] {
+    accent-color: #1d4ed8;
+    cursor: pointer;
+    width: 0.95rem;
+    height: 0.95rem;
+    flex-shrink: 0;
+}
+
+/* ─── SCALE (Q17) ───────────────────────────── */
+
+.kdqol-scale-wrapper {
+    margin: 0.5rem 0 0.75rem;
+}
+
+.kdqol-scale-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    text-align: center;
+    color: #1d4ed8;
+    margin-bottom: 0.4rem;
+    line-height: 1;
+}
+
+.kdqol-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: #dbeafe;
+    outline: none;
+    cursor: pointer;
+    accent-color: #1d4ed8;
+    margin-bottom: 0.4rem;
+}
+
+.kdqol-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #1d4ed8;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(29, 78, 216, 0.35);
+}
+
+.kdqol-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #1d4ed8;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 6px rgba(29, 78, 216, 0.35);
+}
+
+.kdqol-scale-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.82rem;
+    color: #6b7280;
+    margin-top: 0.2rem;
+}
+
+/* ─── NUMBER INPUT ──────────────────────────── */
+
+.kdqol-number-input {
+    display: block;
+    width: 100%;
+    max-width: 180px;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.7rem;
+    padding: 0.65rem 0.85rem;
+    font-size: 1.1rem;
+    font-family: inherit;
+    outline: none;
+    background: #f9fafb;
+    margin-bottom: 0.5rem;
+    -moz-appearance: textfield;
+}
+
+.kdqol-number-input::-webkit-inner-spin-button,
+.kdqol-number-input::-webkit-outer-spin-button {
+    opacity: 1;
+}
+
+.kdqol-number-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    background: #ffffff;
+}
+
+/* ─── CHECKBOX (Q28 multiple) ───────────────── */
+
+.kdqol-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin-bottom: 0.75rem;
+}
+
+.kdqol-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+    padding: 0.45rem 0.65rem;
+    border-radius: 0.6rem;
+    border: 1px solid transparent;
+    transition: background 0.1s, border-color 0.1s;
+}
+
+.kdqol-checkbox-label:hover {
+    background: #f3f4f6;
+    border-color: #e5e7eb;
+}
+
+.kdqol-checkbox {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: #1d4ed8;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* ─── DATE INPUT ────────────────────────────── */
+
+.kdqol-date-input {
+    display: block;
+    width: 100%;
+    max-width: 240px;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.7rem;
+    padding: 0.65rem 0.85rem;
+    font-size: 1rem;
+    font-family: inherit;
+    outline: none;
+    background: #f9fafb;
+    margin-bottom: 0.5rem;
+}
+
+.kdqol-date-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    background: #ffffff;
+}
+
+/* ─── SECTION LABEL ─────────────────────────── */
+
+.kdqol-section-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #6b7280;
+    margin-bottom: 0.6rem;
+}
+
+/* ─── GRID SUBITEM SCREENS (group header + counter) ─ */
+
+.kdqol-sub-group-header {
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #1d4ed8;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 0.55rem;
+    padding: 0.4rem 0.75rem;
+    margin-bottom: 0.6rem;
+    line-height: 1.45;
+}
+
+/* Subitem mini-card (inside split grid chunk) */
+.kdqol-subitem-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.7rem;
+    padding: 0.75rem 0.9rem 0.6rem;
+    margin-bottom: 0.6rem;
+    background: #f9fafb;
+}
+
+.kdqol-subitem-card .hads-question-text {
+    font-size: 0.93rem;
+    margin-bottom: 0.5rem;
+}
+
+.kdqol-subitem-card .hads-options {
+    gap: 0.35rem;
+}
+
+.kdqol-subitem-card .hads-option-btn {
+    padding: 0.45rem 0.8rem;
+    font-size: 0.87rem;
+}
+
+/* ─── NAV ROW (back + next) ─────────────────── */
+
+.kdqol-nav-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+/* Back-only rows (auto-advance types) align left */
+.kdqol-nav-row--back-only {
+    justify-content: flex-start;
+}
+
+.kdqol-back-btn {
+    background: transparent;
+    border: 1px solid #d1d5db;
+    border-radius: 0.65rem;
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: #6b7280;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    white-space: nowrap;
+}
+
+.kdqol-back-btn:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+    color: #374151;
+}
+
+.kdqol-back-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ─── SELECTED OPTION STATE (when returning via back) ─ */
+
+.hads-option-btn.kdqol-option-selected {
+    background: #dbeafe;
+    border-color: #2563eb;
+    color: #1d4ed8;
+}
+
+/* Remove margin-top from next button when inside nav row */
+.kdqol-nav-row .kdqol-next-btn {
+    margin-top: 0;
+}
+
+/* ─── SUBSCALE SCORES BLOCK (result screen) ──── */
+
+.kdqol-scores-section {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #e5e7eb;
+}
+
+.kdqol-scores-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.kdqol-scores-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.kdqol-score-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.85rem;
+    padding: 0.85rem 1rem;
+    background: #f9fafb;
+}
+
+.kdqol-score-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.55rem;
+    line-height: 1.3;
+}
+
+.kdqol-score-bar-wrap {
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 0.35rem;
+}
+
+.kdqol-score-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.45s ease;
+}
+
+.kdqol-score-value {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+}
+
+.kdqol-score-interp {
+    font-size: 0.82rem;
+    color: #6b7280;
+    line-height: 1.45;
+}
+
+/* ─── MOBILE ─────────────────────────────────── */
+
+@media (max-width: 640px) {
+    .kdqol-th-option {
+        min-width: 58px;
+        font-size: 0.72rem;
+        padding: 0.4rem 0.2rem;
+    }
+
+    .kdqol-th-label {
+        min-width: 140px;
+    }
+
+    .kdqol-sub-opt-label {
+        font-size: 0.82rem;
+        padding: 0.28rem 0.45rem;
+    }
+
+    .kdqol-scores-grid {
+        grid-template-columns: 1fr;
+    }
+}

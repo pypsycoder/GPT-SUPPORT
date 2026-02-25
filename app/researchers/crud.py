@@ -78,10 +78,14 @@ async def create_patient(
 
 
 async def list_patients(session: AsyncSession) -> Sequence[User]:
-    """Return all patients ordered by id desc, with center loaded."""
+    """Return all patients ordered by id desc, with center, KDQOL points and schedules loaded."""
     from sqlalchemy.orm import selectinload
     result = await session.execute(
-        select(User).options(selectinload(User.center)).order_by(User.id.desc())
+        select(User)
+        .options(selectinload(User.center))
+        .options(selectinload(User.measurement_points))
+        .options(selectinload(User.dialysis_schedules))
+        .order_by(User.id.desc())
     )
     return result.scalars().all()
 
