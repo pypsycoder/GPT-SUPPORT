@@ -193,16 +193,20 @@
     const toY = val =>
       padTop + drawH - Math.min(Math.max((val - minVal) / range, 0), 1) * drawH;
 
-    // Dynamic bar width: fills full width for any 1–7 points
+    // Dynamic bar width: fills full width for any 1–9 points
     const n = values.length;
     const slotW = VW / n;
-    const barW = Math.max(4, slotW * 0.5);
+    const barW = Math.max(4, slotW * 0.4);
+
+    // SVG wrapper — takes all available width, labels column is separate
+    const svgWrapper = document.createElement('div');
+    svgWrapper.style.cssText = 'flex:1;min-width:0;position:relative;height:100%;overflow:hidden;';
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', '100%');
     svg.setAttribute('height', '100%');
     svg.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
-    // No preserveAspectRatio — use default xMidYMid meet
+    svg.setAttribute('preserveAspectRatio', 'none');
     svg.style.display = 'block';
     svg.style.overflow = 'hidden';
 
@@ -248,7 +252,6 @@
       const y1 = toY(sys);
       const y2 = toY(dia);
 
-      // Main bar
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', String(x));
       line.setAttribute('x2', String(x));
@@ -262,34 +265,26 @@
       title.textContent = `${sys}/${dia} • ${formatDateLabel(item.date)}`;
       line.appendChild(title);
       svg.appendChild(line);
-
-      // White separator overlay
-      const sep = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      sep.setAttribute('x1', String(x));
-      sep.setAttribute('x2', String(x));
-      sep.setAttribute('y1', String(y1));
-      sep.setAttribute('y2', String(y2));
-      sep.setAttribute('stroke', 'white');
-      sep.setAttribute('stroke-width', '1.5');
-      sep.setAttribute('stroke-linecap', 'round');
-      sep.setAttribute('opacity', '0.35');
-      sep.setAttribute('pointer-events', 'none');
-      svg.appendChild(sep);
-
-      // Endpoint dots
-      [y1, y2].forEach(cy => {
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', String(x));
-        circle.setAttribute('cy', String(cy));
-        circle.setAttribute('r', '2.5');
-        circle.setAttribute('fill', color);
-        circle.setAttribute('stroke', 'white');
-        circle.setAttribute('stroke-width', '1.5');
-        svg.appendChild(circle);
-      });
     });
 
-    container.appendChild(svg);
+    svgWrapper.appendChild(svg);
+    container.appendChild(svgWrapper);
+
+    // Labels column (120 / 80) to the right of the chart
+    const labelsCol = document.createElement('div');
+    labelsCol.style.cssText = 'width:22px;flex-shrink:0;position:relative;';
+
+    // container 110px − 4px top padding − 4px bottom padding = 102px content height
+    const svgContentH = 102;
+    [{ val: 120 }, { val: 80 }].forEach(({ val }) => {
+      const topPx = (toY(val) / VH) * svgContentH;
+      const el = document.createElement('span');
+      el.textContent = String(val);
+      el.style.cssText = `position:absolute;left:2px;top:${Math.round(topPx - 7)}px;font-size:10px;font-weight:500;color:#94a3b8;font-family:system-ui,sans-serif;pointer-events:none;line-height:1;`;
+      labelsCol.appendChild(el);
+    });
+
+    container.appendChild(labelsCol);
   }
 
 
@@ -333,6 +328,7 @@
       chartMapper,
       customChartBuilder,
       colorClassifier,
+      chartLimit,
     } = config;
     const latestEl = document.getElementById(`${idPrefix}-latest`);
     const trendEl = document.getElementById(`${idPrefix}-trend`);
@@ -348,7 +344,7 @@
       }
 
       const latest = data[0];
-      const values = data.slice(0, 7).reverse();
+      const values = data.slice(0, chartLimit ?? 7).reverse();
 
       const mapped = values.map((item) => chartMapper(item));
       const chartBuilder = customChartBuilder || buildMiniBarChart;
@@ -448,7 +444,7 @@
     await Promise.all([
       loadVitalsCard({
         idPrefix: 'bp',
-        endpoint: '/api/v1/vitals/bp/me?limit=7&order_by=measured_at desc',
+        endpoint: '/api/v1/vitals/bp/me?limit=9&order_by=measured_at desc',
         formatValue: (item) => `${item.systolic ?? '—'} / ${item.diastolic ?? '—'}`,
         trendSuffix: '',
         chartMapper: (item) => ({
@@ -457,6 +453,7 @@
           date: item.measured_at
         }),
         customChartBuilder: buildBPRangeChart,
+        chartLimit: 9,
       }),
       loadVitalsCard({
         idPrefix: 'pulse',
