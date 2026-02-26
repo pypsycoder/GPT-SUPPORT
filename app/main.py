@@ -35,6 +35,7 @@ from app.routine.router import router as routine_router
 from app.medications.router import router as medications_router
 from app.practices.router import router as practices_router
 from app.scales.routers import kdqol_patient_router, kdqol_researcher_router
+from app.routers.chat import router as chat_router
 from core.db.engine import engine
 
 from fastapi.routing import APIRoute
@@ -103,6 +104,7 @@ app.include_router(sleep_tracker_router, prefix="/api/v1")
 app.include_router(routine_router, prefix="/api/v1")
 app.include_router(medications_router, prefix="/api")
 app.include_router(practices_router, prefix="/api")
+app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(pages_router)
 # app.include_router(education_router, prefix="/api/v1")
 app.include_router(education_router, prefix="/api/v1/education")
@@ -146,6 +148,7 @@ async def startup() -> None:
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "medications"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "kdqol"'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "practices"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "llm"'))
 
         # лёгкий health-check
         result = await conn.execute(text("SELECT 1"))

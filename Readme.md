@@ -1,313 +1,499 @@
-# План проекта
-```
-Пользователи
-|── ФИО
-|── Возраст
-|── Пол
-|── Согласие на обработку и хранение персональных данных
-|── Согласие на использование бота
-|── еще юридические документы 
-|── id на разных платформах
-|   |── Telegram ID
-|   |── MAX
-|   |── еще какие-то пока не готов точно сказать
-Шкалы
-|── HADS
-|── TOBOL
-|── Копинг стратегии по Лазарусу
-|── КОП-25А
-|── KDQOL-SF™
-Жизненные показатели (ввод и вывод динамики в графиках, например, за неделю, месяц, 3 месяца, год)
-|── АД (систолическое и диастолическое)
-|── ЧСС 
-|── Употребленная жидкость
-|── Междиализная прибавка жидкости
-|── Еще что-то
-Обучение
-|── Психология
-|       |── Занятие 1. 
-|       |        |── Образовательные материалы
-|       |        |── Тесты на оценку запоминания теории
-|       |        |── Практики
-|       |── Занятие 2 с той же структурой
-...     ... 
-|       |── Занятие N 
-|── Нефрология
-|       |── Занятие 1. 
-|       |        |── Образовательные материалы
-|       |        |── Тесты на оценку запоминания теории
-|       |        |── Практики
-|       |── Занятие 2 с той же структурой
-...     ... 
-|       |── Занятие N 
-GPT диалог (персонализированный по данным шкал, образования, жизненных показателей и т.д. на основе RAG системы, мотиватор, поддержка)
-|──информация из БД, RAG, контекст 
-|──Напоминания  
-    |── Обучение
-    |── Практика
-    |── Внесение жизненных показателей
-    |── Прием лекарств
-    |── что-то еще...
-```
-# Дерево каталогов 11.11.2025
+# GPT Support — Платформа поддержки пациентов на гемодиализе
 
-```
-.
-├── Readme.md
-├── config.py
-├── requirements.txt
-├── agents/
-│   └── coordinator.py
-├── app/
-│   ├── models/__init__.py
-│   ├── users/
-│   │   ├── __init__.py
-│   │   ├── models.py
-│   │   └── crud.py
-│   ├── scales/
-│   │   ├── models.py
-│   │   ├── crud.py
-│   │   ├── schemas/
-│   │   │   └── hads.py
-│   │   └── fsm/
-│   │       └── questionnaire.py
-│   └── vitals/
-│       ├── __init__.py
-│       ├── models.py
-│       └── crud.py
-├── bots/
-│   ├── shared/utils.py
-│   └── TG_bot/
-│       ├── main.py
-│       ├── routers/user_router.py
-│       ├── handlers/
-│       │   ├── __init__.py
-│       │   ├── start.py
-│       │   ├── consent.py
-│       │   └── questionnaire.py
-│       └── keyboards/
-│           ├── start_keyboard.py
-│           └── consent_keyboard.py
-└── core/
-    └── db/
-        ├── engine.py
-        ├── session.py
-        └── users.py
-```
+Цифровая платформа для мониторинга состояния пациентов на программном гемодиализе.
+Включает психометрические шкалы, трекинг витальных показателей,
+рутинный мониторинг сна, управление распорядком дня, учёт медикаментов,
+управление центрами и расписаниями диализа, образовательные модули,
+панель исследователя и Telegram-бота.
 
-## Telegram Bot MVP
+---
 
-- Команда: `/menu` — главное меню
-- Разделы: Шкалы, Профиль, Обучение, Дневник, Помощь
-- Ввод пульса: «➕ Ввести пульс» → отправьте число, например `78`
-- Требуется `.env`: `BOT_TOKEN`, `DATABASE_URL` (asyncpg)
+## Стек технологий
 
-Запуск:
+| Слой                   | Технология                     |
+| ---------------------- | ------------------------------ |
+| **Backend**            | FastAPI (ASGI, uvicorn)        |
+| **Telegram-бот**       | aiogram 3.4                    |
+| **БД**                 | PostgreSQL (asyncpg)           |
+| **ORM**                | SQLAlchemy 2.0 async           |
+| **Миграции**           | Alembic                        |
+| **Валидация**          | Pydantic 2.5                   |
+| **Авторизация**        | Session-based + bcrypt         |
+| **Frontend**           | HTML5 + Vanilla JS + CSS       |
+| **Тесты**              | pytest + pytest-asyncio        |
+
+---
+
+## Быстрый старт
+
 ```bash
+# 1. Установка зависимостей
+pip install -r requirements.txt
+
+# 2. Настройка .env
+cp .env.example .env
+# Заполнить: DATABASE_URL, BOT_TOKEN
+
+# 3. Миграции
+alembic upgrade head
+
+# 4. Запуск API
+uvicorn app.main:app --reload
+
+# 5. Запуск Telegram-бота (отдельно)
 python -m app.bots.tg_bot.main
 ```
 
-# База данных
-«одна БД PostgreSQL + схемы-per-service».
-## 📦 Структура базы данных
+---
 
-Проект использует PostgreSQL и разделяет данные по схемам. Сейчас в рабочей базе (hemo_db) используются четыре схемы:
+## Архитектура
 
-**users** — всё про пользователя и его согласия
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│  Frontend   │────▶│  FastAPI API  │────▶│ PostgreSQL  │
+│ (HTML/JS)   │     │  (uvicorn)   │     │ (asyncpg)   │
+└─────────────┘     └──────────────┘     └─────────────┘
+                          ▲
+┌─────────────┐           │
+│ Telegram Bot│───────────┘
+│ (aiogram)   │
+└─────────────┘
+```
 
-**scales** — результаты прохождения шкал/опросников (HADS и т.п.)
+- **FastAPI** — REST API для всех модулей
+- **aiogram** — Telegram-бот с FSM для ввода витальных
+- **PostgreSQL** — 9 схем: `users`, `scales`, `vitals`, `education`, `sleep`, `medications`, `kdqol`, `practices`, `routine`
+- **Alembic** — версионирование схемы БД
+- **Frontend** — статические HTML/JS/CSS для пациента, исследователя и врача
 
-**vitals** — показатели жизнедеятельности (АД, ЧСС, междиализная прибавка жидкости и др.)
+---
 
-**public** — служебные таблицы (например, alembic_version)
+## Дерево каталогов (актуальное)
 
-Такое разделение сделано, чтобы потом можно было безболезненно добавлять новые домены (education, rehab и т.п.) и давать к ним доступ разным сервисам.
+```
+.
+├── app/                          # Backend (FastAPI)
+│   ├── main.py                   # Точка входа, регистрация роутеров
+│   ├── models/                   # Общий declarative Base
+│   ├── auth/                     # Авторизация (session, PIN, пароли)
+│   │   ├── router.py             # Login/logout эндпоинты
+│   │   ├── service.py            # Бизнес-логика аутентификации
+│   │   ├── security.py           # bcrypt, токены
+│   │   ├── session_crud.py       # CRUD сессий
+│   │   ├── dependencies.py       # FastAPI Depends (get_current_user)
+│   │   ├── models.py             # ORM: Session
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── users/                    # Пользователи (пациенты)
+│   │   ├── models.py             # ORM: User (+ is_onboarded)
+│   │   ├── crud.py               # CRUD пользователей
+│   │   ├── api.py                # API эндпоинты
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── scales/                   # Психометрические шкалы
+│   │   ├── routers.py            # API: HADS, KOP-25A, PSQI, PSS-10, WCQ + KDQOL
+│   │   ├── services.py           # Реестр конфигов, сохранение результатов
+│   │   ├── registry.py           # Маппинг code -> calculator
+│   │   ├── models.py             # ORM: ScaleResult, MeasurementPoint (KDQOL)
+│   │   ├── config/               # Конфигурации опросников
+│   │   │   ├── hads.py           # HADS: 14 вопросов
+│   │   │   ├── kop_25a1.py       # КОП-25А1: 25 вопросов
+│   │   │   ├── psqi.py           # PSQI: блоки вопросов о сне
+│   │   │   ├── pss10.py          # PSS-10: 10 вопросов
+│   │   │   └── wcq_lazarus.py    # WCQ (Лазарус): копинг-стратегии
+│   │   ├── calculators/          # Калькуляторы баллов
+│   │   │   ├── hads.py           # Тревога + Депрессия
+│   │   │   ├── kop_25a1.py       # Приверженность лечению
+│   │   │   ├── psqi.py           # 7 компонентов качества сна
+│   │   │   ├── pss10.py          # Воспринимаемый стресс
+│   │   │   ├── wcq_lazarus.py    # 8 субшкал совладания
+│   │   │   └── kdqol.py          # Субшкалы KDQOL-SF 1.3
+│   │   └── resources/
+│   │       └── kdqol_sf_structure.json  # Структура вопросов KDQOL-SF
+│   ├── vitals/                   # Витальные показатели
+│   │   ├── router.py             # API: АД, пульс, вес, вода
+│   │   ├── service.py            # Валидация и подготовка данных
+│   │   ├── crud.py               # Генерик-CRUD
+│   │   ├── models.py             # ORM: BP, Pulse, Weight, Water
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── education/                # Обучающие материалы
+│   │   ├── router.py             # API уроков и тестов
+│   │   ├── service.py            # Сервисный слой
+│   │   ├── import_md.py          # Импорт из Markdown
+│   │   ├── models.py             # ORM: Lesson, LessonCard, LessonTest
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── practices/                # Самостоятельные практики (Блок C)
+│   │   ├── router.py             # API: GET/POST практик и завершений
+│   │   ├── models.py             # ORM: Practice, PracticeCompletion
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── medications/              # Медикаменты и назначения
+│   │   ├── router.py             # API: назначения и приёмы
+│   │   ├── service.py            # Бизнес-логика
+│   │   ├── models.py             # ORM: MedicationPrescription, MedicationIntake
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── routine/                  # Распорядок дня (МКФ d230)
+│   │   ├── router.py             # API: базовый шаблон, планы, верификация
+│   │   ├── service.py            # Расчёт и логика планирования
+│   │   ├── crud.py               # CRUD записей
+│   │   ├── models.py             # ORM: BaselineRoutine, DailyPlan, DailyVerification
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── dialysis/                 # Центры и расписания диализа
+│   │   ├── router.py             # API: центры, расписания, CSV-импорт
+│   │   ├── service.py            # is_dialysis_day() — определение дня диализа
+│   │   ├── crud.py               # CRUD центров и расписаний
+│   │   ├── csv_import.py         # Парсинг CSV и preview-подтверждение
+│   │   ├── models.py             # ORM: Center, DialysisSchedule
+│   │   └── schemas.py            # Pydantic-схемы + импорт
+│   ├── sleep_tracker/            # Рутинная оценка сна
+│   │   ├── router.py             # API: /sleep/me (CRUD)
+│   │   ├── service.py            # TIB, SE%, late_entry, dialysis_day
+│   │   ├── crud.py               # CRUD записей сна
+│   │   ├── models.py             # ORM: SleepRecord (схема sleep)
+│   │   └── schemas.py            # Pydantic + enums качества сна
+│   ├── consent/                  # Согласия пациента
+│   │   ├── router.py             # GET/POST согласий
+│   │   ├── service.py            # Бизнес-логика
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── profile/                  # Профиль пациента
+│   │   ├── router.py             # API профиля
+│   │   ├── service.py            # Агрегатор данных (витальные + шкалы + обучение)
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── researchers/              # Панель исследователя
+│   │   ├── router.py             # API панели
+│   │   ├── crud.py               # Создание пациентов, сброс PIN
+│   │   ├── models.py             # ORM: Researcher
+│   │   └── schemas.py            # Pydantic-схемы
+│   ├── pages/                    # Раздача HTML-страниц
+│   │   └── router.py             # Маршруты /patient/... и /researcher/...
+│   ├── bots/                     # Telegram-бот
+│   │   └── tg_bot/
+│   │       ├── main.py           # Инициализация Bot + Dispatcher
+│   │       ├── handlers/         # Обработчики (start, consent, vitals)
+│   │       ├── keyboards/        # Inline/reply клавиатуры
+│   │       ├── routers/          # Роутеры (меню, пользователь)
+│   │       └── middlewares/      # DB middleware
+│   ├── notifications/            # Уведомления (Telegram)
+│   ├── gpt_support/              # GPT-интеграция (заглушка)
+│   └── core/                     # Конфигурация приложения
+│       └── config.py
+├── frontend/                     # Web-клиент
+│   ├── patient/                  # Интерфейс пациента
+│   │   ├── home.html             # Главная страница
+│   │   ├── login.html            # Вход по номеру + PIN
+│   │   ├── onboarding.html       # Онбординг новых пациентов
+│   │   ├── profile.html          # Профиль
+│   │   ├── vitals.html           # Ввод витальных
+│   │   ├── education.html        # Обучение (урок + карточки)
+│   │   ├── education_overview.html  # Навигатор обучения
+│   │   ├── education_test.html   # Тесты к урокам
+│   │   ├── scales_overview.html  # Сводка шкал
+│   │   ├── hads.html             # Опросник HADS
+│   │   ├── kop25a.html           # Опросник КОП-25А
+│   │   ├── psqi.html             # Опросник PSQI
+│   │   ├── pss10.html            # Шкала ШВС-10 (PSS-10)
+│   │   ├── wcq_lazarus.html      # Опросник WCQ (Лазарус)
+│   │   ├── kdqol.html            # Опросник KDQOL-SF 1.3
+│   │   ├── consent.html          # Согласия
+│   │   ├── sleep_tracker.html    # Рутинная оценка сна
+│   │   ├── routine.html          # Распорядок дня (d230)
+│   │   ├── medications.html      # Медикаменты
+│   │   ├── practice.html         # Самостоятельные практики
+│   │   ├── components/           # Переиспользуемые HTML-компоненты
+│   │   │   ├── global_header.html
+│   │   │   └── sidebar.html
+│   │   ├── js/                   # JavaScript-модули
+│   │   └── css/                  # Стили
+│   ├── researcher/               # Интерфейс исследователя
+│   │   ├── login.html            # Вход
+│   │   ├── dashboard.html        # Панель управления
+│   │   ├── centers.html          # Управление центрами диализа
+│   │   ├── import_schedules.html # Импорт расписаний из CSV
+│   │   ├── schedule_import_template.csv  # Шаблон CSV
+│   │   ├── js/
+│   │   └── css/
+│   └── doctor/                   # Интерфейс врача
+│       ├── dashboard.html        # Панель врача
+│       ├── js/
+│       └── css/
+├── core/                         # Ядро (БД)
+│   └── db/
+│       ├── engine.py             # Async engine + session factory
+│       ├── session.py            # Фабрика сессий
+│       └── users.py              # Утилиты пользователей
+├── scripts/                      # Утилиты и скрипты
+│   ├── create_researcher.py      # Создание аккаунта исследователя
+│   ├── create_test_patient.py    # Создание тестового пациента
+│   ├── change_researcher_password.py  # Смена пароля исследователя
+│   ├── import_lesson_from_md.py  # Импорт уроков из Markdown
+│   ├── import_lesson_test_from_json.py  # Импорт тестов к урокам
+│   ├── import_practices.py       # Импорт самостоятельных практик
+│   ├── seed_education_lessons.py # Первичная загрузка уроков
+│   ├── init_db_from_models.py    # Инициализация таблиц
+│   └── ...                       # Диагностика, миграции
+├── alembic/                      # Миграции БД
+│   ├── env.py
+│   └── versions/
+├── content/                      # Образовательный контент (.md)
+│   ├── education/
+│   │   ├── psychology/           # Контент блока «Здоровый ум»
+│   │   └── nephrology/           # Контент блока «Жизнь на диализе»
+│   └── practice/
+│       └── practices_block_a.md  # 9 самостоятельных практик
+├── agents/                       # AI-агенты (заглушка)
+├── config.py                     # Корневой конфиг (.env)
+├── requirements.txt              # Зависимости Python
+├── alembic.ini                   # Конфигурация Alembic
+└── pytest.ini                    # Конфигурация pytest
+```
 
-### 1. Схема users
+---
 
-Хранит “личное дело” пользователя бота.
+## Модули
 
-Таблица: **users.users**
+### Авторизация (`app/auth/`)
 
-Поле	Тип	Описание
-id	integer (PK, identity)	Внутренний идентификатор пользователя
-full_name	varchar	Имя/ФИО из Telegram (сохраняем как прислал пользователь)
-age	integer	Возраст (может быть NULL, если пользователь не заполнил)
-gender	varchar	Пол (опционально)
-consent_personal_data	boolean	Согласие на обработку ПДн
-consent_bot_use	boolean	Согласие на использование бота
-telegram_id	varchar (unique)	Связь с аккаунтом Telegram, по нему находим пользователя
+- **Пациенты**: вход по номеру + 4-значный PIN
+- **Исследователи**: вход по логину + пароль
+- Session-based аутентификация через cookie
+- Блокировка после 7 неудачных попыток PIN
+- bcrypt-хэширование, генерация session token
+- Онбординг: флаг `is_onboarded` на модели User
 
-_Особенности_:
+### Психометрические шкалы (`app/scales/`)
 
-telegram_id — это рабочий ключ для бота.
+**Реализованы:**
 
-consent_* ставятся не при регистрации, а после нажатия на кнопку согласия.
+- **HADS** — Госпитальная шкала тревоги и депрессии (14 вопросов)
+- **КОП-25А1** — Приверженность лечению (25 вопросов, 5 групп)
+- **PSQI** — Питтсбургский опросник качества сна (7 компонентов + клинические флаги)
+- **PSS-10 (ШВС-10)** — Шкала воспринимаемого стресса (10 вопросов)
+- **WCQ Лазарус** — Способы совладающего поведения (8 субшкал, adaptive_ratio)
+- **KDQOL-SF 1.3** — Качество жизни при болезни почек (точки измерения T0/T1/T2, CSV-экспорт)
 
-Все хэндлеры должны работать через telegram_id, а не через id, но внешние ключи ссылаются именно на id.
+Каждая шкала: `config/` (структура опросника) + `calculators/` (расчёт баллов) + API endpoints.
 
-### 2. Схема scales
+> Шкала **ТОБОЛ** удалена (миграция `20260225_01_remove_tobol_scale_results.py`).
 
-Хранит все прохождения опросников/шкал.
+### Витальные показатели (`app/vitals/`)
 
-Таблица: scales.responses
+- Артериальное давление (систолическое/диастолическое)
+- Пульс (уд/мин)
+- Вес (кг)
+- Водный баланс (мл)
+- Контекст измерения (до/после диализа, утро, вечер)
+- API: CRUD + /me-эндпоинты для текущего пользователя
 
-Поле	Тип	Описание
-id	integer (PK, identity)	Уникальная запись попытки прохождения
-user_id	integer (FK → users.users.id)	Кто проходил шкалу
-scale_code	varchar	Код шкалы (например, HADS, TOBOL, VITALS)
-version	varchar	Версия/вариант опросника (на будущее)
-started_at	timestamp	Когда пользователь начал
-completed_at	timestamp	Когда закончил
-raw_answers	json	Сырые ответы пользователя по шагам FSM
-result	json	Уже посчитанный результат (баллы, подшкалы и т.п.)
-interpretation	varchar	Человеко-читаемая интерпретация (“умеренная тревога”, “нет депрессии”)
+### Обучение (`app/education/`)
 
-🔗 _Связь_:
+- Уроки (Lesson) с карточками (LessonCard) из Markdown
+- Тесты (LessonTest) с вопросами (LessonTestQuestion)
+- Прогресс прохождения (LessonProgress, LessonTestResult)
+- Блоки контента: `psychology` («Здоровый ум»), `nephrology` («Жизнь на диализе»)
+- Импорт: `scripts/import_lesson_from_md.py`, `scripts/import_lesson_test_from_json.py`
 
-scales.responses.user_id → users.users.id
+### Самостоятельные практики (`app/practices/`)
 
-стоит внешний ключ, поэтому удалить пользователя нельзя, пока у него есть ответы (мы это уже поймали). В рабочем режиме это нормальное поведение.
+- Независимые упражнения (Блок C): дыхательные, телесные, поведенческие
+- Модели: `Practice`, `PracticeCompletion` (схема `practices`)
+- Endpoints: `GET /api/practices`, `GET /api/practices/{id}`, `POST /api/practices/{id}/complete`
+- Контент: `content/practice/practices_block_a.md` (9 практик)
+- Импорт: `scripts/import_practices.py`
 
-### 3. Схема vitals
+### Медикаменты (`app/medications/`)
 
-Хранит измерения жизненно важных показателей.
+- Назначения препаратов (`MedicationPrescription`): название, доза, схема приёма, статус
+- Журнал фактических приёмов (`MedicationIntake`): слоты (morning/afternoon/evening), ретроспектива
+- Схема БД: `medications`
+- Поддержка самоназначения и врачебных назначений
 
-Таблица: **vitals.measurements**
+### Распорядок дня / рутина (`app/routine/`)
 
-Поле    Тип     Описание
-id      integer (PK, identity)  Уникальная запись измерения
-user_id integer (FK → users.users.id)   Пациент, которому принадлежит измерение
-bp_sys integer Систолическое давление
-bp_dia integer Диастолическое давление
-pulse  integer Пульс
-fluid_intake    numeric Объём принятой жидкости/междиализной прибавки
-measured_at     timestamp (server default now)  Время фиксации показателей
+- МКФ домен **d230**: мониторинг повседневных активностей
+- Онбординг: базовый шаблон рутины (`BaselineRoutine`) с версионированием
+- Ежедневный план (`DailyPlan`): шаблонные и кастомные активности
+- Верификация выполнения (`DailyVerification`): оценка контроля дня
+- Шаблоны для диализных и недиализных дней
+- Схема БД: `routine`
 
-🔗 _Связь_:
+### Согласия (`app/consent/`)
 
-`vitals.measurements.user_id` → `users.users.id`
+- Управление согласиями на обработку ПДн
+- GET — текущий статус, POST — принятие
 
-Это позволяет строить графики динамики давления, пульса и жидкости для каждого пользователя.
+### Профиль пациента (`app/profile/`)
 
-### Схема public
+- Агрегация данных: витальные + шкалы + обучение
+- Обновление ФИО, возраста, пола
 
-Служебные вещи:
+### Панель исследователя (`app/researchers/`)
 
-public.alembic_version — фиксация миграций
+- Создание пациентов с автогенерацией номера и PIN
+- Сброс PIN
+- Просмотр списка пациентов и их данных
+- Управление центрами диализа
+- Назначение расписаний диализа пациентам
+- Активация точек измерения KDQOL (T0/T1/T2)
+- CSV-экспорт результатов KDQOL
 
-сюда можно складывать общие справочники, если не хочется делать отдельную схему
+### Диализные центры и расписания (`app/dialysis/`)
 
-🔗 _Связи_
+- Справочник центров диализа (название, город, часовой пояс)
+- Расписания диализа: привязка пациента к дням недели и сменам (утро/день/вечер)
+- Soft-close паттерн: расписания не удаляются, а закрываются (аудит-трейл)
+- CSV-импорт расписаний: двухшаговый процесс (preview → confirm)
+- Сервис `is_dialysis_day()` — используется модулями vitals, sleep_tracker, routine
+- Доступ: только для исследователей
 
-1 пользователь → много прохождений шкал
-users.users (id) ←→ scales.responses (user_id)
+### Рутинная оценка сна (`app/sleep_tracker/`)
 
-Это основной сценарий: пользователь зашёл в бота → дал согласие → прошёл HADS → запись упала в scales.responses.
+- Ежедневный трекинг сна
+- Метрики: TIB (Time In Bed), TST (Total Sleep Time), Sleep Efficiency (SE%)
+- Нарушения сна: боль, зуд, ноктурия, СБН, тревога, шум
+- Автоматическая привязка к дню диализа
+- Защита от дубликатов (unique constraint: patient + date)
+- API: POST/PUT/GET /sleep/me с пагинацией
 
-# Ключевые файлы и директории
+### Telegram-бот (`app/bots/tg_bot/`)
 
-- `Readme.md` — концептуальное описание будущего функционала: перечень сущностей (пользователи, шкалы, жизненные показатели, обучающие блоки), структура БД и обзор основных модулей проекта.
-- `requirements.txt` — зависимости Python-проекта (aiogram, SQLAlchemy, asyncpg, python-dotenv и др.) для работы бота, асинхронного доступа к БД и загрузки окружения.
-- `config.py` — загрузка переменных окружения из `.env` и проверка наличия токена бота и строки подключения к базе, чтобы запуск не проходил с пустыми значениями.
+- aiogram 3.x с FSM
+- Inline-меню (/menu)
+- Ввод витальных через бота (АД, пульс, вес)
+- Обработчики: start, consent, questionnaire, vitals
 
-## agents
+### Страницы (`app/pages/`)
 
-- `coordinator.py` — точка входа сценариев мультиагентной координации: описывает роли агентов и маршрутизацию их диалогов.
+- Раздача HTML для пациента, исследователя и врача
+- **Пациент:** `/patient/home`, `/patient/vitals`, `/patient/education`, `/patient/education_overview`, `/patient/education_test`, `/patient/scales`, `/patient/hads`, `/patient/kop25a`, `/patient/psqi`, `/patient/pss10`, `/patient/wcq_lazarus`, `/patient/kdqol`, `/patient/sleep_tracker`, `/patient/routine`, `/patient/medications`, `/patient/practice`, `/patient/profile`, `/patient/onboarding`
+- **Исследователь:** `/researcher/dashboard`, `/researcher/centers`, `/researcher/import/schedules`
 
-## core/db
+---
 
-- `engine.py` — создаёт асинхронный SQLAlchemy engine с жестко прописанной строкой подключения к PostgreSQL через asyncpg и включает подробный лог SQL.
-- `session.py` — фабрика асинхронных сессий (`sessionmaker`) на базе engine для повторного использования соединений в приложении.
-- `users.py` — вспомогательный слой для получения пользователя по Telegram ID; обращается к модели `User` (ожидаемой в `core.db.models`, но фактически определённой в `app.users.models`).
-## app/models
+## База данных
 
-- `app/models/__init__.py` — определяет общий `declarative_base` для всех ORM-моделей проекта, чтобы объединять таблицы при миграциях/инициализации.
+PostgreSQL с разделением по схемам:
 
-## app/users
+| Схема         | Назначение                                                         |
+| ------------- | ------------------------------------------------------------------ |
+| `users`       | Пользователи, согласия, аутентификация                             |
+| `scales`      | Результаты прохождения шкал (ScaleResult)                          |
+| `vitals`      | Измерения АД, пульса, веса, воды                                   |
+| `education`   | Уроки, тесты, прогресс, практики к урокам                          |
+| `sleep`       | Записи рутинной оценки сна (SleepRecord)                           |
+| `medications` | Назначения и журнал приёмов медикаментов                           |
+| `kdqol`       | Точки измерения и субшкальные оценки KDQOL-SF 1.3                  |
+| `practices`   | Самостоятельные практики и факты выполнения                        |
+| `routine`     | Базовые шаблоны, дневные планы и верификации рутины                |
+| `public`      | Служебные (alembic_version), центры диализа, расписания            |
 
-- `models.py` — ORM-модель пользователя с хранением в схеме `users`: включает Telegram ID, ФИО и два флага согласий.
-- `crud.py` — асинхронные операции над пользователями: поиск по Telegram ID, создание записи с дефолтными согласиями и обновление флагов после подтверждения; логирование покрывает основные ветки выполнения.
+### Ключевые связи
 
-## app/scales
+- `users.users.id` ← `scales.scale_results.user_id`
+- `users.users.id` ← `vitals.bp_measurements.user_id` (и другие витальные)
+- `users.users.id` ← `education.lesson_progress.user_id`
+- `users.users.id` ← `sleep.sleep_records.patient_id`
+- `users.users.id` ← `dialysis_schedules.patient_id`
+- `users.users.id` ← `medications.medication_prescriptions.patient_id`
+- `users.users.id` ← `routine.daily_plans.patient_id`
+- `users.users.id` ← `practices.practice_completions.user_id`
+- `users.users.center_id` → `centers.id`
 
-- `models.py` — модели черновиков и результатов прохождения шкал (JSON-поля для ответов, коды шкал, временные метки, интерпретации) в схеме `scales`.
-- `crud.py` — управление опросами: создание/обновление/удаление черновиков, подсчёт суммарных баллов по шкалам и сохранение финальных результатов в `ScaleResponse`. Использует фабрику сессий и метаданные шкалы для интерпретации ответов.
-- `schemas/hads.py` — декларативное описание шкалы HADS: вопросы, варианты ответов, шкальные обозначения, пороговые значения и текстовые интерпретации для тревожности и депрессии.
-- `fsm/questionnaire.py` — конечный автомат aiogram для проведения опроса: проверяет регистрацию и согласия, поднимает черновик или продолжает с текущего вопроса, строит inline-клавиатуры по опциям и сохраняет ответы; по завершении удаляет черновик и пишет результат.
+---
 
-## app/vitals
+## Frontend
 
-- `models.py` — ORM-описание витальных показателей в схеме `vitals`: фиксирует измерения давления, пульса, веса, баланса жидкости и временные метки.
-- `crud.py` — базовые сценарии работы с витальными данными: добавление новых записей, выборка истории пользователя и подготовка агрегатов для графиков.
-- `__init__.py` — экспонирует модели витальных показателей и подключает их к общему declarative base.
+### Интерфейс пациента (`frontend/patient/`)
 
-## bots/shared
+- Вход по номеру пациента + PIN
+- Онбординг при первом входе (`is_onboarded`)
+- Главная страница с навигацией
+- Ввод витальных показателей с графиками
+- Прохождение психометрических шкал
+- Обучающие материалы (карточки) с тестами
+- Самостоятельные практики (дыхательные, телесные, поведенческие)
+- Рутинная оценка сна
+- Распорядок дня: планер + вечерняя верификация
+- Учёт медикаментов: назначения и журнал приёмов
+- Профиль с агрегированной сводкой
 
-- `utils.py` — настройка общего логгера `gpt-support` с выводом в stdout и единым форматированием, уровень по умолчанию DEBUG.
-    
+### Интерфейс исследователя (`frontend/researcher/`)
 
-## app/bots/tg_bot
+- Вход по логину/паролю
+- Панель управления пациентами
+- Создание новых пациентов, сброс PIN
+- Управление центрами диализа
+- Импорт расписаний из CSV (3-шаговый процесс: загрузка → preview → применение)
+- Активация точек измерения KDQOL и CSV-экспорт результатов
 
-- `main.py` — точка входа Telegram-бота: создаёт `Bot` и `Dispatcher`, регистрирует inline-меню и пользовательские роутеры, при старте создаёт схемы `users`/`scales`/`vitals` и таблицы по общему `Base`, затем запускает polling.
-- `routers/menu_inline.py` — главное меню на inline-кнопках: обрабатывает `/menu`, редактирует сообщения при переходе по разделам и экспортирует callback-хэндлеры для разделов.
-- `routers/menu.py` — вспомогательное меню на reply-клавиатуре (`/menu_reply`) для быстрых сценариев и обратной совместимости.
-- `routers/user_router.py` — агрегирует пользовательские обработчики (start, consent, questionnaire) в общем роутере для диспетчера.
-- `handlers/start.py` — обработчик `/start`: ищет или создаёт пользователя, показывает inline-меню после проверки согласия.
-- `handlers/consent.py` — реакции на inline-кнопки согласия: обновляет флаг в базе и открывает inline-меню.
-- `handlers/questionnaire.py` — подключает FSM опроса из модуля шкал к маршрутам бота.
-- `keyboards/inline.py` — набор inline-клавиатур для главного меню и разделов.
-- `keyboards/consent_keyboard.py` — inline-клавиатура с кнопками согласия/отказа.
-- `keyboards/common.py` — вспомогательные reply-клавиатуры для старых сценариев меню.
+### Интерфейс врача (`frontend/doctor/`)
 
-## Прочее
+- Панель мониторинга (в разработке)
 
-- `Readme.md` также фиксирует принцип построения БД (одна PostgreSQL с отдельными схемами на сервис) и кратко описывает предназначение директорий, подтверждая архитектурный замысел проекта.
+---
 
-# 🧩 Модули, которые в разработке (Roadmap)
-## В разработке:
-- Сервис vitals — трекинг давления, пульса, веса
-- Education — обучающие сценарии с тестами и упражнениями
-- Rehab Metrics (МКФ) — оценка динамики по ключевым доменам
-- RAG-система — персонализация диалогов GPT по данным пациента
-- Web-панель врача (FastAPI + Jinja + Auth)
+## Импорт контента
 
-# 🧠 RAG и GPT-агенты
+```bash
+# Уроки psychology (с очисткой)
+d:/PROJECT/venv/venv311/.venv/Scripts/python scripts/import_lesson_from_md.py \
+  --block psychology --clear --dir content/education/psychology
 
-## Будущее расширение: GPT Health Support Agents
-- Coordinator Agent — управляет потоками взаимодействия
-- RAG Agent — отвечает с учётом персональных данных (scales, vitals)
-- Motivator Agent — мягкая поддержка и напоминания
-- Education Agent — обучающие сценарии и тесты
+# Тесты psychology
+d:/PROJECT/venv/venv311/.venv/Scripts/python scripts/import_lesson_test_from_json.py \
+  --block psychology --dir content/education/psychology
 
-# 📚 Реабилитационные домены (МКФ)
-Проект ориентирован на оценку динамики по МКФ-доменам:
+# Уроки nephrology
+d:/PROJECT/venv/venv311/.venv/Scripts/python scripts/import_lesson_from_md.py \
+  --block nephrology --dir content/education/nephrology
+
+# Тесты nephrology
+d:/PROJECT/venv/venv311/.venv/Scripts/python scripts/import_lesson_test_from_json.py \
+  --block nephrology --dir content/education/nephrology
+
+# Самостоятельные практики
+python scripts/import_practices.py
+# → добавлено 9 / обновлено 0 / ошибок 0
+```
+
+---
+
+## Запуск
+
+```bash
+# API (основное приложение)
+uvicorn app.main:app --reload
+
+# Telegram-бот
+python -m app.bots.tg_bot.main
+
+# Смена пароля исследователя
+python scripts/change_researcher_password.py
+# (следовать инструкциям)
+
+# Тесты
+pytest
+```
+
+---
+
+## Roadmap (в разработке)
+
+- **RAG-система** — персонализация диалогов GPT по данным пациента
+- **GPT Health Support Agents:**
+  - Coordinator Agent — управление потоками
+  - RAG Agent — ответы с учётом данных (scales, vitals)
+  - Motivator Agent — поддержка и напоминания
+  - Education Agent — обучающие сценарии
+- **Уведомления** — напоминания об обучении, практиках, витальных
+- **Панель врача** — расширенный мониторинг
+- **Rehab Metrics (МКФ)** — оценка динамики по доменам
+
+---
+
+## Реабилитационные домены (МКФ)
+
+Проект ориентирован на оценку динамики по доменам МКФ:
+
 - b130 Энергия и мотивация
 - b152 Эмоциональные функции
 - b164 Когнитивные функции
-- d230 Выполнение повседневных задач
+- **d230 Выполнение повседневных задач** ← реализован модуль `routine`
 - d570 Самообслуживание
 - d760 Межличностные отношения
-
-
-## Структура проекта (high-level)
-
-- `app/` — backend (Python):
-  - `users/` — модели и логика пользователей
-  - `vitals/` — витальные показатели (АД, пульс, вес и т.д.)
-  - `scales/` — шкалы (HADS и др.)
-  - `education/` — обучающие материалы (заглушка)
-  - `gpt_support/` — заглушка под LLM-агентов
-  - `notifications/` — заглушка под систему уведомлений
-  - `bots/` — адаптеры для ботов (Telegram и др.)
-
-- `frontend/` — web-клиент (HTML/JS/CSS):
-  - `patient/` — интерфейс пациента (опросы, витальные)
-  - `doctor/` — интерфейс врача (панель мониторинга)
-  - `assets/` — общие ресурсы (иконки, стили и т.п.)
-
-# Заметки
-
-## Комманда запуска приложения:
-(.venv) PS D:\PROJECT\GPT-SUPPORT> uvicorn app.main:app --reload
-

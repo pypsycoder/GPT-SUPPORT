@@ -61,6 +61,7 @@ import app.vitals.models  # noqa: F401
 import app.dialysis.models  # noqa: F401
 import app.sleep_tracker.models  # noqa: F401
 import app.medications.models  # noqa: F401
+import app.models.llm  # noqa: F401
 
 target_metadata = Base.metadata
 
@@ -121,7 +122,7 @@ def process_revision_directives(context, revision, directives):
 
 # Только эти схемы участвуют в autogenerate.
 # Всё остальное (системные схемы, сторонние таблицы) — игнорируется.
-_MANAGED_SCHEMAS = {"public", "users", "scales", "vitals", "education", "sleep", "practices"}
+_MANAGED_SCHEMAS = {"public", "users", "scales", "vitals", "education", "sleep", "practices", "llm"}
 
 
 def include_object(object, name, type_, reflected, compare_to):
@@ -270,7 +271,7 @@ def run_migrations_online() -> None:
         print(f"\n[ALEMBIC DEBUG] DB={db_name}, host={server_addr}, port={server_port}\n")
 
         # создаём схемы и сразу коммитим — отдельно от миграций
-        for schema in ("users", "scales", "vitals"):
+        for schema in ("users", "scales", "vitals", "llm"):
             connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         connection.commit()
 

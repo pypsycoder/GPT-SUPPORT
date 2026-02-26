@@ -19,6 +19,7 @@ from app.sleep_tracker import models as sleep_tracker_models  # noqa: F401
 from app.routine import models as routine_models  # noqa: F401
 from app.medications import models as medications_models  # noqa: F401
 from app.practices import models as practices_models  # noqa: F401
+from app.models import llm as llm_models  # noqa: F401
 
 
 __all__ = [
