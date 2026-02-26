@@ -76,3 +76,47 @@ class PinResetResponse(BaseModel):
 class PatientCenterAssign(BaseModel):
     """Request body for assigning a dialysis center to a patient."""
     center_id: Optional[UUID] = None  # None = clear assignment
+
+
+# ---------------------------------------------------------------------------
+# Chat log monitoring schemas
+# ---------------------------------------------------------------------------
+
+class ChatLogItem(BaseModel):
+    """One row in the chat monitoring table — one LLM API call = one turn."""
+    log_id: int
+    patient_id: int
+    created_at: datetime
+    domain: Optional[str] = None
+    request_type: Optional[str] = None
+    model_tier: Optional[str] = None
+    user_content: Optional[str] = None
+    assistant_content: Optional[str] = None
+    tokens_input: int = 0
+    tokens_output: int = 0
+    response_time_ms: int = 0
+    success: bool = True
+    error_message: Optional[str] = None
+
+
+class ChatLogsResponse(BaseModel):
+    total: int
+    safety_today: int
+    avg_response_ms: float
+    items: List[ChatLogItem]
+
+
+# ---------------------------------------------------------------------------
+# Chat analytics schemas
+# ---------------------------------------------------------------------------
+
+class TokensByDate(BaseModel):
+    date: str
+    input: int
+    output: int
+
+
+class ChatStatsResponse(BaseModel):
+    tokens_by_date: List[TokensByDate]
+    models_distribution: dict
+    domains_distribution: dict

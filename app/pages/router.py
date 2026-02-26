@@ -61,6 +61,12 @@ async def serve_researcher_import_schedules():
     return FileResponse(FRONTEND_DIR / "researcher" / "import_schedules.html")
 
 
+@router.get("/researcher/chat-monitor", include_in_schema=False)
+async def serve_researcher_chat_monitor():
+    """Мониторинг чатов — журнал LLM-взаимодействий."""
+    return FileResponse(FRONTEND_DIR / "researcher" / "chat_monitor.html")
+
+
 # ============================================
 #   Пациент — session-based страницы (/patient/...)
 # ============================================

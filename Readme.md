@@ -62,7 +62,7 @@ python -m app.bots.tg_bot.main
 
 - **FastAPI** — REST API для всех модулей
 - **aiogram** — Telegram-бот с FSM для ввода витальных
-- **PostgreSQL** — 9 схем: `users`, `scales`, `vitals`, `education`, `sleep`, `medications`, `kdqol`, `practices`, `routine`
+- **PostgreSQL** — 10 схем: `users`, `scales`, `vitals`, `education`, `sleep`, `medications`, `kdqol`, `practices`, `routine`, `llm`
 - **Alembic** — версионирование схемы БД
 - **Frontend** — статические HTML/JS/CSS для пациента, исследователя и врача
 
@@ -148,6 +148,11 @@ python -m app.bots.tg_bot.main
 │   │   ├── crud.py               # CRUD записей сна
 │   │   ├── models.py             # ORM: SleepRecord (схема sleep)
 │   │   └── schemas.py            # Pydantic + enums качества сна
+│   ├── llm/                      # LLM-слой: маршрутизация, ключевые слова, промпты
+│   │   ├── router.py             # API endpoint для LLM-support
+│   │   ├── service.py            # Бизнес-логика работы с LLM
+│   │   ├── keywords.py           # Доменные ключевые слова и эвристики
+│   │   └── prompts/              # Текстовые промпты по доменам
 │   ├── consent/                  # Согласия пациента
 │   │   ├── router.py             # GET/POST согласий
 │   │   ├── service.py            # Бизнес-логика
@@ -381,6 +386,7 @@ PostgreSQL с разделением по схемам:
 | `kdqol`       | Точки измерения и субшкальные оценки KDQOL-SF 1.3                  |
 | `practices`   | Самостоятельные практики и факты выполнения                        |
 | `routine`     | Базовые шаблоны, дневные планы и верификации рутины                |
+| `llm`         | Конфигурация и данные LLM-подсистемы                               |
 | `public`      | Служебные (alembic_version), центры диализа, расписания            |
 
 ### Ключевые связи

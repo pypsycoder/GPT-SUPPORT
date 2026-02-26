@@ -47,6 +47,11 @@
       }
 
       item.addEventListener('click', () => {
+        // Ассистент: открываем drawer, не переходим по URL
+        if (section === 'assistant') {
+          if (window.ChatDrawer) window.ChatDrawer.open();
+          return;
+        }
         var targetUrl = NAV_MAP[section] || null;
         if (targetUrl && targetUrl !== window.location.pathname) {
           window.location.href = targetUrl;
@@ -71,10 +76,28 @@
     });
   }
 
+  // # подгрузка chat.css и chat.js (один раз)
+  function loadChatWidget() {
+    if (!document.querySelector('link[href="/frontend/patient/css/chat.css"]')) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/frontend/patient/css/chat.css';
+      document.head.appendChild(link);
+    }
+    if (!document.querySelector('script[src="/frontend/patient/js/chat.js"]')) {
+      var script = document.createElement('script');
+      script.src = '/frontend/patient/js/chat.js';
+      document.body.appendChild(script);
+    }
+  }
+
   // # загрузка sidebar.html в контейнер
   function sidebarInit() {
     const rootContainer = document.getElementById('sidebar-container');
     if (!rootContainer) return;
+
+    // Загружаем чат-виджет заранее (до первого клика)
+    loadChatWidget();
 
     fetch('/frontend/patient/components/sidebar.html')
       .then((resp) => {

@@ -12,7 +12,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+
 
 class MessageRequest(BaseModel):
     patient_id: int
@@ -55,7 +56,7 @@ class ChatMessageOut(BaseModel):
     request_type: Optional[str]
     created_at: str
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
 
 # ---------------------------------------------------------------------------

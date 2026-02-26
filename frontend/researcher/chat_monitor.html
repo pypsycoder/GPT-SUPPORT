@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Мониторинг чатов — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/researcher/css/researcher.css">
+  <style>
+    .r-wrapper { max-width: 1400px; }
+
+    /* Stats bar */
+    .cm-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 260px));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    /* Filters */
+    .cm-filter-bar {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 1rem;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    }
+    .cm-filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: flex-end;
+    }
+    .cm-filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .cm-filter-group label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .cm-filter-group select,
+    .cm-filter-group input[type="date"] {
+      padding: 0.45rem 0.7rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.55rem;
+      font-size: 0.9rem;
+      background: #f9fafb;
+      outline: none;
+      height: 2.1rem;
+      box-sizing: border-box;
+    }
+    .cm-filter-group select:focus,
+    .cm-filter-group input[type="date"]:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59,130,246,0.18);
+    }
+    .cm-filter-actions {
+      display: flex;
+      align-items: flex-end;
+      gap: 0.75rem;
+    }
+    .cm-apply-btn {
+      padding: 0.45rem 1.1rem;
+      border: none;
+      border-radius: 0.55rem;
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
+      color: #fff;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      height: 2.1rem;
+      white-space: nowrap;
+    }
+    .cm-apply-btn:hover { opacity: 0.9; }
+    .cm-autorefresh-label {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.88rem;
+      color: #6b7280;
+      cursor: pointer;
+      white-space: nowrap;
+      height: 2.1rem;
+    }
+
+    /* Table extras */
+    .cm-table-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .cm-table-title { font-size: 1.1rem; font-weight: 600; }
+    .cm-pagination-info { font-size: 0.88rem; color: #6b7280; }
+
+    .r-table td { vertical-align: top; }
+
+    .cm-content-cell {
+      max-width: 240px;
+      font-size: 0.88rem;
+      color: #374151;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cm-content-cell:hover { text-decoration: underline dotted #9ca3af; }
+
+    .cm-expanded-row td {
+      background: #f8fafc;
+      border-bottom: 2px solid #e0e7ff;
+    }
+    .cm-expand-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      padding: 0.25rem 0;
+    }
+    .cm-expand-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }
+    .cm-expand-text {
+      font-size: 0.92rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #111827;
+    }
+    .cm-expand-error {
+      margin-top: 0.5rem;
+      color: #dc2626;
+      font-size: 0.83rem;
+    }
+
+    .cm-status-ok  { color: #16a34a; font-weight: 700; font-size: 1.1rem; }
+    .cm-status-err { color: #dc2626; font-weight: 700; font-size: 1.1rem; }
+
+    /* Pagination */
+    .cm-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 1rem;
+      border-top: 1px solid #f3f4f6;
+    }
+    .cm-page-btn {
+      padding: 0.4rem 0.9rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+      background: #f9fafb;
+      font-size: 0.9rem;
+      cursor: pointer;
+      color: #374151;
+      transition: background 0.13s;
+    }
+    .cm-page-btn:hover:not(:disabled) { background: #eef2ff; border-color: #c7d2fe; }
+    .cm-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .cm-page-info { font-size: 0.9rem; color: #6b7280; }
+
+    /* Domain badges */
+    .bd-sleep       { background: #eff6ff; color: #1d4ed8; }
+    .bd-emotion     { background: #f5f3ff; color: #6d28d9; }
+    .bd-routine     { background: #f0fdf4; color: #166534; }
+    .bd-stress      { background: #fff7ed; color: #c2410c; }
+    .bd-self_care   { background: #f0fdfa; color: #0f766e; }
+    .bd-social      { background: #fdf4ff; color: #86198f; }
+    .bd-motivation  { background: #fffbeb; color: #b45309; }
+
+    /* Request type badges */
+    .bt-simple        { background: #f3f4f6; color: #374151; }
+    .bt-clinical      { background: #eff6ff; color: #1e40af; }
+    .bt-emotional     { background: #f5f3ff; color: #6d28d9; }
+    .bt-safety        { background: #fef2f2; color: #991b1b; }
+    .bt-quick_action  { background: #f0fdf4; color: #166534; }
+    .bt-proactive     { background: #fffbeb; color: #92400e; }
+
+    /* Model tier badges */
+    .bm-lite { background: #f0fdf4; color: #166534; }
+    .bm-pro  { background: #eff6ff; color: #1d4ed8; }
+    .bm-max  { background: #f5f3ff; color: #6d28d9; }
+
+    .cm-na { color: #9ca3af; font-size: 0.85rem; }
+
+    /* Tokens column */
+    .cm-tokens { font-size: 0.82rem; color: #4b5563; white-space: nowrap; }
+    .cm-ms { font-size: 0.88rem; white-space: nowrap; }
+
+    /* Analytics section */
+    .cm-analytics {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 1rem;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    }
+    .cm-analytics-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .cm-analytics-controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .cm-period-btn {
+      padding: 0.3rem 0.75rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+      background: #f9fafb;
+      font-size: 0.82rem;
+      cursor: pointer;
+      color: #374151;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .cm-period-btn.active {
+      background: #2563eb;
+      color: #fff;
+      border-color: #2563eb;
+    }
+    .cm-period-btn:hover:not(.active) { background: #eef2ff; border-color: #c7d2fe; }
+    .cm-charts-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .cm-charts-grid { grid-template-columns: 1fr; }
+    }
+    .cm-chart-box {
+      border: 1px solid #f3f4f6;
+      border-radius: 0.75rem;
+      padding: 0.75rem 1rem;
+      background: #fafafa;
+    }
+    .cm-chart-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.6rem;
+    }
+    .cm-chart-box canvas { display: block; max-height: 220px; }
+    .cm-no-data {
+      text-align: center;
+      color: #9ca3af;
+      font-size: 0.88rem;
+      padding: 2.5rem 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="r-wrapper">
+
+    <!-- Header -->
+    <div class="r-header">
+      <div class="r-header-title">GPT Health Support</div>
+      <div class="r-header-actions">
+        <span class="r-header-user" id="r-user-name"></span>
+        <button class="r-logout-btn" id="r-logout-btn">Выйти</button>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <div class="r-nav">
+      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
+      <a href="/researcher/dashboard" class="r-nav-btn">Пациенты</a>
+      <a href="/researcher/centers" class="r-nav-btn">Центры</a>
+      <a href="/researcher/import/schedules" class="r-nav-btn">Импорт расписаний</a>
+      <button class="r-nav-btn active">Мониторинг чатов</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="cm-stats">
+      <div class="r-stat-card">
+        <div class="r-stat-value" id="stat-total">—</div>
+        <div class="r-stat-label">Запросов (фильтр)</div>
+      </div>
+      <div class="r-stat-card">
+        <div class="r-stat-value" id="stat-safety-today" style="color:#dc2626;">—</div>
+        <div class="r-stat-label">Safety за сегодня</div>
+      </div>
+      <div class="r-stat-card">
+        <div class="r-stat-value" id="stat-avg-ms">—</div>
+        <div class="r-stat-label">Среднее время ответа (ms)</div>
+      </div>
+    </div>
+
+    <!-- Analytics -->
+    <div class="cm-analytics">
+      <div class="cm-analytics-title">
+        <span>Аналитика</span>
+        <div class="cm-analytics-controls">
+          <button class="cm-period-btn" data-period="today">Сегодня</button>
+          <button class="cm-period-btn active" data-period="7d">7 дней</button>
+          <button class="cm-period-btn" data-period="30d">30 дней</button>
+          <button class="cm-period-btn" data-period="all">Всё время</button>
+        </div>
+      </div>
+      <div class="cm-charts-grid">
+        <div class="cm-chart-box">
+          <div class="cm-chart-label">Токены по времени</div>
+          <div id="chart-tokens-wrap">
+            <div class="cm-no-data" id="chart-tokens-empty">Загрузка...</div>
+            <canvas id="chart-tokens" style="display:none;"></canvas>
+          </div>
+        </div>
+        <div class="cm-chart-box">
+          <div class="cm-chart-label">Распределение моделей</div>
+          <div id="chart-models-wrap">
+            <div class="cm-no-data" id="chart-models-empty">Загрузка...</div>
+            <canvas id="chart-models" style="display:none;"></canvas>
+          </div>
+        </div>
+        <div class="cm-chart-box">
+          <div class="cm-chart-label">Запросы по доменам</div>
+          <div id="chart-domains-wrap">
+            <div class="cm-no-data" id="chart-domains-empty">Загрузка...</div>
+            <canvas id="chart-domains" style="display:none;"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="cm-filter-bar">
+      <div class="cm-filter-row">
+        <div class="cm-filter-group">
+          <label>Пациент</label>
+          <select id="filter-patient" style="min-width:180px;">
+            <option value="">— Все пациенты —</option>
+          </select>
+        </div>
+        <div class="cm-filter-group">
+          <label>Домен</label>
+          <select id="filter-domain">
+            <option value="">— Все домены —</option>
+            <option value="sleep">sleep</option>
+            <option value="emotion">emotion</option>
+            <option value="routine">routine</option>
+            <option value="stress">stress</option>
+            <option value="self_care">self_care</option>
+            <option value="social">social</option>
+            <option value="motivation">motivation</option>
+          </select>
+        </div>
+        <div class="cm-filter-group">
+          <label>Тип запроса</label>
+          <select id="filter-request-type">
+            <option value="">— Все типы —</option>
+            <option value="simple">simple</option>
+            <option value="clinical">clinical</option>
+            <option value="emotional">emotional</option>
+            <option value="safety">safety</option>
+            <option value="quick_action">quick_action</option>
+            <option value="proactive">proactive</option>
+          </select>
+        </div>
+        <div class="cm-filter-group">
+          <label>Дата с</label>
+          <input type="date" id="filter-date-from">
+        </div>
+        <div class="cm-filter-group">
+          <label>Дата по</label>
+          <input type="date" id="filter-date-to">
+        </div>
+        <div class="cm-filter-actions">
+          <button class="cm-apply-btn" id="btn-apply">Применить</button>
+          <label class="cm-autorefresh-label">
+            <input type="checkbox" id="auto-refresh-cb" checked>
+            Автообновление (30с)
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="r-table-wrapper">
+      <div class="cm-table-header">
+        <div class="cm-table-title">Журнал взаимодействий</div>
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <div class="cm-pagination-info" id="pagination-display">—</div>
+          <button class="cm-apply-btn" id="btn-export-csv" style="background:linear-gradient(135deg,#059669,#10b981);" title="Скачать CSV с текущими фильтрами">⬇ Скачать CSV</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="r-table" style="min-width:1100px;">
+          <thead>
+            <tr>
+              <th style="width:130px;">Время</th>
+              <th style="width:70px;">Пациент</th>
+              <th style="width:90px;">Домен</th>
+              <th style="width:100px;">Тип</th>
+              <th style="width:60px;">Модель</th>
+              <th>Вопрос</th>
+              <th>Ответ</th>
+              <th style="width:90px;">Токены</th>
+              <th style="width:75px;">Время (ms)</th>
+              <th style="width:50px;text-align:center;">Статус</th>
+            </tr>
+          </thead>
+          <tbody id="cm-tbody">
+            <tr>
+              <td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">Загрузка...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="cm-pagination">
+        <button class="cm-page-btn" id="btn-prev" disabled>← Назад</button>
+        <span class="cm-page-info" id="pagination-count">0 записей</span>
+        <button class="cm-page-btn" id="btn-next" disabled>Вперёд →</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="/frontend/researcher/js/auth.js"></script>
+  <script src="/frontend/researcher/js/chat_monitor.js"></script>
+</body>
+</html>

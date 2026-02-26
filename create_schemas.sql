@@ -1,5 +1,0 @@
--- Create schemas if they don't exist
-CREATE SCHEMA IF NOT EXISTS users;
-CREATE SCHEMA IF NOT EXISTS scales;
-CREATE SCHEMA IF NOT EXISTS vitals;
-CREATE SCHEMA IF NOT EXISTS education;

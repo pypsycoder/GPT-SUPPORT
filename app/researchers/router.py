@@ -8,10 +8,16 @@
 
 from __future__ import annotations
 
-from typing import List
+import csv
+import io
+import json
+from datetime import date, datetime, time as dt_time
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.session import get_async_session
@@ -25,6 +31,10 @@ from app.researchers.schemas import (
     PatientCenterAssign,
     PinResetResponse,
     KdqolPointStatus,
+    ChatLogItem,
+    ChatLogsResponse,
+    ChatStatsResponse,
+    TokensByDate,
 )
 from app.researchers import crud
 
@@ -196,3 +206,425 @@ async def assign_patient_center(
     )
     user = result.scalar_one()
     return _patient_to_list_item(user)
+
+
+# ---------------------------------------------------------------------------
+# Chat log monitoring
+# ---------------------------------------------------------------------------
+
+_CHAT_LOG_SQL = """
+    SELECT
+        lrl.id                                      AS log_id,
+        lrl.patient_id,
+        lrl.created_at,
+        lrl.request_type,
+        lrl.model_tier,
+        lrl.tokens_input,
+        lrl.tokens_output,
+        lrl.response_time_ms,
+        lrl.success,
+        lrl.error_message,
+        cm_asst.domain                              AS domain,
+        LEFT(cm_user.content, 300)                  AS user_content,
+        LEFT(cm_asst.content, 300)                  AS assistant_content
+    FROM llm.llm_request_logs lrl
+    LEFT JOIN LATERAL (
+        SELECT content
+        FROM llm.chat_messages
+        WHERE patient_id = lrl.patient_id
+          AND role = 'user'
+          AND created_at BETWEEN lrl.created_at - INTERVAL '120 seconds'
+                             AND lrl.created_at + INTERVAL '120 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM created_at - lrl.created_at))
+        LIMIT 1
+    ) cm_user ON true
+    LEFT JOIN LATERAL (
+        SELECT content, domain
+        FROM llm.chat_messages
+        WHERE patient_id = lrl.patient_id
+          AND role = 'assistant'
+          AND created_at BETWEEN lrl.created_at - INTERVAL '120 seconds'
+                             AND lrl.created_at + INTERVAL '120 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM created_at - lrl.created_at))
+        LIMIT 1
+    ) cm_asst ON true
+    WHERE {where}
+    ORDER BY lrl.created_at DESC
+    LIMIT :limit OFFSET :offset
+"""
+
+_CHAT_LOG_COUNT_SQL = """
+    SELECT
+        COUNT(*)                                    AS total,
+        COALESCE(AVG(lrl.response_time_ms), 0)      AS avg_ms
+    FROM llm.llm_request_logs lrl
+    LEFT JOIN LATERAL (
+        SELECT content, domain
+        FROM llm.chat_messages
+        WHERE patient_id = lrl.patient_id
+          AND role = 'assistant'
+          AND created_at BETWEEN lrl.created_at - INTERVAL '120 seconds'
+                             AND lrl.created_at + INTERVAL '120 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM created_at - lrl.created_at))
+        LIMIT 1
+    ) cm_asst ON true
+    WHERE {where}
+"""
+
+_SAFETY_TODAY_SQL = """
+    SELECT COUNT(*) AS safety_today
+    FROM llm.llm_request_logs
+    WHERE request_type = 'safety'
+      AND created_at >= CURRENT_DATE
+      AND created_at < CURRENT_DATE + INTERVAL '1 day'
+"""
+
+
+@router.get("/chat-logs", response_model=ChatLogsResponse)
+async def get_chat_logs(
+    patient_id: Optional[int] = None,
+    domain: Optional[str] = None,
+    request_type: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = 50,
+    offset: int = 0,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+) -> ChatLogsResponse:
+    """Return paginated chat log entries for the researcher monitoring panel."""
+    where_parts = ["1=1"]
+    params: dict = {}
+
+    if patient_id is not None:
+        where_parts.append("lrl.patient_id = :patient_id")
+        params["patient_id"] = patient_id
+
+    if domain is not None:
+        where_parts.append("cm_asst.domain = :domain")
+        params["domain"] = domain
+
+    if request_type is not None:
+        where_parts.append("lrl.request_type = :request_type")
+        params["request_type"] = request_type
+
+    if date_from is not None:
+        params["date_from"] = datetime.combine(date_from, dt_time.min)
+        where_parts.append("lrl.created_at >= :date_from")
+
+    if date_to is not None:
+        params["date_to"] = datetime.combine(date_to, dt_time.max)
+        where_parts.append("lrl.created_at <= :date_to")
+
+    where_str = " AND ".join(where_parts)
+
+    rows_result = await session.execute(
+        text(_CHAT_LOG_SQL.format(where=where_str)),
+        {**params, "limit": limit, "offset": offset},
+    )
+    rows = rows_result.mappings().all()
+
+    stats_result = await session.execute(
+        text(_CHAT_LOG_COUNT_SQL.format(where=where_str)),
+        params,
+    )
+    stats_row = stats_result.mappings().one()
+
+    safety_result = await session.execute(text(_SAFETY_TODAY_SQL))
+    safety_row = safety_result.mappings().one()
+
+    items = [
+        ChatLogItem(
+            log_id=row["log_id"],
+            patient_id=row["patient_id"],
+            created_at=row["created_at"],
+            domain=row["domain"],
+            request_type=row["request_type"],
+            model_tier=row["model_tier"],
+            user_content=row["user_content"],
+            assistant_content=row["assistant_content"],
+            tokens_input=row["tokens_input"] or 0,
+            tokens_output=row["tokens_output"] or 0,
+            response_time_ms=row["response_time_ms"] or 0,
+            success=bool(row["success"]),
+            error_message=row["error_message"],
+        )
+        for row in rows
+    ]
+
+    return ChatLogsResponse(
+        total=int(stats_row["total"]),
+        safety_today=int(safety_row["safety_today"]),
+        avg_response_ms=round(float(stats_row["avg_ms"]), 1),
+        items=items,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chat analytics (charts)
+# ---------------------------------------------------------------------------
+
+_STATS_TOKENS_SQL = """
+    SELECT
+        DATE(lrl.created_at)   AS day,
+        SUM(lrl.tokens_input)  AS input,
+        SUM(lrl.tokens_output) AS output
+    FROM llm.llm_request_logs lrl
+    WHERE {where}
+    GROUP BY DATE(lrl.created_at)
+    ORDER BY DATE(lrl.created_at)
+"""
+
+_STATS_MODELS_SQL = """
+    SELECT lrl.model_tier, COUNT(*) AS cnt
+    FROM llm.llm_request_logs lrl
+    WHERE {where}
+    GROUP BY lrl.model_tier
+"""
+
+_STATS_DOMAINS_SQL = """
+    SELECT cm.domain, COUNT(*) AS cnt
+    FROM llm.chat_messages cm
+    WHERE cm.role = 'assistant'
+      AND cm.domain IS NOT NULL
+      AND {where}
+    GROUP BY cm.domain
+"""
+
+
+@router.get("/chat-stats", response_model=ChatStatsResponse)
+async def get_chat_stats(
+    patient_id: Optional[int] = None,
+    center_id: Optional[UUID] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+) -> ChatStatsResponse:
+    """Return aggregated analytics for the researcher chart panel."""
+    # Build shared WHERE clauses for llm_request_logs (lrl prefix)
+    lrl_parts = ["1=1"]
+    cm_parts = ["1=1"]
+    params: dict = {}
+
+    if patient_id is not None:
+        lrl_parts.append("lrl.patient_id = :patient_id")
+        cm_parts.append("cm.patient_id = :patient_id")
+        params["patient_id"] = patient_id
+
+    if center_id is not None:
+        subq = "(SELECT id FROM users.users WHERE center_id = :center_id::uuid)"
+        lrl_parts.append(f"lrl.patient_id IN {subq}")
+        cm_parts.append(f"cm.patient_id IN {subq}")
+        params["center_id"] = str(center_id)
+
+    if date_from is not None:
+        params["date_from"] = datetime.combine(date_from, dt_time.min)
+        lrl_parts.append("lrl.created_at >= :date_from")
+        cm_parts.append("cm.created_at >= :date_from")
+
+    if date_to is not None:
+        params["date_to"] = datetime.combine(date_to, dt_time.max)
+        lrl_parts.append("lrl.created_at <= :date_to")
+        cm_parts.append("cm.created_at <= :date_to")
+
+    lrl_where = " AND ".join(lrl_parts)
+    cm_where  = " AND ".join(cm_parts)
+
+    tokens_res = await session.execute(
+        text(_STATS_TOKENS_SQL.format(where=lrl_where)), params
+    )
+    models_res = await session.execute(
+        text(_STATS_MODELS_SQL.format(where=lrl_where)), params
+    )
+    domains_res = await session.execute(
+        text(_STATS_DOMAINS_SQL.format(where=cm_where)), params
+    )
+
+    tokens_by_date = [
+        TokensByDate(
+            date=str(row["day"]),
+            input=int(row["input"] or 0),
+            output=int(row["output"] or 0),
+        )
+        for row in tokens_res.mappings().all()
+    ]
+
+    models_distribution = {
+        row["model_tier"]: int(row["cnt"])
+        for row in models_res.mappings().all()
+        if row["model_tier"]
+    }
+
+    domains_distribution = {
+        row["domain"]: int(row["cnt"])
+        for row in domains_res.mappings().all()
+        if row["domain"]
+    }
+
+    return ChatStatsResponse(
+        tokens_by_date=tokens_by_date,
+        models_distribution=models_distribution,
+        domains_distribution=domains_distribution,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+_EXPORT_SQL = """
+    SELECT
+        lrl.id,
+        lrl.patient_id,
+        u.center_id::text                           AS center_id,
+        lrl.created_at,
+        cm_asst.domain                              AS domain,
+        lrl.request_type,
+        lrl.model_tier,
+        lrl.tokens_input,
+        lrl.tokens_output,
+        lrl.response_time_ms,
+        lrl.success,
+        LEFT(cm_user.content, 200)                  AS question_preview,
+        LEFT(cm_asst.content, 200)                  AS answer_preview
+    FROM llm.llm_request_logs lrl
+    LEFT JOIN users.users u ON u.id = lrl.patient_id
+    LEFT JOIN LATERAL (
+        SELECT content
+        FROM llm.chat_messages
+        WHERE patient_id = lrl.patient_id
+          AND role = 'user'
+          AND created_at BETWEEN lrl.created_at - INTERVAL '120 seconds'
+                             AND lrl.created_at + INTERVAL '120 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM created_at - lrl.created_at))
+        LIMIT 1
+    ) cm_user ON true
+    LEFT JOIN LATERAL (
+        SELECT content, domain
+        FROM llm.chat_messages
+        WHERE patient_id = lrl.patient_id
+          AND role = 'assistant'
+          AND created_at BETWEEN lrl.created_at - INTERVAL '120 seconds'
+                             AND lrl.created_at + INTERVAL '120 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM created_at - lrl.created_at))
+        LIMIT 1
+    ) cm_asst ON true
+    WHERE {where}
+    ORDER BY lrl.created_at DESC
+"""
+
+_EXPORT_CSV_COLUMNS = [
+    "id", "patient_id", "center_id", "created_at",
+    "domain", "request_type", "model_tier",
+    "tokens_input", "tokens_output", "response_time_ms", "success",
+    "question_preview", "answer_preview",
+]
+
+_EXPORT_CSV_COLUMNS_META = [
+    "id", "patient_id", "center_id", "created_at",
+    "domain", "request_type", "model_tier",
+    "tokens_input", "tokens_output", "response_time_ms", "success",
+]
+
+
+@router.get("/chat-logs/export")
+async def export_chat_logs(
+    patient_id: Optional[int] = None,
+    center_id: Optional[UUID] = None,
+    domain: Optional[str] = None,
+    request_type: Optional[str] = None,
+    model_tier: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    format: str = "csv",
+    include_content: bool = True,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Export chat logs as CSV or JSON. Applies the same filters as /chat-logs."""
+    where_parts = ["1=1"]
+    params: dict = {}
+
+    if patient_id is not None:
+        where_parts.append("lrl.patient_id = :patient_id")
+        params["patient_id"] = patient_id
+
+    if center_id is not None:
+        where_parts.append("u.center_id = :center_id::uuid")
+        params["center_id"] = str(center_id)
+
+    if domain is not None:
+        where_parts.append("cm_asst.domain = :domain")
+        params["domain"] = domain
+
+    if request_type is not None:
+        where_parts.append("lrl.request_type = :request_type")
+        params["request_type"] = request_type
+
+    if model_tier is not None:
+        where_parts.append("lrl.model_tier = :model_tier")
+        params["model_tier"] = model_tier
+
+    if date_from is not None:
+        params["date_from"] = datetime.combine(date_from, dt_time.min)
+        where_parts.append("lrl.created_at >= :date_from")
+
+    if date_to is not None:
+        params["date_to"] = datetime.combine(date_to, dt_time.max)
+        where_parts.append("lrl.created_at <= :date_to")
+
+    where_str = " AND ".join(where_parts)
+
+    result = await session.execute(
+        text(_EXPORT_SQL.format(where=where_str)), params
+    )
+    rows = result.mappings().all()
+
+    columns = _EXPORT_CSV_COLUMNS if include_content else _EXPORT_CSV_COLUMNS_META
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+    if format == "json":
+        def _serialize(row: dict) -> dict:
+            out = {c: row[c] for c in columns if c in row}
+            if "created_at" in out and out["created_at"] is not None:
+                out["created_at"] = out["created_at"].isoformat()
+            out["success"] = bool(out.get("success"))
+            return out
+
+        data = [_serialize(dict(r)) for r in rows]
+
+        async def generate_json():
+            yield json.dumps(data, ensure_ascii=False, indent=2)
+
+        return StreamingResponse(
+            generate_json(),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="chat_logs_{timestamp}.json"'
+            },
+        )
+
+    # CSV streaming
+    async def generate_csv():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(columns)
+        yield buf.getvalue()
+
+        for row in rows:
+            buf.seek(0)
+            buf.truncate()
+            writer.writerow([
+                row.get(c, "") if row.get(c) is not None else ""
+                for c in columns
+            ])
+            yield buf.getvalue()
+
+    return StreamingResponse(
+        generate_csv(),
+        media_type="text/csv; charset=utf-8-sig",
+        headers={
+            "Content-Disposition": f'attachment; filename="chat_logs_{timestamp}.csv"'
+        },
+    )

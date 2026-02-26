@@ -36,6 +36,7 @@ from app.medications.router import router as medications_router
 from app.practices.router import router as practices_router
 from app.scales.routers import kdqol_patient_router, kdqol_researcher_router
 from app.routers.chat import router as chat_router
+from app.llm.scheduler import start_scheduler, stop_scheduler
 from core.db.engine import engine
 
 from fastapi.routing import APIRoute
@@ -156,6 +157,9 @@ async def startup() -> None:
 
     logger.info("✅ GPT Support API запущен, соединение с БД установлено.")
 
+    # Запускаем планировщик проактивных сообщений
+    start_scheduler()
+
     # выведем все маршруты в лог, чтобы видеть, что /p/... появились
     for route in app.router.routes:
         logger.info(
@@ -163,6 +167,13 @@ async def startup() -> None:
             getattr(route, "methods", None),
             getattr(route, "path", None),
         )
+
+
+# --- Shutdown ---
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    """Хук завершения: останавливаем планировщик."""
+    stop_scheduler()
 
 
 # --- Healthcheck ---
