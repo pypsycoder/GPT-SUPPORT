@@ -21,6 +21,8 @@
     loading: false,
   };
 
+  var lastRenderedDate = null; // "YYYY-MM-DD" последнего показанного разделителя
+
   // Кэши DOM-ссылок
   var els = {
     backdrop: null,
@@ -186,7 +188,44 @@
       .replace(/"/g, '&quot;');
   }
 
-  function appendMessage(role, text) {
+  function formatTime(isoStr) {
+    if (!isoStr) return '';
+    var d = new Date(isoStr);
+    return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+  }
+
+  function formatDateLabel(isoStr) {
+    var d = new Date(isoStr);
+    return d.getDate().toString().padStart(2, '0') + '.' +
+           (d.getMonth() + 1).toString().padStart(2, '0') + '.' +
+           d.getFullYear();
+  }
+
+  function dateKey(isoStr) {
+    var d = new Date(isoStr);
+    return d.getFullYear() + '-' +
+           (d.getMonth() + 1).toString().padStart(2, '0') + '-' +
+           d.getDate().toString().padStart(2, '0');
+  }
+
+  function appendDateSeparator(isoStr) {
+    var sep = document.createElement('div');
+    sep.className = 'chat-date-separator';
+    var span = document.createElement('span');
+    span.textContent = formatDateLabel(isoStr);
+    sep.appendChild(span);
+    els.messages.appendChild(sep);
+  }
+
+  function appendMessage(role, text, createdAt) {
+    if (createdAt) {
+      var key = dateKey(createdAt);
+      if (key !== lastRenderedDate) {
+        appendDateSeparator(createdAt);
+        lastRenderedDate = key;
+      }
+    }
+
     var div = document.createElement('div');
     div.className = 'chat-msg chat-msg--' + role;
 
@@ -196,6 +235,14 @@
     bubble.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
 
     div.appendChild(bubble);
+
+    if (createdAt) {
+      var timeEl = document.createElement('div');
+      timeEl.className = 'chat-time';
+      timeEl.textContent = formatTime(createdAt);
+      div.appendChild(timeEl);
+    }
+
     els.messages.appendChild(div);
     scrollToBottom();
     return div;
@@ -236,6 +283,55 @@
   }
 
   // ============================================================
+  // CONFIRM VITALS UI
+  // ============================================================
+
+  function appendConfirmButtons(msgEl, vitals) {
+    var wrap = document.createElement('div');
+    wrap.className = 'chat-confirm-vitals';
+
+    var yes = document.createElement('button');
+    yes.className = 'chat-confirm-btn chat-confirm-btn--yes';
+    yes.textContent = 'Да, записать';
+
+    var no = document.createElement('button');
+    no.className = 'chat-confirm-btn chat-confirm-btn--no';
+    no.textContent = 'Нет';
+
+    var statusEl = document.createElement('span');
+    statusEl.className = 'chat-confirm-status';
+
+    function disable() {
+      yes.disabled = true;
+      no.disabled = true;
+    }
+
+    yes.addEventListener('click', function () {
+      disable();
+      apiFetch('/api/chat/confirm-vitals', 'POST', { vitals: vitals, confirmed: true })
+        .then(function () {
+          statusEl.textContent = 'Записано ✓';
+          statusEl.classList.add('chat-confirm-status--ok');
+        })
+        .catch(function () {
+          statusEl.textContent = 'Ошибка записи';
+          statusEl.classList.add('chat-confirm-status--err');
+        });
+    });
+
+    no.addEventListener('click', function () {
+      disable();
+      statusEl.textContent = 'Пропущено';
+    });
+
+    wrap.appendChild(yes);
+    wrap.appendChild(no);
+    wrap.appendChild(statusEl);
+    msgEl.appendChild(wrap);
+    scrollToBottom();
+  }
+
+  // ============================================================
   // CORE LOGIC
   // ============================================================
 
@@ -247,7 +343,7 @@
     els.textarea.style.height = 'auto';
 
     // Сразу показать сообщение пользователя
-    appendMessage('user', text);
+    appendMessage('user', text, new Date().toISOString());
     setDisabled(true);
     showTyping();
 
@@ -259,10 +355,13 @@
         source: source,
       });
       hideTyping();
-      appendMessage('assistant', data.response);
+      var msgEl = appendMessage('assistant', data.response, data.created_at || new Date().toISOString());
+      if (data.pending_vitals && data.pending_vitals.length > 0) {
+        appendConfirmButtons(msgEl, data.pending_vitals);
+      }
     } catch (err) {
       hideTyping();
-      appendMessage('assistant', 'Что-то пошло не так, попробуй позже 🙏');
+      appendMessage('assistant', 'Что-то пошло не так, попробуй позже 🙏', new Date().toISOString());
     } finally {
       setDisabled(false);
       els.textarea.focus();
@@ -280,7 +379,7 @@
       );
       if (messages && messages.length > 0) {
         messages.forEach(function (m) {
-          appendMessage(m.role, m.content);
+          appendMessage(m.role, m.content, m.created_at);
         });
       }
     } catch (err) {

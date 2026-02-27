@@ -114,14 +114,6 @@ app.include_router(profile_router, prefix="/api/v1/profile", tags=["profile"])
 app.include_router(kdqol_patient_router, prefix="/api/v1")
 app.include_router(kdqol_researcher_router, prefix="/api/v1")
 
-for route in app.routes:
-    if isinstance(route, APIRoute):
-        logging.info(
-            "ROUTE %s %s",
-            route.methods,
-            route.path,
-        )
-
 
 # ============================================
 #   Startup и healthcheck
@@ -160,13 +152,6 @@ async def startup() -> None:
     # Запускаем планировщик проактивных сообщений
     start_scheduler()
 
-    # выведем все маршруты в лог, чтобы видеть, что /p/... появились
-    for route in app.router.routes:
-        logger.info(
-            "ROUTE %s %s",
-            getattr(route, "methods", None),
-            getattr(route, "path", None),
-        )
 
 
 # --- Shutdown ---

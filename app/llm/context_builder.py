@@ -133,6 +133,106 @@ async def _get_active_practices(patient_id: int, db: AsyncSession) -> list[str]:
     return []
 
 
+async def _get_recent_weight(patient_id: int, db: AsyncSession) -> list[str]:
+    """Последние 3 записи веса за 14 дней из vitals.weight_measurements."""
+    from app.vitals.models import WeightMeasurement
+
+    since = datetime.utcnow() - timedelta(days=14)
+    result = await db.execute(
+        select(WeightMeasurement)
+        .where(
+            WeightMeasurement.user_id == patient_id,
+            WeightMeasurement.measured_at >= since,
+        )
+        .order_by(WeightMeasurement.measured_at.desc())
+        .limit(3)
+    )
+    records = result.scalars().all()
+
+    return [
+        f"Вес: {float(r.weight)} кг ({r.measured_at.strftime('%d.%m')})"
+        for r in records
+    ]
+
+
+async def _get_recent_water(patient_id: int, db: AsyncSession) -> list[str]:
+    """Среднее потребление воды за 7 дней из vitals.water_intake."""
+    from app.vitals.models import WaterIntake
+
+    since = datetime.utcnow() - timedelta(days=7)
+    result = await db.execute(
+        select(func.avg(WaterIntake.volume_ml)).where(
+            WaterIntake.user_id == patient_id,
+            WaterIntake.measured_at >= since,
+        )
+    )
+    avg_ml = result.scalar()
+
+    if avg_ml is None:
+        return []
+
+    return [f"Вода: среднее {round(avg_ml)} мл/день за 7 дней"]
+
+
+async def _get_routine_summary(patient_id: int, db: AsyncSession) -> list[str]:
+    """Верификации рутины за 7 дней из routine.daily_verifications."""
+    from datetime import date as date_type
+
+    from app.routine.models import DailyVerification
+
+    since = (datetime.utcnow() - timedelta(days=7)).date()
+    result = await db.execute(
+        select(DailyVerification).where(
+            DailyVerification.patient_id == patient_id,
+            DailyVerification.verification_date >= since,
+        )
+    )
+    records = result.scalars().all()
+
+    if not records:
+        return []
+
+    days_count = len(records)
+    avg_score = round(sum(r.day_control_score for r in records) / days_count)
+    return [f"Рутина: {days_count} из 7 дней, средний контроль {avg_score}%"]
+
+
+async def _get_practices_summary(patient_id: int, db: AsyncSession) -> list[str]:
+    """Выполненные практики за 7 дней + доступные активные практики (limit 5)."""
+    from app.practices.models import PracticeCompletion, StandalonePractice
+
+    since = datetime.utcnow() - timedelta(days=7)
+
+    result = await db.execute(
+        select(func.count(PracticeCompletion.id)).where(
+            PracticeCompletion.patient_id == patient_id,
+            PracticeCompletion.completed_at >= since,
+        )
+    )
+    completed_count = result.scalar() or 0
+
+    result = await db.execute(
+        select(StandalonePractice)
+        .where(StandalonePractice.is_active == True)  # noqa: E712
+        .limit(5)
+    )
+    practices = result.scalars().all()
+
+    if completed_count == 0 and not practices:
+        return []
+
+    lines = []
+    if completed_count > 0:
+        lines.append(f"Практики выполнено за 7 дней: {completed_count}")
+    if practices:
+        items = ", ".join(
+            f"{p.title} ({p.icf_domain})" if p.icf_domain else p.title
+            for p in practices
+        )
+        lines.append(f"Доступные практики: {items}")
+    return lines
+
+
 async def _get_last_scale_scores(patient_id: int, db: AsyncSession) -> list[str]:
     """Последние результаты каждой шкалы из scales.scale_results."""
     from app.scales.models import ScaleResult
@@ -198,6 +298,10 @@ async def build_context(patient_id: int, db: AsyncSession) -> dict:
         "sleep_summary": _get_sleep_summary,
         "active_practices": _get_active_practices,
         "last_scale_scores": _get_last_scale_scores,
+        "recent_weight": _get_recent_weight,
+        "recent_water": _get_recent_water,
+        "routine_summary": _get_routine_summary,
+        "practices_summary": _get_practices_summary,
         "chat_history": _get_chat_history,
     }
 
@@ -226,6 +330,10 @@ def format_context_for_llm(context: dict) -> str:
         "sleep_summary": "Сон",
         "active_practices": "Активные практики",
         "last_scale_scores": "Шкалы",
+        "recent_weight": "Вес",
+        "recent_water": "Потребление воды",
+        "routine_summary": "Рутина",
+        "practices_summary": "Практики",
         # chat_history передаётся отдельно в messages — здесь не выводим
     }
 

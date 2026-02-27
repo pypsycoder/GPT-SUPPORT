@@ -33,7 +33,7 @@ from core.db.session import async_session_factory   # noqa: E402
 # SQL
 # ---------------------------------------------------------------------------
 
-_EXPORT_SQL = """
+_EXPORT_SQL_FULL = """
     SELECT
         lrl.id,
         lrl.patient_id,
@@ -46,8 +46,49 @@ _EXPORT_SQL = """
         lrl.tokens_output,
         lrl.response_time_ms,
         lrl.success,
-        LEFT(cm_user.content, 200)                  AS question_preview,
-        LEFT(cm_asst.content, 200)                  AS answer_preview
+        cm_user.content                             AS question,
+        cm_asst.content                             AS answer
+    FROM llm.llm_request_logs lrl
+    LEFT JOIN users.users u ON u.id = lrl.patient_id
+    LEFT JOIN LATERAL (
+        SELECT content
+        FROM llm.chat_messages
+        WHERE patient_id = lrl.patient_id
+          AND role = 'user'
+          AND created_at BETWEEN lrl.created_at - INTERVAL '120 seconds'
+                             AND lrl.created_at + INTERVAL '120 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM created_at - lrl.created_at))
+        LIMIT 1
+    ) cm_user ON true
+    LEFT JOIN LATERAL (
+        SELECT content, domain
+        FROM llm.chat_messages
+        WHERE patient_id = lrl.patient_id
+          AND role = 'assistant'
+          AND created_at BETWEEN lrl.created_at - INTERVAL '120 seconds'
+                             AND lrl.created_at + INTERVAL '120 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM created_at - lrl.created_at))
+        LIMIT 1
+    ) cm_asst ON true
+    WHERE {where}
+    ORDER BY lrl.created_at DESC
+"""
+
+_EXPORT_SQL_PREVIEW = """
+    SELECT
+        lrl.id,
+        lrl.patient_id,
+        u.center_id::text                           AS center_id,
+        lrl.created_at,
+        cm_asst.domain                              AS domain,
+        lrl.request_type,
+        lrl.model_tier,
+        lrl.tokens_input,
+        lrl.tokens_output,
+        lrl.response_time_ms,
+        lrl.success,
+        LEFT(cm_user.content, 200)                  AS question,
+        LEFT(cm_asst.content, 200)                  AS answer
     FROM llm.llm_request_logs lrl
     LEFT JOIN users.users u ON u.id = lrl.patient_id
     LEFT JOIN LATERAL (
@@ -78,7 +119,7 @@ _COLUMNS_FULL = [
     "id", "patient_id", "center_id", "created_at",
     "domain", "request_type", "model_tier",
     "tokens_input", "tokens_output", "response_time_ms", "success",
-    "question_preview", "answer_preview",
+    "question", "answer",
 ]
 
 _COLUMNS_META = [
@@ -131,7 +172,8 @@ async def fetch_rows(args: argparse.Namespace) -> list:
         params["date_to"] = dt
 
     where_str = " AND ".join(where_parts)
-    sql = text(_EXPORT_SQL.format(where=where_str))
+    base_sql = _EXPORT_SQL_PREVIEW if args.preview else _EXPORT_SQL_FULL
+    sql = text(base_sql.format(where=where_str))
 
     print("Подключение к БД...")
     async with async_session_factory() as session:
@@ -190,6 +232,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format",    default="csv", choices=["csv", "json"], help="Формат вывода (default: csv)")
     parser.add_argument("--no-content", dest="no_content", action="store_true",
                         help="Не включать тексты сообщений (только метаданные)")
+    parser.add_argument("--preview", dest="preview", action="store_true",
+                        help="Обрезать тексты question/answer до 200 символов")
     return parser.parse_args()
 
 

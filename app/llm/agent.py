@@ -139,8 +139,53 @@ async def generate_response(
     patient_context = await build_context(patient_id, db)
     context_text = format_context_for_llm(patient_context)
 
+    # 1b. Парсим сообщение пациента для извлечения структурированных данных
+    _parsed_domain_hints: list[str] = []
+    _pending_vitals: list[dict] = []
+    try:
+        if len(user_input) > 7:
+            from app.llm.parser import parse_patient_message
+            parsed = await parse_patient_message(user_input, patient_id, db)
+            logger.info("[agent] parsed: %s", parsed)
+            if parsed:
+                # Витальные НЕ записываем в БД — возвращаем для подтверждения пациентом
+                raw_vitals = parsed.get("vitals", [])
+                if raw_vitals:
+                    from app.llm.parser import normalize_bp, normalize_pulse
+                    for v in raw_vitals:
+                        vtype = str(v.get("type", "")).upper()
+                        value = v.get("value", "")
+                        valid = False
+                        try:
+                            if vtype == "BP":
+                                valid = normalize_bp(value) is not None
+                            elif vtype == "PULSE":
+                                valid = normalize_pulse(value) is not None
+                            elif vtype == "WEIGHT":
+                                float(str(value).strip())
+                                valid = True
+                            elif vtype == "WATER":
+                                int(float(str(value).strip()))
+                                valid = True
+                        except (ValueError, AttributeError):
+                            pass
+                        if valid:
+                            _pending_vitals.append({"type": vtype, "value": value})
+                        else:
+                            logger.warning("[agent] пропускаем невалидный витал %s=%r", vtype, value)
+                # Добавляем настроение в контекст пациента
+                mood = parsed.get("mood", "unknown")
+                if mood and mood != "unknown":
+                    mood_line = f"Настроение: {mood}"
+                    context_text = f"{mood_line}\n{context_text}" if context_text else mood_line
+                # Подсказки домена для выбора промпта
+                _parsed_domain_hints = parsed.get("domain_hints", [])
+    except Exception as exc:
+        logger.warning("[agent] ошибка парсера, продолжаем без него: %s", exc)
+
     # 2. Строим системный промпт с контекстом пациента
-    system_prompt = _build_system_prompt(router_result.domain_hint)
+    effective_domain = router_result.domain_hint or (_parsed_domain_hints[0] if _parsed_domain_hints else None)
+    system_prompt = _build_system_prompt(effective_domain)
     if context_text:
         system_prompt = f"{system_prompt}\n\n{context_text}"
 
@@ -219,4 +264,5 @@ async def generate_response(
         "domain": router_result.domain_hint,
         "response_time_ms": elapsed_ms,
         "account_id": client.account_id,
+        "pending_vitals": _pending_vitals or None,
     }

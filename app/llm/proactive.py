@@ -95,6 +95,9 @@ async def generate_daily_queue(
     if len(messages) < 3:
         try:
             scores = await calculate_domain_scores(patient_id, db)
+            logger.warning(
+                "[proactive] domain scores patient=%d: %s", patient_id, scores
+            )
             priority_domains = get_priority_domains(scores)
             for domain in priority_domains:
                 if len(messages) >= 3:
@@ -102,8 +105,9 @@ async def generate_daily_queue(
                 # Не дублируем домен, уже охваченный аномалией
                 if any(m.domain_hint == domain for m in messages):
                     continue
-                if scores[domain] < 0.5:
-                    messages.append(_make_domain_message(patient_id, domain, scores[domain]))
+                score = scores[domain]
+                if score is not None and score < 0.5:
+                    messages.append(_make_domain_message(patient_id, domain, score))
         except Exception as exc:
             logger.warning(
                 "[proactive] domain scoring failed patient=%d: %s", patient_id, exc

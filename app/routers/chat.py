@@ -44,6 +44,7 @@ class MessageResponse(BaseModel):
     response_time_ms: int
     domain: Optional[str]
     model: str
+    pending_vitals: Optional[list] = None
 
 
 class ChatMessageOut(BaseModel):
@@ -129,6 +130,7 @@ async def send_message(
         response_time_ms=elapsed_ms,
         domain=llm_result["domain"],
         model=llm_result["model"],
+        pending_vitals=llm_result.get("pending_vitals"),
     )
 
 
@@ -177,6 +179,60 @@ async def get_history(
         )
         for m in messages
     ]
+
+
+# ---------------------------------------------------------------------------
+# POST /confirm-vitals
+# ---------------------------------------------------------------------------
+
+
+class ConfirmVitalsRequest(BaseModel):
+    vitals: list[dict]
+    confirmed: bool
+
+
+@router.post("/confirm-vitals", status_code=200)
+async def confirm_vitals(
+    body: ConfirmVitalsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> dict:
+    """
+    Записывает витальные показатели в БД после подтверждения пациентом.
+    Если confirmed=False — ничего не делает.
+    """
+    if not body.confirmed:
+        return {"saved": 0}
+
+    from app.vitals.models import BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake
+    from app.llm.parser import normalize_bp, normalize_pulse
+
+    saved = 0
+    for v in body.vitals:
+        vtype = str(v.get("type", "")).upper()
+        value = v.get("value", "")
+        try:
+            if vtype == "BP":
+                bp = normalize_bp(value)
+                if bp is not None:
+                    db.add(BPMeasurement(user_id=current_user.id, systolic=bp[0], diastolic=bp[1]))
+                    saved += 1
+            elif vtype == "PULSE":
+                bpm = normalize_pulse(value)
+                if bpm is not None:
+                    db.add(PulseMeasurement(user_id=current_user.id, bpm=bpm))
+                    saved += 1
+            elif vtype == "WEIGHT":
+                db.add(WeightMeasurement(user_id=current_user.id, weight=float(str(value).strip())))
+                saved += 1
+            elif vtype == "WATER":
+                db.add(WaterIntake(user_id=current_user.id, volume_ml=int(float(str(value).strip()))))
+                saved += 1
+        except (ValueError, AttributeError):
+            pass
+
+    await db.commit()
+    return {"saved": saved}
 
 
 # ---------------------------------------------------------------------------

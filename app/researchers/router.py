@@ -35,6 +35,7 @@ from app.researchers.schemas import (
     ChatLogsResponse,
     ChatStatsResponse,
     TokensByDate,
+    CohortItem,
 )
 from app.researchers import crud
 
@@ -279,6 +280,14 @@ _SAFETY_TODAY_SQL = """
       AND created_at < CURRENT_DATE + INTERVAL '1 day'
 """
 
+_REQUEST_TYPES_TODAY_SQL = """
+    SELECT request_type, COUNT(*) AS cnt
+    FROM llm.llm_request_logs
+    WHERE created_at >= CURRENT_DATE
+      AND created_at < CURRENT_DATE + INTERVAL '1 day'
+    GROUP BY request_type
+"""
+
 
 @router.get("/chat-logs", response_model=ChatLogsResponse)
 async def get_chat_logs(
@@ -333,6 +342,13 @@ async def get_chat_logs(
     safety_result = await session.execute(text(_SAFETY_TODAY_SQL))
     safety_row = safety_result.mappings().one()
 
+    types_result = await session.execute(text(_REQUEST_TYPES_TODAY_SQL))
+    request_types_today = {
+        row["request_type"]: int(row["cnt"])
+        for row in types_result.mappings().all()
+        if row["request_type"]
+    }
+
     items = [
         ChatLogItem(
             log_id=row["log_id"],
@@ -356,8 +372,80 @@ async def get_chat_logs(
         total=int(stats_row["total"]),
         safety_today=int(safety_row["safety_today"]),
         avg_response_ms=round(float(stats_row["avg_ms"]), 1),
+        request_types_today=request_types_today,
         items=items,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cohorts
+# ---------------------------------------------------------------------------
+
+_COHORTS_SQL = """
+    SELECT
+        u.center_id::text                           AS center_id,
+        c.name                                      AS center_name,
+        ds.shift::text                              AS shift,
+        ds.weekdays,
+        COUNT(DISTINCT ds.patient_id)               AS patient_count
+    FROM public.dialysis_schedules ds
+    JOIN users.users u ON u.id = ds.patient_id
+    JOIN public.centers c ON c.id = u.center_id
+    WHERE ds.valid_to IS NULL
+      {center_filter}
+    GROUP BY u.center_id, c.name, ds.shift, ds.weekdays
+    ORDER BY c.name, ds.shift
+"""
+
+_WEEKDAY_NAMES = {1: "Пн", 2: "Вт", 3: "Ср", 4: "Чт", 5: "Пт", 6: "Сб", 7: "Вс"}
+_SHIFT_LABELS  = {"morning": "Утро", "afternoon": "День", "evening": "Вечер"}
+
+
+def _make_cohort_id(center_uuid_str: str, shift: str, weekdays: list[int]) -> str:
+    prefix = center_uuid_str.replace("-", "")[:8]
+    wd_str = "".join(str(d) for d in sorted(weekdays))
+    return f"{prefix}_{shift}_{wd_str}"
+
+
+def _make_cohort_label(center_name: str, shift: str, weekdays: list[int]) -> str:
+    city = center_name.split()[-1] if center_name else center_name
+    shift_label = _SHIFT_LABELS.get(shift, shift)
+    wd_labels = "-".join(_WEEKDAY_NAMES.get(d, str(d)) for d in sorted(weekdays))
+    return f"{city} / {shift_label} / {wd_labels}"
+
+
+@router.get("/cohorts", response_model=list[CohortItem])
+async def get_cohorts(
+    center_id: Optional[UUID] = None,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+) -> list[CohortItem]:
+    """Return distinct dialysis cohorts (center × shift × weekdays) with patient counts."""
+    center_filter = "AND u.center_id = :center_id::uuid" if center_id is not None else ""
+    params: dict = {}
+    if center_id is not None:
+        params["center_id"] = str(center_id)
+
+    result = await session.execute(
+        text(_COHORTS_SQL.format(center_filter=center_filter)), params
+    )
+    rows = result.mappings().all()
+
+    cohorts = []
+    for row in rows:
+        cid_str = row["center_id"] or ""
+        shift = row["shift"] or ""
+        weekdays = sorted(list(row["weekdays"] or []))
+        cohorts.append(CohortItem(
+            cohort_id=_make_cohort_id(cid_str, shift, weekdays),
+            center_id=cid_str,
+            center_name=row["center_name"] or "",
+            shift=shift,
+            weekdays=weekdays,
+            patient_count=int(row["patient_count"]),
+            label=_make_cohort_label(row["center_name"] or "", shift, weekdays),
+        ))
+    return cohorts
 
 
 # ---------------------------------------------------------------------------
@@ -391,20 +479,65 @@ _STATS_DOMAINS_SQL = """
     GROUP BY cm.domain
 """
 
+_STATS_HOURS_SQL = """
+    SELECT EXTRACT(HOUR FROM lrl.created_at)::int AS hour, COUNT(*) AS cnt
+    FROM llm.llm_request_logs lrl
+    WHERE {where}
+    GROUP BY EXTRACT(HOUR FROM lrl.created_at)
+    ORDER BY hour
+"""
+
+_STATS_WEEKDAY_SQL = """
+    SELECT EXTRACT(ISODOW FROM lrl.created_at)::int AS dow, COUNT(*) AS cnt
+    FROM llm.llm_request_logs lrl
+    WHERE {where}
+    GROUP BY EXTRACT(ISODOW FROM lrl.created_at)
+    ORDER BY dow
+"""
+
+_STATS_DIALYSIS_SQL = """
+    SELECT
+        SUM(CASE WHEN is_dialysis THEN 1 ELSE 0 END)     AS dialysis_day,
+        SUM(CASE WHEN NOT is_dialysis THEN 1 ELSE 0 END)  AS non_dialysis_day
+    FROM (
+        SELECT
+            EXISTS (
+                SELECT 1
+                FROM public.dialysis_schedules ds
+                WHERE ds.patient_id = lrl.patient_id
+                  AND EXTRACT(ISODOW FROM lrl.created_at) = ANY(ds.weekdays)
+                  AND ds.valid_from <= lrl.created_at::date
+                  AND (ds.valid_to IS NULL OR ds.valid_to >= lrl.created_at::date)
+            ) AS is_dialysis
+        FROM llm.llm_request_logs lrl
+        WHERE {where}
+    ) sub
+"""
+
+
+def _parse_cohort_id(cohort_id: str) -> tuple[str, str, list[int]]:
+    """Parse '319e0b8d_morning_135' → (prefix, shift, [1,3,5])."""
+    parts = cohort_id.split("_", 2)
+    if len(parts) != 3:
+        raise ValueError(f"Invalid cohort_id: {cohort_id!r}")
+    prefix, shift, wd_str = parts
+    weekdays = sorted(int(c) for c in wd_str if c.isdigit())
+    return prefix, shift, weekdays
+
 
 @router.get("/chat-stats", response_model=ChatStatsResponse)
 async def get_chat_stats(
     patient_id: Optional[int] = None,
     center_id: Optional[UUID] = None,
+    cohort_id: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     _researcher: Researcher = Depends(get_current_researcher),
     session: AsyncSession = Depends(get_async_session),
 ) -> ChatStatsResponse:
     """Return aggregated analytics for the researcher chart panel."""
-    # Build shared WHERE clauses for llm_request_logs (lrl prefix)
     lrl_parts = ["1=1"]
-    cm_parts = ["1=1"]
+    cm_parts  = ["1=1"]
     params: dict = {}
 
     if patient_id is not None:
@@ -412,7 +545,29 @@ async def get_chat_stats(
         cm_parts.append("cm.patient_id = :patient_id")
         params["patient_id"] = patient_id
 
-    if center_id is not None:
+    elif cohort_id is not None:
+        # Parse cohort → filter by center prefix + schedule shift+weekdays
+        try:
+            c_prefix, c_shift, c_weekdays = _parse_cohort_id(cohort_id)
+        except ValueError:
+            pass
+        else:
+            cohort_subq = (
+                "SELECT ds.patient_id"
+                " FROM public.dialysis_schedules ds"
+                " JOIN users.users u ON u.id = ds.patient_id"
+                " WHERE ds.valid_to IS NULL"
+                "   AND LEFT(u.center_id::text, 8) = :cohort_prefix"
+                "   AND ds.shift::text = :cohort_shift"
+                "   AND ds.weekdays = :cohort_weekdays"
+            )
+            lrl_parts.append(f"lrl.patient_id IN ({cohort_subq})")
+            cm_parts.append(f"cm.patient_id IN ({cohort_subq})")
+            params["cohort_prefix"] = c_prefix
+            params["cohort_shift"]  = c_shift
+            params["cohort_weekdays"] = c_weekdays
+
+    elif center_id is not None:
         subq = "(SELECT id FROM users.users WHERE center_id = :center_id::uuid)"
         lrl_parts.append(f"lrl.patient_id IN {subq}")
         cm_parts.append(f"cm.patient_id IN {subq}")
@@ -431,14 +586,13 @@ async def get_chat_stats(
     lrl_where = " AND ".join(lrl_parts)
     cm_where  = " AND ".join(cm_parts)
 
-    tokens_res = await session.execute(
-        text(_STATS_TOKENS_SQL.format(where=lrl_where)), params
-    )
-    models_res = await session.execute(
-        text(_STATS_MODELS_SQL.format(where=lrl_where)), params
-    )
-    domains_res = await session.execute(
-        text(_STATS_DOMAINS_SQL.format(where=cm_where)), params
+    tokens_res, models_res, domains_res, hours_res, weekday_res, dialysis_res = (
+        await session.execute(text(_STATS_TOKENS_SQL.format(where=lrl_where)),  params),
+        await session.execute(text(_STATS_MODELS_SQL.format(where=lrl_where)),  params),
+        await session.execute(text(_STATS_DOMAINS_SQL.format(where=cm_where)),  params),
+        await session.execute(text(_STATS_HOURS_SQL.format(where=lrl_where)),   params),
+        await session.execute(text(_STATS_WEEKDAY_SQL.format(where=lrl_where)), params),
+        await session.execute(text(_STATS_DIALYSIS_SQL.format(where=lrl_where)), params),
     )
 
     tokens_by_date = [
@@ -449,23 +603,43 @@ async def get_chat_stats(
         )
         for row in tokens_res.mappings().all()
     ]
-
     models_distribution = {
         row["model_tier"]: int(row["cnt"])
         for row in models_res.mappings().all()
         if row["model_tier"]
     }
-
     domains_distribution = {
         row["domain"]: int(row["cnt"])
         for row in domains_res.mappings().all()
         if row["domain"]
     }
+    activity_by_hour = {
+        str(row["hour"]): int(row["cnt"])
+        for row in hours_res.mappings().all()
+    }
+    activity_by_weekday = {
+        str(row["dow"]): int(row["cnt"])
+        for row in weekday_res.mappings().all()
+    }
+
+    dialysis_row = dialysis_res.mappings().one_or_none()
+    dialysis_vs_nondialysis: Optional[dict] = None
+    if dialysis_row is not None:
+        d_day = int(dialysis_row["dialysis_day"] or 0)
+        n_day = int(dialysis_row["non_dialysis_day"] or 0)
+        if d_day + n_day > 0:
+            dialysis_vs_nondialysis = {
+                "dialysis_day": d_day,
+                "non_dialysis_day": n_day,
+            }
 
     return ChatStatsResponse(
         tokens_by_date=tokens_by_date,
         models_distribution=models_distribution,
         domains_distribution=domains_distribution,
+        activity_by_hour=activity_by_hour,
+        activity_by_weekday=activity_by_weekday,
+        dialysis_vs_nondialysis=dialysis_vs_nondialysis,
     )
 
 

@@ -2,10 +2,18 @@
    CHAT DRAWER — sliding drawer поверх layout
    ================================================== */
 
-/* Sidebar должен быть выше backdrop/drawer */
+/* Sidebar должен быть выше backdrop/drawer на десктопе */
 #sidebar-container {
   position: relative;
   z-index: 200;
+}
+
+/* На мобильном чат — полноэкранный bottom sheet.
+   Сайдбар не должен перекрывать drawer (z-index: 110) и backdrop (z-index: 100) */
+@media (max-width: 767px) {
+  #sidebar-container {
+    z-index: 5;
+  }
 }
 
 /* ---- Backdrop ---- */
@@ -177,6 +185,41 @@
   border-bottom-left-radius: 4px;
 }
 
+/* ---- Date Separator ---- */
+.chat-date-separator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+  color: #9ca3af;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.chat-date-separator::before,
+.chat-date-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+}
+
+/* ---- Message Time ---- */
+.chat-time {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 3px;
+  line-height: 1;
+}
+
+.chat-msg--user .chat-time {
+  text-align: right;
+}
+
+.chat-msg--assistant .chat-time {
+  text-align: left;
+}
+
 /* ---- Typing indicator ---- */
 .chat-typing-row {
   align-self: flex-start;
@@ -320,4 +363,61 @@
 .chat-send-btn svg {
   width: 17px;
   height: 17px;
+}
+
+/* ---- Confirm Vitals ---- */
+.chat-confirm-vitals {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.chat-confirm-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.chat-confirm-btn--yes {
+  background: #007aff;
+  color: #ffffff;
+}
+
+.chat-confirm-btn--yes:hover:not(:disabled) {
+  background: #0066d6;
+}
+
+.chat-confirm-btn--no {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+}
+
+.chat-confirm-btn--no:hover:not(:disabled) {
+  background: #e5e7eb;
+}
+
+.chat-confirm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chat-confirm-status {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.chat-confirm-status--ok {
+  color: #16a34a;
+  font-weight: 500;
+}
+
+.chat-confirm-status--err {
+  color: #dc2626;
 }

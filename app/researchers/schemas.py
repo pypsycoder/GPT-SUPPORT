@@ -103,6 +103,7 @@ class ChatLogsResponse(BaseModel):
     total: int
     safety_today: int
     avg_response_ms: float
+    request_types_today: dict = {}
     items: List[ChatLogItem]
 
 
@@ -116,7 +117,20 @@ class TokensByDate(BaseModel):
     output: int
 
 
+class CohortItem(BaseModel):
+    cohort_id: str
+    center_id: str
+    center_name: str
+    shift: str
+    weekdays: List[int]
+    patient_count: int
+    label: str
+
+
 class ChatStatsResponse(BaseModel):
     tokens_by_date: List[TokensByDate]
     models_distribution: dict
     domains_distribution: dict
+    activity_by_hour: dict = {}
+    activity_by_weekday: dict = {}
+    dialysis_vs_nondialysis: Optional[dict] = None
