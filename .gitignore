@@ -76,7 +76,7 @@ Thumbs.db
 # 🤖 Machine learning / data science
 .ipynb_checkpoints
 __results__/
-models/
+# models/ (ML only, use specific paths)
 data/
 *.pkl
 *.joblib
