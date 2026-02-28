@@ -135,8 +135,8 @@ async def generate_response(
     from app.llm.context_builder import build_context, format_context_for_llm
     from app.models.llm import LLMRequestLog  # локальный импорт избегает циклов
 
-    # 1. Собираем данные пациента из БД
-    patient_context = await build_context(patient_id, db)
+    # 1. Собираем данные пациента из БД (включая RAG-контекст по тексту запроса)
+    patient_context = await build_context(patient_id, db, query=user_input)
     context_text = format_context_for_llm(patient_context)
 
     # 1b. Парсим сообщение пациента для извлечения структурированных данных

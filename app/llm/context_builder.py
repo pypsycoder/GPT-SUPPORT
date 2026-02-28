@@ -197,6 +197,32 @@ async def _get_routine_summary(patient_id: int, db: AsyncSession) -> list[str]:
     return [f"Рутина: {days_count} из 7 дней, средний контроль {avg_score}%"]
 
 
+async def _get_rag_context(
+    patient_id: int, query: str, db: AsyncSession
+) -> list[str]:
+    """
+    RAG: найти образовательные модули, релевантные запросу пациента.
+
+    Для прочитанных уроков — добавляет релевантный фрагмент.
+    Для непрочитанных — предлагает ознакомиться.
+    """
+    from app.rag.retriever import retrieve_relevant_modules
+
+    modules = await retrieve_relevant_modules(query, patient_id, db, top_k=2)
+    lines = []
+    for m in modules:
+        if m["is_read"]:
+            lines.append(
+                f"Пациент читал урок «{m['title']}». "
+                f"Релевантный фрагмент: {m['chunk'][:200]}"
+            )
+        else:
+            lines.append(
+                f"По теме «{m['title']}» есть урок — можешь предложить пациенту."
+            )
+    return lines
+
+
 async def _get_practices_summary(patient_id: int, db: AsyncSession) -> list[str]:
     """Выполненные практики за 7 дней + доступные активные практики (limit 5)."""
     from app.practices.models import PracticeCompletion, StandalonePractice
@@ -283,14 +309,22 @@ async def _get_chat_history(patient_id: int, db: AsyncSession) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-async def build_context(patient_id: int, db: AsyncSession) -> dict:
+async def build_context(
+    patient_id: int, db: AsyncSession, query: str = ""
+) -> dict:
     """
     Собирает данные пациента из БД.
     Если раздел вызвал исключение — логирует warning и возвращает пустой список.
 
+    Args:
+        patient_id: ID пациента
+        db:         AsyncSession
+        query:      текст запроса пользователя (для RAG; пропускается если пустой
+                    или короче 15 символов)
+
     Returns:
         dict с ключами: recent_vitals, medication_adherence, sleep_summary,
-        active_practices, last_scale_scores, chat_history
+        active_practices, last_scale_scores, chat_history, rag_context
     """
     sections: dict[str, any] = {
         "recent_vitals": _get_recent_vitals,
@@ -313,6 +347,14 @@ async def build_context(patient_id: int, db: AsyncSession) -> dict:
             logger.warning("[context_builder] Раздел '%s' упал: %s", name, exc)
             context[name] = []
 
+    # RAG: ищем релевантные образовательные модули только для содержательных запросов
+    context["rag_context"] = []
+    if len(query) > 15:
+        try:
+            context["rag_context"] = await _get_rag_context(patient_id, query, db)
+        except Exception as exc:
+            logger.warning("[context_builder] RAG retriever упал: %s", exc)
+
     return context
 
 
@@ -334,6 +376,7 @@ def format_context_for_llm(context: dict) -> str:
         "recent_water": "Потребление воды",
         "routine_summary": "Рутина",
         "practices_summary": "Практики",
+        "rag_context": "Образовательные модули",
         # chat_history передаётся отдельно в messages — здесь не выводим
     }
 
@@ -342,8 +385,14 @@ def format_context_for_llm(context: dict) -> str:
         values = context.get(key, [])
         if not values:
             continue
-        value_str = ", ".join(str(v) for v in values)
-        lines.append(f"{label}: {value_str}")
+        # rag_context содержит полные предложения — выводим по одному на строку
+        if key == "rag_context":
+            lines.append(f"{label}:")
+            for item in values:
+                lines.append(f"  - {item}")
+        else:
+            value_str = ", ".join(str(v) for v in values)
+            lines.append(f"{label}: {value_str}")
 
     if not lines:
         return ""

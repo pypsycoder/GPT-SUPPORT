@@ -293,7 +293,7 @@ def _get_ssl_verify() -> bool | str:
     Можно переопределить через GIGACHAT_CERT_PATH=/path/to/ca.pem.
     """
     cert_path = os.getenv("GIGACHAT_CERT_PATH", "").strip()
-    if cert_path:
+    if cert_path and os.path.isfile(cert_path):
         return cert_path
     return False
 

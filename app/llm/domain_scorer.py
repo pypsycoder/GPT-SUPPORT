@@ -34,48 +34,89 @@ MAX_DAY_CONTROL_SCORE = 100
 # ---------------------------------------------------------------------------
 
 
-async def _score_sleep(patient_id: int, db: AsyncSession) -> float:
-    """Скор сна на основе sleep.sleep_records за 7 дней."""
+async def _score_sleep(patient_id: int, db: AsyncSession) -> float | None:
+    """
+    Скор сна: sleep.sleep_records (7 дней) + PSQI (30 дней).
+
+    Комбинирование:
+      - оба источника → 0.6 * sleep_records + 0.4 * PSQI
+      - только sleep_records → формула по часам сна
+      - только PSQI → 1 - total/21
+      - нет данных → None
+    """
     from app.sleep_tracker.models import SleepRecord
 
-    since = (datetime.utcnow() - timedelta(days=7)).date()
-    result = await db.execute(
-        select(SleepRecord)
-        .where(
-            SleepRecord.patient_id == patient_id,
-            SleepRecord.sleep_date >= since,
+    # --- sleep_records score ---
+    sleep_score: float | None = None
+    try:
+        since = (datetime.utcnow() - timedelta(days=7)).date()
+        result = await db.execute(
+            select(SleepRecord)
+            .where(
+                SleepRecord.patient_id == patient_id,
+                SleepRecord.sleep_date >= since,
+            )
+            .order_by(SleepRecord.sleep_date.asc())
         )
-        .order_by(SleepRecord.sleep_date.asc())
-    )
-    records = result.scalars().all()
+        records = result.scalars().all()
+        hours_list = [r.tst_minutes / 60 for r in records if r.tst_minutes]
+        if hours_list:
+            avg_hours = sum(hours_list) / len(hours_list)
+            if avg_hours < 5:
+                s = 0.2
+            elif avg_hours < 6:
+                s = 0.5
+            elif avg_hours < 7:
+                s = 0.7
+            else:
+                s = 1.0
+            mid = len(hours_list) // 2
+            if mid > 0 and len(hours_list) > 2:
+                first_half = sum(hours_list[:mid]) / mid
+                second_half = sum(hours_list[mid:]) / (len(hours_list) - mid)
+                if second_half - first_half < -0.5:
+                    s -= 0.1
+            sleep_score = max(0.0, min(1.0, s))
+    except Exception as exc:
+        logger.debug("[domain_scorer] sleep_records error: %s", exc)
 
-    if not records:
-        return 0.5
+    # --- PSQI score (свежесть 30 дней) ---
+    psqi_score: float | None = None
+    try:
+        row = await db.execute(
+            text("""
+                SELECT (result_json->>'total_score')::numeric AS total
+                FROM scales.scale_results
+                WHERE user_id    = :pid
+                  AND scale_code = 'PSQI'
+                  AND measured_at > now() - interval '30 days'
+                ORDER BY measured_at DESC
+                LIMIT 1
+            """),
+            {"pid": patient_id},
+        )
+        rec = row.fetchone()
+        if rec is not None and rec.total is not None:
+            psqi_score = round(max(0.0, min(1.0, 1.0 - float(rec.total) / 21.0)), 3)
+    except Exception as exc:
+        logger.debug("[domain_scorer] PSQI error: %s", exc)
 
-    hours_list = [r.tst_minutes / 60 for r in records if r.tst_minutes]
-    if not hours_list:
-        return 0.5
-
-    avg_hours = sum(hours_list) / len(hours_list)
-
-    if avg_hours < 5:
-        score = 0.2
-    elif avg_hours < 6:
-        score = 0.5
-    elif avg_hours < 7:
-        score = 0.7
+    # --- blend ---
+    if sleep_score is not None and psqi_score is not None:
+        score = round(0.6 * sleep_score + 0.4 * psqi_score, 3)
+        source = "sleep_records+PSQI"
+    elif sleep_score is not None:
+        score = sleep_score
+        source = "sleep_records"
+    elif psqi_score is not None:
+        score = psqi_score
+        source = "PSQI"
     else:
-        score = 1.0
+        logger.debug("[domain_scorer] sleep score=None source=no_data")
+        return None
 
-    # Штраф за снижающийся тренд
-    mid = len(hours_list) // 2
-    if mid > 0 and len(hours_list) > 2:
-        first_half = sum(hours_list[:mid]) / mid
-        second_half = sum(hours_list[mid:]) / (len(hours_list) - mid)
-        if second_half - first_half < -0.5:
-            score -= 0.1
-
-    return max(0.0, min(1.0, score))
+    logger.debug("[domain_scorer] sleep score=%s source=%s", score, source)
+    return score
 
 
 async def _score_medication(patient_id: int, db: AsyncSession) -> float:
@@ -133,12 +174,58 @@ async def _score_vitals(patient_id: int, db: AsyncSession) -> float:
         return 1.0
 
 
-async def _score_emotion(patient_id: int, db: AsyncSession) -> float:
+async def _score_emotion(patient_id: int, db: AsyncSession) -> float | None:
     """
-    TODO: таблица mood_logs не реализована.
-    Возвращает нейтральный скор 0.5.
+    Эмоциональное состояние по HADS (30 дней).
+
+    HADS-A (тревога): anxiety_score 0-21
+    HADS-D (депрессия): depression_score 0-21
+    score = 1 - ((anxiety + depression) / 42)
+    Если только одна подшкала — score = 1 - (value / 21).
+    Нет свежих данных → None.
     """
-    return 0.5
+    try:
+        row = await db.execute(
+            text("""
+                SELECT
+                    (result_json->>'anxiety_score')::numeric    AS anxiety,
+                    (result_json->>'depression_score')::numeric AS depression
+                FROM scales.scale_results
+                WHERE user_id    = :pid
+                  AND scale_code = 'HADS'
+                  AND measured_at > now() - interval '30 days'
+                ORDER BY measured_at DESC
+                LIMIT 1
+            """),
+            {"pid": patient_id},
+        )
+        rec = row.fetchone()
+    except Exception as exc:
+        logger.debug("[domain_scorer] HADS error: %s", exc)
+        return None
+
+    if rec is None:
+        logger.debug("[domain_scorer] emotion score=None source=no_data")
+        return None
+
+    anxiety = rec.anxiety
+    depression = rec.depression
+
+    if anxiety is not None and depression is not None:
+        score = round(max(0.0, min(1.0, 1.0 - (float(anxiety) + float(depression)) / 42.0)), 3)
+        source = "HADS_A+D"
+    elif anxiety is not None:
+        score = round(max(0.0, min(1.0, 1.0 - float(anxiety) / 21.0)), 3)
+        source = "HADS_A"
+    elif depression is not None:
+        score = round(max(0.0, min(1.0, 1.0 - float(depression) / 21.0)), 3)
+        source = "HADS_D"
+    else:
+        logger.debug("[domain_scorer] emotion score=None source=no_data")
+        return None
+
+    logger.debug("[domain_scorer] emotion score=%s source=%s", score, source)
+    return score
 
 
 async def _score_routine(patient_id: int, db: AsyncSession) -> float:
@@ -237,33 +324,75 @@ async def _score_social(patient_id: int, db: AsyncSession) -> float | None:
 
 async def _score_motivation(patient_id: int, db: AsyncSession) -> float | None:
     """
-    Мотивация через рутину за 7 дней.
-    Компоненты:
-      - completion_rate: кол-во дней с верификацией / 7  (вес 60%)
-      - control_norm:   средний day_control_score / 100  (вес 40%)
-    None если верификаций за 7 дней нет совсем
-    (нет данных ≠ низкая мотивация).
-    """
-    row = await db.execute(
-        text("""
-            SELECT
-                COUNT(*)                  AS verified_days,
-                AVG(day_control_score)    AS avg_control
-            FROM routine.daily_verifications
-            WHERE patient_id        = :pid
-              AND verification_date > now() - interval '7 days'
-        """),
-        {"pid": patient_id},
-    )
-    rec = row.fetchone()
+    Мотивация: routine (7 дней) + KOP-25A (30 дней).
 
-    if rec is None or rec.verified_days == 0:
+    Комбинирование:
+      - оба источника → (completion_rate + kop_score) / 2
+      - только routine  → completion_rate * 0.6 + control_norm * 0.4
+      - только KOP-25A  → kop_score
+      - нет данных      → None
+    """
+    # --- routine ---
+    completion_rate: float | None = None
+    control_norm: float | None = None
+    try:
+        row = await db.execute(
+            text("""
+                SELECT
+                    COUNT(*)               AS verified_days,
+                    AVG(day_control_score) AS avg_control
+                FROM routine.daily_verifications
+                WHERE patient_id        = :pid
+                  AND verification_date > now() - interval '7 days'
+            """),
+            {"pid": patient_id},
+        )
+        rec = row.fetchone()
+        if rec is not None and rec.verified_days > 0:
+            completion_rate = min(float(rec.verified_days) / 7.0, 1.0)
+            if rec.avg_control is not None:
+                control_norm = min(float(rec.avg_control) / MAX_DAY_CONTROL_SCORE, 1.0)
+    except Exception as exc:
+        logger.debug("[domain_scorer] routine error: %s", exc)
+
+    # --- KOP-25A (total_score = PL, диапазон 0-100) ---
+    kop_score: float | None = None
+    try:
+        row = await db.execute(
+            text("""
+                SELECT (result_json->>'total_score')::numeric AS pl
+                FROM scales.scale_results
+                WHERE user_id    = :pid
+                  AND scale_code = 'KOP25A'
+                  AND measured_at > now() - interval '30 days'
+                ORDER BY measured_at DESC
+                LIMIT 1
+            """),
+            {"pid": patient_id},
+        )
+        rec = row.fetchone()
+        if rec is not None and rec.pl is not None:
+            kop_score = round(max(0.0, min(1.0, float(rec.pl) / 100.0)), 3)
+    except Exception as exc:
+        logger.debug("[domain_scorer] KOP25A error: %s", exc)
+
+    # --- blend ---
+    if completion_rate is not None and kop_score is not None:
+        score = round((completion_rate + kop_score) / 2.0, 3)
+        source = "routine+KOP25A"
+    elif completion_rate is not None:
+        cn = control_norm if control_norm is not None else 0.0
+        score = round(completion_rate * 0.6 + cn * 0.4, 3)
+        source = "routine"
+    elif kop_score is not None:
+        score = kop_score
+        source = "KOP25A"
+    else:
+        logger.debug("[domain_scorer] motivation score=None source=no_data")
         return None
 
-    completion_rate = min(float(rec.verified_days) / 7.0, 1.0)
-    control_norm = min(float(rec.avg_control) / MAX_DAY_CONTROL_SCORE, 1.0)
-
-    return round(completion_rate * 0.6 + control_norm * 0.4, 3)
+    logger.debug("[domain_scorer] motivation score=%s source=%s", score, source)
+    return score
 
 
 # ---------------------------------------------------------------------------
@@ -284,23 +413,24 @@ async def calculate_domain_scores(
       0.5      — fallback при Exception (нейтрально, не блокирует)
 
     Домены:
-      sleep, medication, vitals, emotion (stub), routine,
-      stress (PSS-10), social (KDQOL-SF), motivation (routine logs)
+      sleep (sleep_records+PSQI), medication, vitals, routine,
+      emotion (HADS), stress (PSS-10), social (KDQOL-SF),
+      motivation (routine+KOP-25A)
     """
-    # Домены с гарантированным float (legacy, оставляем как есть)
+    # Домены с гарантированным float (нет внешних шкал, всегда есть данные)
     legacy_scorers: dict[str, any] = {
-        "sleep":       _score_sleep,
         "medication":  _score_medication,
         "vitals":      _score_vitals,
-        "emotion":     _score_emotion,
         "routine":     _score_routine,
     }
 
-    # Новые домены — могут вернуть None
+    # Домены — могут вернуть None (нет свежих данных = нет приоритета)
     new_scorers: dict[str, any] = {
-        "stress":      _score_stress,
-        "social":      _score_social,
-        "motivation":  _score_motivation,
+        "sleep":       _score_sleep,       # sleep_records + PSQI
+        "emotion":     _score_emotion,     # HADS
+        "stress":      _score_stress,      # PSS-10
+        "social":      _score_social,      # KDQOL-SF
+        "motivation":  _score_motivation,  # routine + KOP-25A
     }
 
     scores: dict[str, float | None] = {}
