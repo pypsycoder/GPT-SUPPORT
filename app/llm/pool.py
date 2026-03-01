@@ -95,7 +95,7 @@ class GigaChatClient:
             resp.raise_for_status()
             data = resp.json()
 
-        self._access_token = data["access_token"]
+        self._access_token = _ascii_only(data["access_token"])
         # expires_at приходит в миллисекундах
         self._token_expires_at = data.get("expires_at", 0) / 1000.0
         logger.debug("[pool] Токен обновлён, аккаунт=%s", self.account_id)
@@ -204,6 +204,7 @@ class AccountPool:
             key = os.getenv(f"GIGACHAT_KEY_{account_id}")
             if not key:
                 continue  # пропускаем пустые, не прерываем
+            key = _ascii_only(key).strip()
             tier = self._FIXED_TIERS.get(account_id) or os.getenv(
                 f"GIGACHAT_MODEL_{account_id}", "pro"
             )
@@ -280,6 +281,20 @@ class AccountPool:
             }
             for c in self.clients
         }
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _ascii_only(s: str) -> str:
+    """Удаляет все не-ASCII символы из строки.
+
+    Нужно для заголовков httpx — они должны содержать только ASCII.
+    Защищает от UnicodeEncodeError если в env-переменную или ответ API
+    попал символ вроде → (\u2192).
+    """
+    return s.encode("ascii", errors="ignore").decode("ascii")
 
 
 # ---------------------------------------------------------------------------
