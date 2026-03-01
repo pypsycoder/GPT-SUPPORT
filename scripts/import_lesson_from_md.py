@@ -342,7 +342,7 @@ def parse_args():
         "--block",
         dest="block_code",
         choices=["psychology", "nephrology"],
-        help="Код блока: psychology (Внутрення опора), nephrology (Жизнь на диализе).",
+        help="Код блока: psychology (Внутренняя опора), nephrology (Жизнь на диализе).",
     )
     parser.add_argument(
         "--clear",

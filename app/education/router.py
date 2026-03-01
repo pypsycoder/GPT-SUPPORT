@@ -44,7 +44,7 @@ router = APIRouter(tags=["education"])
 # Простая мапа для "человеческих" названий блоков.
 # При желании можно потом вынести в БД.
 BLOCK_TITLES: Dict[str, str] = {
-    "psychology": "Внутрення опора",
+    "psychology": "Внутренняя опора",
     "nephrology": "Жизнь на диализе",
     "mental_health": "Ментальное здоровье",
     "dialysis": "Диализ",

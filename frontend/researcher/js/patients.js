@@ -28,7 +28,7 @@
     if (tab === 'patients') loadPatients();
   }
 
-  document.querySelectorAll('.r-nav-btn').forEach(function (btn) {
+  document.querySelectorAll('.r-nav-btn[data-tab]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       switchTab(this.dataset.tab);
     });
