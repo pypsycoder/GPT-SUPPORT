@@ -663,6 +663,50 @@ table.r-table {
   cursor: not-allowed;
 }
 
+/* --- T0-T1-T2 unified scales modal --- */
+
+.r-scales-point-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+
+.r-scales-point-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.r-kdqol-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.88rem;
+}
+
+.r-kdqol-scale-row:last-child {
+  border-bottom: none;
+}
+
+.r-kdqol-scale-name {
+  min-width: 155px;
+  color: #374151;
+}
+
+/* --- Когорта в таблице пациентов --- */
+
+.r-cohort-cell {
+  font-size: 0.82rem;
+  color: #4b5563;
+  white-space: nowrap;
+}
+
 .r-print-card-url {
   font-size: 12px;
   color: #888;

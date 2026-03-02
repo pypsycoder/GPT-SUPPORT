@@ -30,7 +30,8 @@ class PatientCreateResponse(BaseModel):
 
 
 class KdqolPointStatus(BaseModel):
-    point_type: str  # T0 | T1 | T2
+    scale_code: str = "KDQOL_SF"  # KDQOL_SF | WCQ_LAZARUS | KOP_25A
+    point_type: str               # T0 | T1 | T2
     is_completed: bool
     activated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

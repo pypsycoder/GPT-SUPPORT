@@ -71,6 +71,7 @@ def _patient_to_list_item(p, *, measurement_points=None, dialysis_schedules=None
 
     kdqol_points = [
         KdqolPointStatus(
+            scale_code=mp.scale_code,
             point_type=mp.point_type,
             is_completed=mp.completed_at is not None,
             activated_at=mp.activated_at,

@@ -42,6 +42,7 @@
     sleep_onset: '',
     wake_time: '',
     tst_hours: null,
+    tst_manually_set: false,
     night_awakenings: '',
     sleep_latency: '',
     morning_wellbeing: '',
@@ -186,6 +187,35 @@
     seDisplay.textContent = 'Эффективность сна: ' + se + '%';
   }
 
+  function updateTstDisplay() {
+    var dispEl = document.getElementById('tst-display');
+    var minusBtn = document.getElementById('tst-minus');
+    var plusBtn = document.getElementById('tst-plus');
+    if (!dispEl) return;
+    if (state.tst_hours === null) {
+      dispEl.textContent = '—';
+      dispEl.classList.add('sleep-tst-display--placeholder');
+      if (minusBtn) minusBtn.disabled = true;
+      if (plusBtn) plusBtn.disabled = true;
+    } else {
+      var totalMin = Math.round(state.tst_hours * 60);
+      var h = Math.floor(totalMin / 60);
+      var m = totalMin % 60;
+      dispEl.textContent = (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+      dispEl.classList.remove('sleep-tst-display--placeholder');
+      if (minusBtn) minusBtn.disabled = totalMin <= 0;
+      if (plusBtn) plusBtn.disabled = totalMin >= 24 * 60;
+    }
+  }
+
+  function setTstMinutes(totalMinutes) {
+    var clamped = Math.max(0, Math.min(totalMinutes, 24 * 60));
+    state.tst_hours = clamped / 60;
+    updateTstDisplay();
+    updateSeDisplay();
+    updateSubmitButton();
+  }
+
   function updateSubmitButton() {
     var required = (
       state.sleep_onset &&
@@ -201,10 +231,64 @@
     submitBtn.disabled = !required || !noSeError;
   }
 
+  function validateTimeInputs() {
+    var pairs = [
+      { hId: 'sleep_onset_h', mId: 'sleep_onset_m', errId: 'sleep_onset_error' },
+      { hId: 'wake_time_h', mId: 'wake_time_m', errId: 'wake_time_error' }
+    ];
+    pairs.forEach(function (p) {
+      var hEl = document.getElementById(p.hId);
+      var mEl = document.getElementById(p.mId);
+      var errEl = document.getElementById(p.errId);
+      if (!hEl || !mEl || !errEl) return;
+      var hVal = hEl.value;
+      var mVal = mEl.value;
+      if (hVal === '' && mVal === '') {
+        hEl.classList.remove('sleep-time-part--error');
+        mEl.classList.remove('sleep-time-part--error');
+        errEl.textContent = '';
+        errEl.classList.add('sleep-hidden');
+        return;
+      }
+      var h = parseInt(hVal, 10);
+      var m = parseInt(mVal, 10);
+      var errs = [];
+      if (hVal === '' || isNaN(h) || h < 0 || h > 23) {
+        hEl.classList.add('sleep-time-part--error');
+        errs.push('часы: 0–23');
+      } else {
+        hEl.classList.remove('sleep-time-part--error');
+      }
+      if (mVal === '' || isNaN(m) || m < 0 || m > 59) {
+        mEl.classList.add('sleep-time-part--error');
+        errs.push('минуты: 0–59');
+      } else {
+        mEl.classList.remove('sleep-time-part--error');
+      }
+      if (errs.length > 0) {
+        errEl.textContent = 'Неверное значение — ' + errs.join(', ');
+        errEl.classList.remove('sleep-hidden');
+      } else {
+        errEl.textContent = '';
+        errEl.classList.add('sleep-hidden');
+      }
+    });
+  }
+
   function syncTimeState() {
+    validateTimeInputs();
     state.sleep_onset = getTimeStrFromInputs('sleep_onset_h', 'sleep_onset_m');
     state.wake_time = getTimeStrFromInputs('wake_time_h', 'wake_time_m');
     state.tibWarningConfirmed = false;
+    if (!state.tst_manually_set) {
+      var tib = computeTibMinutes(state.sleep_onset, state.wake_time);
+      if (tib !== null) {
+        state.tst_hours = tib / 60;
+      } else {
+        state.tst_hours = null;
+      }
+      updateTstDisplay();
+    }
     updateTibWarning();
     updateSeDisplay();
     updateSubmitButton();
@@ -215,6 +299,7 @@
     state.sleep_onset = '';
     state.wake_time = '';
     state.tst_hours = null;
+    state.tst_manually_set = false;
     state.night_awakenings = '';
     state.sleep_latency = '';
     state.morning_wellbeing = '';
@@ -229,6 +314,7 @@
     });
     document.querySelectorAll('.sleep-btn').forEach(function (b) { b.classList.remove('selected'); });
     document.querySelectorAll('.sleep-check input[name="disturbance"]').forEach(function (c) { c.checked = false; });
+    updateTstDisplay();
     submitBtn.textContent = 'Отправить';
     updateSubmitButton();
   }
@@ -240,11 +326,12 @@
     document.getElementById('sleep_onset_m').value = onset.m !== '' ? onset.m : '';
     document.getElementById('wake_time_h').value = wake.h !== '' ? wake.h : '';
     document.getElementById('wake_time_m').value = wake.m !== '' ? wake.m : '';
-    document.getElementById('tst_hours').value = record.tst_minutes / 60;
 
     state.sleep_onset = record.sleep_onset;
     state.wake_time = record.wake_time;
+    state.tst_manually_set = true;
     state.tst_hours = record.tst_minutes / 60;
+    updateTstDisplay();
     state.night_awakenings = record.night_awakenings || '';
     state.sleep_latency = record.sleep_latency || '';
     state.morning_wellbeing = record.morning_wellbeing || '';
@@ -311,15 +398,28 @@
 
   ['sleep_onset_h', 'sleep_onset_m', 'wake_time_h', 'wake_time_m'].forEach(function (id) {
     var el = document.getElementById(id);
-    if (el) el.addEventListener('input', syncTimeState);
+    if (el) {
+      el.addEventListener('input', function () {
+        if (this.value.length > 2) {
+          this.value = this.value.slice(0, 2);
+        }
+        syncTimeState();
+      });
+    }
   });
 
-  document.getElementById('tst_hours').addEventListener('input', function () {
-    var v = this.value === '' ? null : parseFloat(this.value);
-    if (v !== null && (isNaN(v) || v < 0 || v > 12)) v = null;
-    state.tst_hours = v;
-    updateSeDisplay();
-    updateSubmitButton();
+  document.getElementById('tst-minus').addEventListener('click', function () {
+    var cur = state.tst_hours !== null ? Math.round(state.tst_hours * 60) : 0;
+    var next = Math.max(0, cur - 5);
+    state.tst_manually_set = true;
+    setTstMinutes(next);
+  });
+
+  document.getElementById('tst-plus').addEventListener('click', function () {
+    var cur = state.tst_hours !== null ? Math.round(state.tst_hours * 60) : 0;
+    var next = Math.min(24 * 60, cur + 5);
+    state.tst_manually_set = true;
+    setTstMinutes(next);
   });
 
   document.querySelectorAll('.sleep-btn').forEach(function (btn) {

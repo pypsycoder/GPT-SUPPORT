@@ -567,7 +567,7 @@
     try {
       await apiFetch(API.intakes, 'POST', {
         prescription_id: prescriptionId,
-        intake_datetime: date + 'T' + time + ':00Z',
+        intake_datetime: new Date(date + 'T' + time + ':00').toISOString(),
         actual_dose:     dose,
         intake_slot:     slot,
         notes:           notes || null,
@@ -710,7 +710,7 @@
 
     try {
       await apiFetch(API.intakes + '/' + id, 'PUT', {
-        intake_datetime: date + 'T' + time + ':00Z',
+        intake_datetime: new Date(date + 'T' + time + ':00').toISOString(),
         actual_dose:     dose,
         notes:           notes || null,
       });

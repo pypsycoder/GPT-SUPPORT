@@ -534,6 +534,7 @@ class KdqolSubmitResponse(BaseModel):
 
 class ActivatePointRequest(BaseModel):
     point_type: Literal["T0", "T1", "T2"]
+    scale_code: Literal["KDQOL_SF", "WCQ_LAZARUS", "KOP_25A"] = "KDQOL_SF"
 
 
 class MeasurementPointOut(BaseModel):
@@ -541,6 +542,7 @@ class MeasurementPointOut(BaseModel):
 
     id: int
     patient_id: int
+    scale_code: str
     point_type: str
     activated_at: datetime
     activated_by: Optional[int]
@@ -552,6 +554,7 @@ class MeasurementPointOut(BaseModel):
         return cls(
             id=mp.id,
             patient_id=mp.patient_id,
+            scale_code=mp.scale_code,
             point_type=mp.point_type,
             activated_at=mp.activated_at,
             activated_by=mp.activated_by,
@@ -668,7 +671,7 @@ async def kdqol_activate(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Активировать точку измерения T0/T1/T2 для пациента."""
-    mp = await kdqol_activate_point(session, patient_id, researcher.id, body.point_type)
+    mp = await kdqol_activate_point(session, patient_id, researcher.id, body.point_type, body.scale_code)
     await session.commit()
     await session.refresh(mp)
     return MeasurementPointOut.from_mp(mp)

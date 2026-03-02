@@ -61,11 +61,15 @@ _KDQOL_SCHEMA = "kdqol"
 
 
 class MeasurementPoint(Base):
-    """Временная точка измерения T0/T1/T2, активируемая исследователем."""
+    """Временная точка измерения T0/T1/T2, активируемая исследователем.
+
+    scale_code — шкала: 'KDQOL_SF' | 'WCQ_LAZARUS' | 'KOP_25A'.
+    Уникальность: (patient_id, scale_code, point_type).
+    """
 
     __tablename__ = "measurement_points"
     __table_args__ = (
-        UniqueConstraint("patient_id", "point_type", name="uq_mp_patient_point_type"),
+        UniqueConstraint("patient_id", "scale_code", "point_type", name="uq_mp_patient_scale_point"),
         CheckConstraint("point_type IN ('T0', 'T1', 'T2')", name="ck_mp_point_type"),
         Index("ix_mp_patient_id", "patient_id"),
         {"schema": _KDQOL_SCHEMA},
@@ -75,6 +79,7 @@ class MeasurementPoint(Base):
     patient_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.users.id", ondelete="CASCADE"), nullable=False
     )
+    scale_code: Mapped[str] = mapped_column(String(20), nullable=False, server_default="KDQOL_SF")
     point_type: Mapped[str] = mapped_column(String(2), nullable=False)
     activated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

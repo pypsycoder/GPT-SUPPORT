@@ -148,11 +148,12 @@ async def save_scale_result(
 async def kdqol_get_pending_point(
     session: AsyncSession, patient_id: int
 ) -> Optional[MeasurementPoint]:
-    """Вернуть первую активированную незавершённую точку измерения."""
+    """Вернуть первую активированную незавершённую точку KDQOL-SF."""
     result = await session.execute(
         select(MeasurementPoint)
         .where(
             MeasurementPoint.patient_id == patient_id,
+            MeasurementPoint.scale_code == "KDQOL_SF",
             MeasurementPoint.completed_at.is_(None),
         )
         .order_by(MeasurementPoint.activated_at)
@@ -166,25 +167,28 @@ async def kdqol_activate_point(
     patient_id: int,
     researcher_id: int,
     point_type: str,
+    scale_code: str = "KDQOL_SF",
 ) -> MeasurementPoint:
     """Активировать точку измерения (T0/T1/T2) для пациента.
 
-    Raises 409 если такой point_type уже существует.
+    Raises 409 если такая комбинация scale_code+point_type уже существует.
     """
     existing = await session.execute(
         select(MeasurementPoint).where(
             MeasurementPoint.patient_id == patient_id,
+            MeasurementPoint.scale_code == scale_code,
             MeasurementPoint.point_type == point_type,
         )
     )
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Точка измерения {point_type} уже активирована для этого пациента.",
+            detail=f"Точка измерения {scale_code}/{point_type} уже активирована для этого пациента.",
         )
 
     mp = MeasurementPoint(
         patient_id=patient_id,
+        scale_code=scale_code,
         point_type=point_type,
         activated_by=researcher_id,
         activated_at=datetime.now(timezone.utc),
@@ -197,14 +201,22 @@ async def kdqol_activate_point(
 
 
 async def kdqol_get_patient_points(
-    session: AsyncSession, patient_id: int
+    session: AsyncSession,
+    patient_id: int,
+    scale_code: Optional[str] = None,
 ) -> list[MeasurementPoint]:
-    """Вернуть все точки измерения пациента."""
-    result = await session.execute(
+    """Вернуть точки измерения пациента.
+
+    scale_code=None — все шкалы; иначе фильтрует по шкале.
+    """
+    q = (
         select(MeasurementPoint)
         .where(MeasurementPoint.patient_id == patient_id)
-        .order_by(MeasurementPoint.point_type)
     )
+    if scale_code is not None:
+        q = q.where(MeasurementPoint.scale_code == scale_code)
+    q = q.order_by(MeasurementPoint.scale_code, MeasurementPoint.point_type)
+    result = await session.execute(q)
     return list(result.scalars().all())
 
 

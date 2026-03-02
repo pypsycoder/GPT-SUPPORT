@@ -159,28 +159,80 @@
     background: #fff;
 }
 
+.sleep-time-part--error {
+    border-color: #ef4444;
+    background: #fef2f2;
+}
+
+.sleep-time-part--error:focus {
+    border-color: #ef4444;
+}
+
+.sleep-time-error {
+    display: block;
+    font-size: 13px;
+    color: #ef4444;
+    margin-top: 4px;
+}
+
 .sleep-time-sep {
     font-size: 18px;
     font-weight: 600;
     color: #374151;
 }
 
-.sleep-number {
-    font-size: 18px;
-    padding: 12px 14px;
-    border: 1px solid #cbd5e1;
-    border-radius: 10px;
-    background: #f9fafb;
-    max-width: 120px;
-    min-height: 48px;
-    box-sizing: border-box;
-    font-variant-numeric: tabular-nums;
+.sleep-tst-stepper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
 }
 
-.sleep-number:focus {
-    outline: none;
-    border-color: #3b82f6;
-    background: #fff;
+.sleep-tst-btn {
+    width: 56px;
+    height: 56px;
+    font-size: 30px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: 2px solid #cbd5e1;
+    background: #f3f4f6;
+    color: #374151;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.sleep-tst-btn:hover:not(:disabled) {
+    background: #e5e7eb;
+    border-color: #9ca3af;
+}
+
+.sleep-tst-btn:active:not(:disabled) {
+    background: #d1d5db;
+}
+
+.sleep-tst-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.sleep-tst-display {
+    font-size: 32px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #111827;
+    min-width: 96px;
+    text-align: center;
+    letter-spacing: 0.04em;
+}
+
+.sleep-tst-display--placeholder {
+    color: #9ca3af;
+    font-weight: 400;
+    font-size: 24px;
 }
 
 .sleep-se-display {
