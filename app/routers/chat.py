@@ -55,6 +55,7 @@ class ChatMessageOut(BaseModel):
     model_used: Optional[str]
     domain: Optional[str]
     request_type: Optional[str]
+    buttons_json: Optional[list] = None
     created_at: str
 
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
@@ -86,12 +87,16 @@ async def send_message(
     # 1. Классифицируем запрос
     router_result = classify_request(body.message, body.source)
 
-    # 2. Генерируем ответ (с логированием в llm_request_logs)
+    # 2. Собираем дневной контекст для LLM (если есть — подставится в system prompt)
+    from app.llm.morning_service import get_daily_context_for_llm
+    daily_ctx = await get_daily_context_for_llm(body.patient_id, db)
+
+    # 3. Генерируем ответ (с логированием в llm_request_logs)
     llm_result = await generate_response(
         patient_id=body.patient_id,
         user_input=body.message,
         router_result=router_result,
-        context={},
+        context={"daily_context": daily_ctx},
         db=db,
     )
 
@@ -110,7 +115,7 @@ async def send_message(
     )
     db.add(user_msg)
 
-    # 4. Сохраняем ответ ассистента
+    # 4. Сохраняем ответ ассистента (непрочитанным, пока пользователь не откроет чат)
     assistant_msg = ChatMessage(
         patient_id=body.patient_id,
         role="assistant",
@@ -119,6 +124,7 @@ async def send_message(
         model_used=llm_result["model"],
         domain=llm_result["domain"],
         request_type=router_result.request_type.value,
+        is_read=False,
     )
     db.add(assistant_msg)
 
@@ -155,6 +161,10 @@ async def get_history(
             detail="Нет доступа к истории другого пациента",
         )
 
+    # Генерируем утреннее сообщение на лету, если cron ещё не отработал
+    from app.llm.morning_service import ensure_morning_message
+    await ensure_morning_message(patient_id, db)
+
     result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.patient_id == patient_id)
@@ -175,6 +185,7 @@ async def get_history(
             model_used=m.model_used,
             domain=m.domain,
             request_type=m.request_type,
+            buttons_json=m.buttons_json,
             created_at=m.created_at.isoformat(),
         )
         for m in messages
@@ -233,6 +244,35 @@ async def confirm_vitals(
 
     await db.commit()
     return {"saved": saved}
+
+
+# ---------------------------------------------------------------------------
+# POST /mark-read  — пометить все непрочитанные сообщения ассистента прочитанными
+# ---------------------------------------------------------------------------
+
+
+from sqlalchemy import update as sa_update  # noqa: E402
+
+
+@router.post("/mark-read", status_code=200)
+async def mark_messages_read(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> None:
+    """
+    Помечает все непрочитанные сообщения ассистента пациента как прочитанные.
+    Вызывается chat.js при открытии drawer.
+    """
+    await db.execute(
+        sa_update(ChatMessage)
+        .where(
+            ChatMessage.patient_id == current_user.id,
+            ChatMessage.role == "assistant",
+            ChatMessage.is_read.is_(False),
+        )
+        .values(is_read=True)
+    )
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------

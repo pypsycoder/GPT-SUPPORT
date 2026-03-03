@@ -188,6 +188,10 @@ async def generate_response(
     system_prompt = _build_system_prompt(effective_domain)
     if context_text:
         system_prompt = f"{system_prompt}\n\n{context_text}"
+    # Дневной контекст (диализ, лекарства, пропуски) — если передан из chat endpoint
+    daily_ctx = context.get("daily_context", "")
+    if daily_ctx:
+        system_prompt = f"{system_prompt}\n\n{daily_ctx}"
 
     # История: из patient_context (chat_history) или из переданного context
     history: list[dict] = patient_context.get("chat_history") or context.get("history", [])

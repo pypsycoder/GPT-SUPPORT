@@ -283,6 +283,39 @@
   }
 
   // ============================================================
+  // MORNING MESSAGE BUTTONS
+  // ============================================================
+
+  var _MORNING_ACTION_URLS = {
+    open_medications: '/patient/medications',
+    open_trackers:    '/patient/',
+    open_schedule:    '/patient/',
+  };
+
+  function appendMorningButtons(msgEl, buttons) {
+    var wrap = document.createElement('div');
+    wrap.className = 'chat-morning-buttons';
+
+    buttons.forEach(function (btn) {
+      var el = document.createElement('button');
+      el.className = 'chat-morning-btn';
+      el.textContent = btn.label;
+
+      el.addEventListener('click', function () {
+        wrap.remove();
+        if (btn.action === 'dismiss_morning') return;
+        var url = _MORNING_ACTION_URLS[btn.action];
+        if (url) window.location.href = url;
+      });
+
+      wrap.appendChild(el);
+    });
+
+    msgEl.appendChild(wrap);
+    scrollToBottom();
+  }
+
+  // ============================================================
   // CONFIRM VITALS UI
   // ============================================================
 
@@ -379,7 +412,10 @@
       );
       if (messages && messages.length > 0) {
         messages.forEach(function (m) {
-          appendMessage(m.role, m.content, m.created_at);
+          var msgEl = appendMessage(m.role, m.content, m.created_at);
+          if (m.role === 'assistant' && m.buttons_json && m.buttons_json.length > 0) {
+            appendMorningButtons(msgEl, m.buttons_json);
+          }
         });
       }
     } catch (err) {
@@ -406,6 +442,11 @@
 
     // Загружаем историю при первом открытии
     await loadHistory();
+
+    // Помечаем все сообщения ассистента прочитанными и убираем бейдж
+    apiFetch('/api/chat/mark-read', 'POST').then(function () {
+      if (window.SidebarBadges) window.SidebarBadges.reload();
+    }).catch(function () {});
 
     // Фокус на поле ввода после анимации
     setTimeout(function () {

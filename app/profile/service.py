@@ -16,6 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.education.models import LessonProgress, LessonTestResult, PracticeLog
 from app.profile.schemas import (
+    AchievementsProgress,
+    AchievementsSummary,
+    BadgeRead,
     DialysisSummary,
     EducationSummary,
     LastBP,
@@ -25,9 +28,11 @@ from app.profile.schemas import (
     ProfileSummary,
     ProfileUpdate,
     ScalesSummary,
+    StreakInfo,
     VitalsSummary,
 )
 from app.dialysis.crud import get_active_schedule, get_center_by_id
+from app.notifications.badge_definitions import BADGE_DEFINITIONS
 from app.scales.models import ScaleResult
 from app.scales.registry import SCALE_CALCULATORS
 from app.users.models import User
@@ -306,6 +311,139 @@ async def get_profile_summary(
         education=education,
         scales=scales,
         dialysis=dialysis,
+    )
+
+
+async def get_achievements_summary(
+    session: AsyncSession,
+    user: User,
+) -> AchievementsSummary:
+    """Возвращает выданные бейджи, серии и прогресс пациента."""
+    from sqlalchemy import text
+
+    # ── Бейджи ────────────────────────────────────────────────────────────────
+    rows = await session.execute(
+        text("""
+            SELECT badge_key, level, earned_at
+            FROM patient_badges
+            WHERE patient_id = :pid
+            ORDER BY earned_at ASC
+        """),
+        {"pid": user.id},
+    )
+    badges: list[BadgeRead] = []
+    for row in rows:
+        defn = BADGE_DEFINITIONS.get(row.badge_key)
+        if not defn:
+            continue
+        badges.append(BadgeRead(
+            key=row.badge_key,
+            icon=defn["icon"],
+            color=defn["color"],
+            level=row.level,
+            name=defn["name"],
+            desc=defn["desc"],
+            tracker=defn["tracker"],
+            earned_at=row.earned_at,
+        ))
+
+    # ── Серии ─────────────────────────────────────────────────────────────────
+    rows = await session.execute(
+        text("""
+            SELECT tracker, current_streak, best_streak
+            FROM patient_streaks
+            WHERE patient_id = :pid
+        """),
+        {"pid": user.id},
+    )
+    streaks: dict[str, StreakInfo] = {}
+    for row in rows:
+        streaks[row.tracker] = StreakInfo(
+            current=row.current_streak,
+            best=row.best_streak,
+        )
+    for tracker in ("medications", "sleep", "vitals", "practices"):
+        if tracker not in streaks:
+            streaks[tracker] = StreakInfo()
+
+    # ── Прогресс ──────────────────────────────────────────────────────────────
+    r = await session.execute(
+        text("""
+            SELECT COUNT(*) FROM education.lesson_progress
+            WHERE user_id = :uid AND is_completed = TRUE
+        """),
+        {"uid": user.id},
+    )
+    lessons_done = r.scalar() or 0
+
+    r = await session.execute(
+        text("SELECT COUNT(*) FROM education.lessons WHERE is_active = TRUE"),
+    )
+    lessons_total = r.scalar() or 0
+
+    r = await session.execute(
+        text("""
+            SELECT COUNT(DISTINCT scale_code) FROM scales.scale_results
+            WHERE user_id = :uid
+        """),
+        {"uid": user.id},
+    )
+    scales_done = r.scalar() or 0
+
+    r = await session.execute(
+        text("""
+            SELECT COUNT(DISTINCT practice_id) FROM practices.practice_completions
+            WHERE patient_id = :pid
+        """),
+        {"pid": user.id},
+    )
+    practices_done = r.scalar() or 0
+
+    r = await session.execute(
+        text("SELECT COUNT(*) FROM practices.practices WHERE is_active = TRUE"),
+    )
+    practices_total = r.scalar() or 0
+
+    progress = AchievementsProgress(
+        lessons_done=lessons_done,
+        lessons_total=lessons_total,
+        scales_done=scales_done,
+        practices_done=practices_done,
+        practices_total=practices_total,
+    )
+
+    # ── Уровни трекеров (из уже загруженных бейджей) ──────────────────────────
+    _badge_chains: dict[str, list[str]] = {
+        "medications": ["med_start", "med_week", "med_2weeks", "med_3weeks", "med_month"],
+        "sleep":       ["sleep_start", "sleep_week", "sleep_2weeks", "sleep_3weeks", "sleep_month"],
+        "vitals":      ["vitals_start", "vitals_week", "vitals_2weeks", "vitals_3weeks", "vitals_month"],
+        "practices":   ["practice_start", "practice_week", "practice_2weeks", "practice_3weeks", "practice_month"],
+    }
+    earned_keys = {b.key for b in badges}
+    tracker_levels: dict[str, int] = {}
+    for tracker, chain in _badge_chains.items():
+        level = 0
+        for i, key in enumerate(chain):
+            if key in earned_keys:
+                level = i + 1
+        tracker_levels[tracker] = level
+
+    # ── Уровень шкал T0/T1/T2 ─────────────────────────────────────────────────
+    if "scale_t2" in earned_keys:
+        scales_level = 3
+    elif "scale_t1" in earned_keys:
+        scales_level = 2
+    elif "scale_t0" in earned_keys:
+        scales_level = 1
+    else:
+        scales_level = 0
+
+    return AchievementsSummary(
+        badges=badges,
+        streaks=streaks,
+        progress=progress,
+        tracker_levels=tracker_levels,
+        scales_level=scales_level,
     )
 
 

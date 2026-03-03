@@ -105,6 +105,49 @@
                 </form>
             </section>
 
+            <!-- Секция: Достижения -->
+            <section class="profile-card" id="achievements-card">
+                <div class="card-header">
+                    <h2 class="card-title">🏅 Достижения</h2>
+                </div>
+
+                <!-- 1. Серии активности -->
+                <p class="badges-section-title">Серии активности</p>
+                <div class="streaks-grid" id="streaks-grid">
+                    <!-- заполняется JS -->
+                </div>
+
+                <!-- 2. Трекеры-стопки -->
+                <p class="badges-section-title">Трекеры</p>
+                <div class="stacks-row" id="stacks-row">
+                    <!-- заполняется JS: 4 колонки с stack-wrapper + bonus -->
+                </div>
+
+                <!-- 3. Обучение — одиночные бейджи с hover-оверлеем -->
+                <p class="badges-section-title">📚 Обучение</p>
+                <div class="badges-grid" id="badges-education">
+                    <!-- заполняется JS -->
+                </div>
+
+                <!-- 4. Шкалы — стопка из 3 уровней -->
+                <p class="badges-section-title">📋 Шкалы исследования</p>
+                <div class="stacks-row stacks-row-single" id="scales-stack-row">
+                    <!-- заполняется JS -->
+                </div>
+
+                <!-- 5. Особые бейджи -->
+                <p class="badges-section-title">✨ Особые</p>
+                <div class="bonus-badges-row" id="special-badges-row">
+                    <!-- заполняется JS -->
+                </div>
+
+                <!-- 6. Прогресс -->
+                <p class="badges-section-title">Прогресс</p>
+                <div id="progress-section">
+                    <!-- заполняется JS -->
+                </div>
+            </section>
+
             <!-- Секция: Диализный центр -->
             <section class="profile-card" id="dialysis-card">
                 <div class="card-header">
@@ -144,80 +187,6 @@
                     </div>
                 </div>
 
-            </section>
-
-            <!-- Секция: Витальные показатели -->
-            <section class="profile-card" id="vitals-card">
-                <div class="card-header">
-                    <h2 class="card-title">📊 Витальные показатели</h2>
-                </div>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">Давление (АД)</span>
-                        <span class="stat-value" id="vitals-bp">—</span>
-                        <span class="stat-date" id="vitals-bp-date"></span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Пульс</span>
-                        <span class="stat-value" id="vitals-pulse">—</span>
-                        <span class="stat-date" id="vitals-pulse-date"></span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Вес</span>
-                        <span class="stat-value" id="vitals-weight">—</span>
-                        <span class="stat-date" id="vitals-weight-date"></span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Вода сегодня</span>
-                        <span class="stat-value" id="vitals-water">—</span>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Секция: Обучение -->
-            <section class="profile-card" id="education-card">
-                <div class="card-header">
-                    <h2 class="card-title">🎓 Обучение</h2>
-                </div>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">Уроков пройдено</span>
-                        <span class="stat-value" id="edu-lessons">—</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Тестов сдано</span>
-                        <span class="stat-value" id="edu-tests">—</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Практик выполнено</span>
-                        <span class="stat-value" id="edu-practices">—</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Последняя активность</span>
-                        <span class="stat-value stat-value-small" id="edu-last-activity">—</span>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Секция: Шкалы -->
-            <section class="profile-card" id="scales-card">
-                <div class="card-header">
-                    <h2 class="card-title">📈 Психологические шкалы</h2>
-                </div>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">Пройдено шкал</span>
-                        <span class="stat-value" id="scales-passed">—</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Доступно шкал</span>
-                        <span class="stat-value" id="scales-available">—</span>
-                    </div>
-                    <div class="stat-item stat-item-wide">
-                        <span class="stat-label">Последняя шкала</span>
-                        <span class="stat-value stat-value-small" id="scales-last">—</span>
-                    </div>
-                </div>
             </section>
 
         </main>

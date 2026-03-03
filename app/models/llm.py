@@ -50,6 +50,19 @@ class ChatMessage(Base):
 
     request_type: Mapped[str | None] = mapped_column(sa.String(40), nullable=True)
 
+    is_read: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        server_default="true",
+        comment="False для непрочитанных сообщений ассистента",
+    )
+
+    buttons_json: Mapped[list | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        comment="Inline-кнопки для morning-сообщений [{label, action}]",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime,
         nullable=False,

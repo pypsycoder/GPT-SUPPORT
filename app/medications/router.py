@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.medications import schemas
+from app.notifications.badge_service import check_tracker_badges
 from app.medications.service import (
     calculate_adherence_rate,
     check_duplicate_intake,
@@ -282,6 +283,8 @@ async def create_intake_endpoint(
     intake = await create_intake(session, patient_id=user.id, payload=payload)
     await session.commit()
     await session.refresh(intake)
+    await check_tracker_badges(user.id, "medications", session)
+    await session.commit()
     return schemas.IntakeResponse.model_validate(intake)
 
 

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.vitals import crud, schemas, service
 from app.auth.dependencies import get_current_user
+from app.notifications.badge_service import check_tracker_badges, check_vitals_full_day
 from app.users.models import User
 from core.db.session import async_session_factory, get_async_session
 
@@ -111,6 +112,9 @@ async def create_bp_me(
     measurement = await crud.bp_crud.create(session, prepared)
     await session.commit()
     await session.refresh(measurement)
+    await check_tracker_badges(user.id, "vitals", session)
+    await check_vitals_full_day(user.id, session)
+    await session.commit()
     return measurement
 
 
@@ -183,6 +187,8 @@ async def create_pulse_me(
         context=payload.context,
     )
     measurement = await crud.pulse_crud.create(session, prepared)
+    await session.commit()
+    await check_vitals_full_day(user.id, session)
     await session.commit()
     return measurement
 
@@ -257,6 +263,8 @@ async def create_weight_me(
     )
     measurement = await crud.weight_crud.create(session, prepared)
     await session.commit()
+    await check_vitals_full_day(user.id, session)
+    await session.commit()
     return measurement
 
 
@@ -290,6 +298,8 @@ async def create_water_me(
         context=payload.context,
     )
     measurement = await crud.water_crud.create(session, prepared)
+    await session.commit()
+    await check_vitals_full_day(user.id, session)
     await session.commit()
     return measurement
 

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
+from app.notifications.badge_service import check_tracker_badges, check_practice_count_badges
 from app.practices.models import StandalonePractice as Practice, PracticeCompletion
 from app.practices.schemas import CompleteIn, CompleteOut, PracticeOut
 from app.users.models import User
@@ -62,6 +63,9 @@ async def complete_practice(
     session.add(completion)
     await session.commit()
     await session.refresh(completion)
+    await check_tracker_badges(user.id, "practices", session)
+    await check_practice_count_badges(user.id, session)
+    await session.commit()
 
     return CompleteOut(
         success=True,

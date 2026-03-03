@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.sleep_tracker import crud, schemas, service
 from app.auth.dependencies import get_current_user
+from app.notifications.badge_service import check_tracker_badges
 from app.dialysis.service import is_dialysis_day
 from app.users.models import User
 from core.db.session import get_async_session
@@ -55,6 +56,8 @@ async def create_sleep_record_me(
     record = await crud.create(session, data)
     await session.commit()
     await session.refresh(record)
+    await check_tracker_badges(user.id, "sleep", session)
+    await session.commit()
     return record
 
 

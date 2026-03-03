@@ -31,18 +31,12 @@ _scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 # ---------------------------------------------------------------------------
 
 
-async def _run_proactive_job() -> None:
-    """
-    Получает всех активных пациентов и запускает deliver_proactive_messages
-    для каждого в отдельной сессии БД.
-    """
+async def _get_active_patient_ids() -> list[int]:
+    """Возвращает список ID всех активных (онбордированных, незаблокированных) пациентов."""
     from sqlalchemy import select
-
-    from app.llm.proactive import deliver_proactive_messages
     from app.users.models import User
     from core.db.engine import async_session_maker
 
-    # Загружаем список пациентов в одной сессии
     patient_ids: list[int] = []
     try:
         async with async_session_maker() as db:
@@ -55,8 +49,18 @@ async def _run_proactive_job() -> None:
             patient_ids = list(result.scalars().all())
     except Exception as exc:
         logger.error("[scheduler] Не удалось получить список пациентов: %s", exc)
-        return
+    return patient_ids
 
+
+async def _run_proactive_job() -> None:
+    """
+    Получает всех активных пациентов и запускает deliver_proactive_messages
+    для каждого в отдельной сессии БД.
+    """
+    from app.llm.proactive import deliver_proactive_messages
+    from core.db.engine import async_session_maker
+
+    patient_ids = await _get_active_patient_ids()
     logger.info("[scheduler] Проактивные сообщения: %d пациентов", len(patient_ids))
 
     # Каждый пациент — отдельная сессия, чтобы изолировать ошибки
@@ -70,6 +74,27 @@ async def _run_proactive_job() -> None:
                 )
 
 
+async def _run_morning_job() -> None:
+    """
+    08:00 MSK — шаблонное утреннее сообщение для каждого активного пациента.
+    Использует build_daily_context + build_morning_message (без LLM).
+    """
+    from app.llm.morning_service import deliver_morning_message
+    from core.db.engine import async_session_maker
+
+    patient_ids = await _get_active_patient_ids()
+    logger.info("[scheduler] Утренние сообщения: %d пациентов", len(patient_ids))
+
+    for patient_id in patient_ids:
+        async with async_session_maker() as db:
+            try:
+                await deliver_morning_message(patient_id, db)
+            except Exception as exc:
+                logger.error(
+                    "[scheduler] morning patient=%d ошибка: %s", patient_id, exc
+                )
+
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -77,11 +102,21 @@ async def _run_proactive_job() -> None:
 
 def start_scheduler() -> None:
     """Регистрирует задания и запускает AsyncIOScheduler."""
+    # Утреннее шаблонное сообщение (без LLM) — только в 08:00
+    _scheduler.add_job(
+        _run_morning_job,
+        trigger="cron",
+        hour=8,
+        minute=0,
+        id="morning_context",
+        replace_existing=True,
+    )
+    # GigaChat-проактивные (аномалии, домены) — 08:00, 14:00, 20:00
     _scheduler.add_job(
         _run_proactive_job,
         trigger="cron",
         hour=8,
-        minute=0,
+        minute=5,
         id="proactive_morning",
         replace_existing=True,
     )
@@ -102,7 +137,7 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
     _scheduler.start()
-    logger.info("[scheduler] APScheduler запущен. Задания: 08:00, 14:00, 20:00 MSK")
+    logger.info("[scheduler] APScheduler запущен. Morning: 08:00, Proactive: 08:05/14:00/20:00 MSK")
 
 
 def stop_scheduler() -> None:

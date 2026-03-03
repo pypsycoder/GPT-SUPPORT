@@ -36,6 +36,7 @@ from app.medications.router import router as medications_router
 from app.practices.router import router as practices_router
 from app.scales.routers import kdqol_patient_router, kdqol_researcher_router
 from app.routers.chat import router as chat_router
+from app.notifications.badges import router as badges_router
 from app.llm.scheduler import start_scheduler, stop_scheduler
 from core.db.engine import engine
 
@@ -104,6 +105,7 @@ app.include_router(dialysis_router, prefix="/api/v1")
 app.include_router(sleep_tracker_router, prefix="/api/v1")
 app.include_router(routine_router, prefix="/api/v1")
 app.include_router(medications_router, prefix="/api")
+app.include_router(badges_router, prefix="/api")
 app.include_router(practices_router, prefix="/api")
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(pages_router)

@@ -6,8 +6,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.profile.schemas import ProfileSummary, ProfileUpdate
-from app.profile.service import get_profile_summary, update_profile
+from app.profile.schemas import AchievementsSummary, ProfileSummary, ProfileUpdate
+from app.profile.service import get_achievements_summary, get_profile_summary, update_profile
 from app.users.schemas import UserPublic
 from app.auth.dependencies import get_current_user
 from app.users.models import User
@@ -50,6 +50,18 @@ async def get_profile_summary_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {exc}",
         ) from exc
+
+
+@router.get("/achievements", response_model=AchievementsSummary)
+async def get_achievements_endpoint(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> AchievementsSummary:
+    """
+    Возвращает бейджи достижений, серии и прогресс пациента.
+    GET /api/v1/profile/achievements
+    """
+    return await get_achievements_summary(session, user)
 
 
 @router.patch("/update", response_model=UserPublic)
