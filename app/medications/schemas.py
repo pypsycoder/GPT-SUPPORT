@@ -84,6 +84,7 @@ class PrescriptionResponse(BaseModel):
     status: str
     prescribed_by: Optional[int]
     adherence_rate: float
+    today_taken_slots: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

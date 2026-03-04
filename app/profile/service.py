@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.education.models import LessonProgress, LessonTestResult, PracticeLog
@@ -49,6 +49,88 @@ SCALE_NAMES = {
     "KOP25A": "КОП-25 (копинг-стратегии)",
     "PSQI": "Питтсбургский опросник качества сна",
 }
+
+
+# ============================================
+#   Подсчёт серий активности (fallback)
+# ============================================
+
+_TRACKER_ACTIVITY_CFG: dict[str, tuple[str, str, str]] = {
+    # tracker: (schema.table, date_column, id_column)
+    "medications": ("medications.medication_intakes", "intake_datetime", "patient_id"),
+    "sleep": ("sleep.sleep_records", "sleep_date", "patient_id"),
+    "vitals": ("vitals.bp_measurements", "measured_at", "user_id"),
+    "practices": ("practices.practice_completions", "completed_at", "patient_id"),
+}
+
+
+async def _get_tracker_activity_dates(
+    session: AsyncSession,
+    user_id: int,
+    tracker: str,
+) -> list[date]:
+    """Возвращает отсортированный список уникальных дат активности трекера."""
+    cfg = _TRACKER_ACTIVITY_CFG.get(tracker)
+    if not cfg:
+        return []
+
+    table, date_col, id_col = cfg
+    result = await session.execute(
+        text(
+            f"""
+            SELECT DISTINCT DATE({date_col}) AS d
+            FROM {table}
+            WHERE {id_col} = :uid
+            ORDER BY DATE({date_col}) ASC
+            """
+        ),
+        {"uid": user_id},
+    )
+    rows = result.fetchall()
+    return [row[0] for row in rows if row[0] is not None]
+
+
+def _compute_streak_from_dates(dates: list[date]) -> tuple[int, int]:
+    """Считает текущую и лучшую серию по списку дат."""
+    if not dates:
+        return 0, 0
+
+    # На всякий случай убираем дубликаты и сортируем
+    unique_dates = sorted(set(dates))
+
+    # Лучшая серия (max подряд)
+    best = 1
+    run = 1
+    for i in range(1, len(unique_dates)):
+        if (unique_dates[i] - unique_dates[i - 1]).days == 1:
+            run += 1
+        else:
+            if run > best:
+                best = run
+            run = 1
+    if run > best:
+        best = run
+
+    # Текущая серия — подряд идущие дни, заканчивающиеся последней датой
+    current = 1
+    for i in range(len(unique_dates) - 2, -1, -1):
+        if (unique_dates[i + 1] - unique_dates[i]).days == 1:
+            current += 1
+        else:
+            break
+
+    return current, best
+
+
+async def _fallback_tracker_streak(
+    session: AsyncSession,
+    user_id: int,
+    tracker: str,
+) -> StreakInfo:
+    """Фолбэк: вычисляет серию по сырым данным, если в patient_streaks нет значений."""
+    dates = await _get_tracker_activity_dates(session, user_id, tracker)
+    current, best = _compute_streak_from_dates(dates)
+    return StreakInfo(current=current, best=best)
 
 
 # ============================================
@@ -319,8 +401,6 @@ async def get_achievements_summary(
     user: User,
 ) -> AchievementsSummary:
     """Возвращает выданные бейджи, серии и прогресс пациента."""
-    from sqlalchemy import text
-
     # ── Бейджи ────────────────────────────────────────────────────────────────
     rows = await session.execute(
         text("""
@@ -362,9 +442,11 @@ async def get_achievements_summary(
             current=row.current_streak,
             best=row.best_streak,
         )
+    # Если по какому-то трекеру серии нет или она вся из нулей — считаем по фактической активности
     for tracker in ("medications", "sleep", "vitals", "practices"):
-        if tracker not in streaks:
-            streaks[tracker] = StreakInfo()
+        s = streaks.get(tracker)
+        if s is None or (s.current == 0 and s.best == 0):
+            streaks[tracker] = await _fallback_tracker_streak(session, user.id, tracker)
 
     # ── Прогресс ──────────────────────────────────────────────────────────────
     r = await session.execute(

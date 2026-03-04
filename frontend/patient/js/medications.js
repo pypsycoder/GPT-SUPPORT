@@ -88,6 +88,14 @@
   function openModal(id) {
     const modal = document.getElementById(id);
     if (!modal) return;
+    // Перед открытием нового окна закрываем все остальные,
+    // чтобы новое модальное не оказывалось «под» текущим
+    document.querySelectorAll('.modal.is-open').forEach(m => {
+      if (m.id !== id) {
+        m.classList.remove('is-open');
+        m.style.display = 'none';
+      }
+    });
     modal.classList.add('is-open');
     modal.style.display = 'block';
     document.body.style.overflow = 'hidden';
@@ -232,12 +240,21 @@
   }
 
   function buildPrescriptionCard(p) {
-    const rate  = Math.round((p.adherence_rate || 0) * 100);
-    const color = rate >= 80 ? '#4caf50' : rate >= 50 ? '#ff9800' : '#f44336';
     const isSelf = !p.prescribed_by;
 
+    const todaySlots = p.today_taken_slots || [];
     const scheduleHtml = (p.intake_schedule || [])
-      .map(s => '<span class="slot-tag">' + (SLOTS[s] ? SLOTS[s].icon : '') + ' ' + (SLOTS[s] ? SLOTS[s].label : escapeHtml(s)) + '</span>')
+      .map(s => {
+        const label =
+          (SLOTS[s] ? SLOTS[s].icon : '') + ' ' +
+          (SLOTS[s] ? SLOTS[s].label : escapeHtml(s));
+        const takenToday = todaySlots.includes(s);
+        const extraClass = takenToday ? ' slot-tag-today' : '';
+        const check = takenToday
+          ? '<span class="slot-check" title="Сегодня приём отмечен">\u2713</span>'
+          : '';
+        return '<span class="slot-tag' + extraClass + '">' + label + check + '</span>';
+      })
       .join('');
 
     const card = document.createElement('div');
@@ -250,7 +267,6 @@
           '<h3 class="card-title">' + escapeHtml(p.medication_name) + '</h3>' +
           (isSelf ? '<span class="badge-self">Самостоятельно</span>' : '') +
         '</div>' +
-        '<span class="adherence-badge" style="background:' + color + '">' + rate + '%</span>' +
       '</div>' +
       '<div class="card-body">' +
         '<div class="card-row"><span>Доза:</span><span>' + escapeHtml(String(p.dose)) + ' ' + escapeHtml(p.dose_unit) + '</span></div>' +

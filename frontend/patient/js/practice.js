@@ -125,7 +125,9 @@
       return;
     }
 
-    setTimeout(function () { history.back(); }, 1200);
+    setTimeout(function () {
+      window.location.href = '/patient/education_overview';
+    }, 1200);
   }
 
   // ============================================================

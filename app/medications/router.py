@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,12 +43,20 @@ async def get_prescriptions(
     session: AsyncSession = Depends(get_async_session),
     status: str = Query("active", description="active | inactive | all"),
 ):
-    """Список назначений текущего пациента с adherence_rate."""
+    """Список назначений текущего пациента с adherence_rate и слотами приёма за сегодня."""
     prescriptions = await list_prescriptions(session, patient_id=user.id, status=status)
     result = []
+    today = date.today()
     for p in prescriptions:
         intakes = await get_intakes_for_prescription(session, p.id)
         rate = calculate_adherence_rate(p, intakes)
+        today_slots = sorted(
+            {
+                i.intake_slot
+                for i in intakes
+                if i.intake_slot is not None and i.intake_datetime.date() == today
+            }
+        )
         resp = schemas.PrescriptionResponse(
             id=p.id,
             patient_id=p.patient_id,
@@ -65,6 +73,7 @@ async def get_prescriptions(
             status=p.status,
             prescribed_by=p.prescribed_by,
             adherence_rate=rate,
+             today_taken_slots=today_slots,
             created_at=p.created_at,
             updated_at=p.updated_at,
         )
@@ -78,12 +87,20 @@ async def get_prescription_endpoint(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Детали одного назначения."""
+    """Детали одного назначения с adherence_rate и слотами приёма за сегодня."""
     p = await get_prescription(session, prescription_id, patient_id=user.id)
     if p is None:
         raise HTTPException(status_code=404, detail="Назначение не найдено")
     intakes = await get_intakes_for_prescription(session, p.id)
     rate = calculate_adherence_rate(p, intakes)
+    today = date.today()
+    today_slots = sorted(
+        {
+            i.intake_slot
+            for i in intakes
+            if i.intake_slot is not None and i.intake_datetime.date() == today
+        }
+    )
     return schemas.PrescriptionResponse(
         id=p.id,
         patient_id=p.patient_id,
@@ -100,6 +117,7 @@ async def get_prescription_endpoint(
         status=p.status,
         prescribed_by=p.prescribed_by,
         adherence_rate=rate,
+        today_taken_slots=today_slots,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -135,6 +153,7 @@ async def create_prescription_endpoint(
         status=p.status,
         prescribed_by=p.prescribed_by,
         adherence_rate=0.0,
+        today_taken_slots=[],
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
@@ -161,6 +180,14 @@ async def update_prescription_endpoint(
     await session.refresh(p)
     intakes = await get_intakes_for_prescription(session, p.id)
     rate = calculate_adherence_rate(p, intakes)
+    today = date.today()
+    today_slots = sorted(
+        {
+            i.intake_slot
+            for i in intakes
+            if i.intake_slot is not None and i.intake_datetime.date() == today
+        }
+    )
     return schemas.PrescriptionResponse(
         id=p.id,
         patient_id=p.patient_id,
@@ -177,6 +204,7 @@ async def update_prescription_endpoint(
         status=p.status,
         prescribed_by=p.prescribed_by,
         adherence_rate=rate,
+        today_taken_slots=today_slots,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )

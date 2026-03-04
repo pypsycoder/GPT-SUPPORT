@@ -85,6 +85,8 @@ class PatientCenterAssign(BaseModel):
 
 class ChatLogItem(BaseModel):
     """One row in the chat monitoring table — one LLM API call = one turn."""
+    model_config = ConfigDict(protected_namespaces=())
+
     log_id: int
     patient_id: int
     created_at: datetime

@@ -99,9 +99,9 @@
   // Достижения — конфигурация
   // ========================================
 
-  const LEVEL_COLORS     = ['gray', 'blue', 'green', 'green', 'gold'];
-  const LEVEL_DOT_CLASSES = ['dot-gray', 'dot-blue', 'dot-green', 'dot-green', 'dot-gold'];
-  const PAST_COLORS      = ['gray', 'blue', 'green', 'green', 'gold'];
+  const LEVEL_COLORS     = ['blue', 'green', 'green', 'gold', 'gold'];
+  const LEVEL_DOT_CLASSES = ['dot-blue', 'dot-green', 'dot-green', 'dot-gold', 'dot-gold'];
+  const PAST_COLORS      = ['blue', 'green', 'green', 'gold', 'gold'];
 
   const TRACKER_DATA = {
     medications: {

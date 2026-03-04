@@ -15,6 +15,7 @@ from app.education.models import (
     LessonProgress,
 )
 from app.auth.dependencies import get_current_user
+from app.notifications.badge_service import check_education_badges
 from app.users.models import User
 
 from app.education.schemas import (
@@ -591,6 +592,11 @@ async def submit_test_answers(
             progress.practice_done = practice_done
             progress.practice_completed_at = practice_completed_at
 
+    await session.commit()
+
+    # После обновления прогресса уроков проверяем и выдаём образовательные бейджи.
+    # Используем тот же user.id, который является и patient_id в patient_badges.
+    await check_education_badges(user.id, session)
     await session.commit()
 
     return TestSubmitResponse(
