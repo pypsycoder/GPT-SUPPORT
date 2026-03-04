@@ -288,8 +288,10 @@
 
   var _MORNING_ACTION_URLS = {
     open_medications: '/patient/medications',
-    open_trackers:    '/patient/',
-    open_schedule:    '/patient/',
+    open_vitals:      '/patient/vitals',
+    open_sleep:       '/patient/sleep_tracker',
+    open_trackers:    '/patient/home',
+    open_schedule:    '/patient/routine',
   };
 
   function appendMorningButtons(msgEl, buttons) {

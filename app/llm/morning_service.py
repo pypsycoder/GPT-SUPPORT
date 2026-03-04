@@ -220,7 +220,17 @@ def build_morning_message(ctx: dict) -> dict:
     elif ctx["missed_yesterday"] and blocks_used < 2:
         missed_str = " и ".join(ctx["missed_yesterday"])
         lines.append(f"Вчера не было записей: {missed_str}.")
-        buttons.append({"label": "Внести сейчас", "action": "open_trackers"})
+        missed = ctx["missed_yesterday"]
+        if len(missed) == 1:
+            _single_action = {
+                "лекарства":  "open_medications",
+                "показатели": "open_vitals",
+                "сон":        "open_sleep",
+            }
+            action = _single_action.get(missed[0], "open_trackers")
+        else:
+            action = "open_trackers"
+        buttons.append({"label": "Внести сейчас", "action": action})
         blocks_used += 1
 
     elif ctx["streak_medications"] >= 3 and not ctx["missed_yesterday"]:
