@@ -140,6 +140,38 @@ async def unlock_patient(
     return user
 
 
+async def bulk_delete_patients(
+    session: AsyncSession,
+    patient_ids: list[int],
+) -> int:
+    """Hard-delete multiple patients by id. Returns count of deleted records."""
+    from sqlalchemy import delete as sa_delete
+    result = await session.execute(
+        sa_delete(User).where(User.id.in_(patient_ids))
+    )
+    await session.commit()
+    deleted = result.rowcount
+    logger.info("[researcher] bulk deleted %s patients: %s", deleted, patient_ids)
+    return deleted
+
+
+async def bulk_block_patients(
+    session: AsyncSession,
+    patient_ids: list[int],
+) -> int:
+    """Set is_locked=True for multiple patients by id. Returns count of updated records."""
+    from sqlalchemy import update as sa_update
+    result = await session.execute(
+        sa_update(User)
+        .where(User.id.in_(patient_ids))
+        .values(is_locked=True)
+    )
+    await session.commit()
+    updated = result.rowcount
+    logger.info("[researcher] bulk blocked %s patients: %s", updated, patient_ids)
+    return updated
+
+
 # ---------------------------------------------------------------------------
 # Researcher CRUD
 # ---------------------------------------------------------------------------

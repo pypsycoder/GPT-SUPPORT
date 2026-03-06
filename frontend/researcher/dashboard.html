@@ -91,7 +91,11 @@
       <div class="r-table-wrapper">
         <div class="r-table-header">
           <div class="r-table-title">Пациенты</div>
-          <button class="r-add-btn" id="r-add-patient-btn">+ Добавить</button>
+          <div class="r-table-header-actions">
+            <button class="r-add-btn" id="r-add-patient-btn">+ Добавить</button>
+            <button class="r-delete-btn" id="r-delete-patients-btn">− Удалить</button>
+            <button class="r-block-btn" id="r-block-patients-btn">⊘ Заблокировать</button>
+          </div>
         </div>
         <table class="r-table">
           <thead>
@@ -265,6 +269,38 @@
       </div>
       <div class="r-modal-actions" style="margin-top:1.25rem;">
         <button type="button" class="r-modal-btn-secondary" id="kdqol-modal-close">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Bulk action (delete / block) -->
+  <div class="r-modal-backdrop" id="modal-bulk-action">
+    <div class="r-modal r-modal-wide">
+      <div class="r-modal-title" id="bulk-action-title">Выбор пациентов</div>
+      <p class="r-bulk-action-desc" id="bulk-action-desc"></p>
+      <div class="r-bulk-select-bar">
+        <label class="r-bulk-select-all-label">
+          <input type="checkbox" id="bulk-select-all"> Выбрать всех
+        </label>
+        <span class="r-bulk-count" id="bulk-selected-count">0 выбрано</span>
+      </div>
+      <div class="r-bulk-table-wrap">
+        <table class="r-table">
+          <thead>
+            <tr>
+              <th style="width:2.5rem;"></th>
+              <th class="r-bulk-sortable" data-col="patient_number">ID <span class="r-sort-icon"></span></th>
+              <th class="r-bulk-sortable" data-col="full_name">ФИО <span class="r-sort-icon"></span></th>
+              <th class="r-bulk-sortable" data-col="cohort">Когорта <span class="r-sort-icon"></span></th>
+              <th class="r-bulk-sortable" data-col="consent">Статус согласия <span class="r-sort-icon"></span></th>
+            </tr>
+          </thead>
+          <tbody id="bulk-patients-tbody"></tbody>
+        </table>
+      </div>
+      <div class="r-modal-actions" style="margin-top:1.25rem;">
+        <button type="button" class="r-modal-btn-danger" id="bulk-action-confirm" disabled>Применить</button>
+        <button type="button" class="r-modal-btn-secondary" id="bulk-action-cancel">Отмена</button>
       </div>
     </div>
   </div>

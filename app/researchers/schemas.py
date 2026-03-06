@@ -79,6 +79,11 @@ class PatientCenterAssign(BaseModel):
     center_id: Optional[UUID] = None  # None = clear assignment
 
 
+class BulkPatientActionRequest(BaseModel):
+    """Request body for bulk delete or block actions on patients."""
+    patient_ids: List[int]
+
+
 # ---------------------------------------------------------------------------
 # Chat log monitoring schemas
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ from app.researchers.schemas import (
     PatientListItem,
     PatientDetail,
     PatientCenterAssign,
+    BulkPatientActionRequest,
     PinResetResponse,
     KdqolPointStatus,
     ChatLogItem,
@@ -208,6 +209,36 @@ async def assign_patient_center(
     )
     user = result.scalar_one()
     return _patient_to_list_item(user)
+
+
+# ---------------------------------------------------------------------------
+# Bulk patient actions
+# ---------------------------------------------------------------------------
+
+@router.post("/patients/bulk-delete")
+async def bulk_delete_patients(
+    body: BulkPatientActionRequest,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Hard-delete multiple patients by ID."""
+    if not body.patient_ids:
+        raise HTTPException(status_code=400, detail="Список пациентов пуст")
+    deleted = await crud.bulk_delete_patients(session, body.patient_ids)
+    return {"ok": True, "deleted": deleted}
+
+
+@router.post("/patients/bulk-block")
+async def bulk_block_patients(
+    body: BulkPatientActionRequest,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Block (lock) multiple patients by ID."""
+    if not body.patient_ids:
+        raise HTTPException(status_code=400, detail="Список пациентов пуст")
+    updated = await crud.bulk_block_patients(session, body.patient_ids)
+    return {"ok": True, "blocked": updated}
 
 
 # ---------------------------------------------------------------------------

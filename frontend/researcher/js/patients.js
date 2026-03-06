@@ -593,6 +593,204 @@
   });
 
   // =========================================================================
+  // Bulk action modal (delete / block)
+  // =========================================================================
+
+  var bulkModal = document.getElementById('modal-bulk-action');
+  var bulkActionType = null; // 'delete' | 'block'
+  var bulkSort = { col: null, dir: 1 }; // dir: 1=asc, -1=desc
+
+  function sortedPatients(patients) {
+    if (!bulkSort.col) return patients.slice();
+    return patients.slice().sort(function (a, b) {
+      var va, vb;
+      if (bulkSort.col === 'patient_number') {
+        va = a.patient_number || 0;
+        vb = b.patient_number || 0;
+        return bulkSort.dir * (va - vb);
+      }
+      if (bulkSort.col === 'full_name') {
+        va = (a.full_name || '').toLowerCase();
+        vb = (b.full_name || '').toLowerCase();
+        return bulkSort.dir * va.localeCompare(vb, 'ru');
+      }
+      if (bulkSort.col === 'cohort') {
+        va = cohortSortKey(a);
+        vb = cohortSortKey(b);
+        return bulkSort.dir * va.localeCompare(vb, 'ru');
+      }
+      if (bulkSort.col === 'consent') {
+        va = a.consent_personal_data ? 1 : 0;
+        vb = b.consent_personal_data ? 1 : 0;
+        return bulkSort.dir * (va - vb);
+      }
+      return 0;
+    });
+  }
+
+  function cohortSortKey(p) {
+    if (!p.center_name || !p.active_schedule_days || p.active_schedule_days.length === 0) return '';
+    var shift = p.active_schedule_shift || '';
+    var days = (p.active_schedule_days || []).join('-');
+    return (p.center_city || p.center_name) + '/' + shift + '/' + days;
+  }
+
+  function updateSortHeaders() {
+    document.querySelectorAll('.r-bulk-sortable').forEach(function (th) {
+      var icon = th.querySelector('.r-sort-icon');
+      var col = th.dataset.col;
+      th.classList.toggle('r-sort-active', col === bulkSort.col);
+      if (col === bulkSort.col) {
+        icon.textContent = bulkSort.dir === 1 ? ' ↑' : ' ↓';
+      } else {
+        icon.textContent = '';
+      }
+    });
+  }
+
+  function openBulkModal(actionType) {
+    bulkActionType = actionType;
+    var title = document.getElementById('bulk-action-title');
+    var desc = document.getElementById('bulk-action-desc');
+    var confirmBtn = document.getElementById('bulk-action-confirm');
+
+    if (actionType === 'delete') {
+      title.textContent = 'Удалить пациентов';
+      desc.textContent = 'Выберите пациентов для удаления. Действие необратимо — все данные пациента будут удалены.';
+      confirmBtn.textContent = 'Удалить выбранных';
+      confirmBtn.style.background = 'linear-gradient(135deg, #dc2626, #ef4444)';
+    } else {
+      title.textContent = 'Заблокировать пациентов';
+      desc.textContent = 'Выберите пациентов для блокировки. Заблокированные пациенты не смогут войти в приложение.';
+      confirmBtn.textContent = 'Заблокировать выбранных';
+      confirmBtn.style.background = 'linear-gradient(135deg, #d97706, #f59e0b)';
+    }
+
+    bulkSort = { col: null, dir: 1 };
+    updateSortHeaders();
+    renderBulkPatients(patientsCache);
+    updateBulkCount();
+    bulkModal.classList.add('visible');
+  }
+
+  function renderBulkPatients(patients) {
+    var tbody = document.getElementById('bulk-patients-tbody');
+    if (!patients || patients.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:1.5rem;">Нет пациентов</td></tr>';
+      return;
+    }
+    var sorted = sortedPatients(patients);
+    var prevChecked = getSelectedPatientIds();
+    tbody.innerHTML = sorted.map(function (p) {
+      var consentHtml = p.consent_personal_data
+        ? '<span class="r-badge r-badge-active">Дано</span>'
+        : '<span class="r-badge r-badge-no-consent">Нет согласия</span>';
+      var isChecked = prevChecked.indexOf(p.id) !== -1 ? ' checked' : '';
+      return '<tr>' +
+        '<td style="text-align:center;"><input type="checkbox" class="bulk-patient-cb" value="' + p.id + '"' + isChecked + '></td>' +
+        '<td><strong>' + (p.patient_number || p.id) + '</strong></td>' +
+        '<td>' + (p.full_name || '—') + '</td>' +
+        '<td>' + cohortDisplay(p) + '</td>' +
+        '<td>' + consentHtml + '</td>' +
+        '</tr>';
+    }).join('');
+
+    document.querySelectorAll('.bulk-patient-cb').forEach(function (cb) {
+      cb.addEventListener('change', updateBulkCount);
+    });
+  }
+
+  function getSelectedPatientIds() {
+    var checked = document.querySelectorAll('.bulk-patient-cb:checked');
+    return Array.from(checked).map(function (cb) { return parseInt(cb.value, 10); });
+  }
+
+  function updateBulkCount() {
+    var ids = getSelectedPatientIds();
+    document.getElementById('bulk-selected-count').textContent = ids.length + ' выбрано';
+    document.getElementById('bulk-action-confirm').disabled = ids.length === 0;
+
+    var allCbs = document.querySelectorAll('.bulk-patient-cb');
+    var selectAll = document.getElementById('bulk-select-all');
+    selectAll.checked = allCbs.length > 0 && ids.length === allCbs.length;
+    selectAll.indeterminate = ids.length > 0 && ids.length < allCbs.length;
+  }
+
+  document.getElementById('bulk-select-all').addEventListener('change', function () {
+    var checked = this.checked;
+    document.querySelectorAll('.bulk-patient-cb').forEach(function (cb) {
+      cb.checked = checked;
+    });
+    updateBulkCount();
+  });
+
+  document.getElementById('r-delete-patients-btn').addEventListener('click', function () {
+    openBulkModal('delete');
+  });
+
+  document.getElementById('r-block-patients-btn').addEventListener('click', function () {
+    openBulkModal('block');
+  });
+
+  document.getElementById('bulk-action-cancel').addEventListener('click', function () {
+    bulkModal.classList.remove('visible');
+  });
+
+  document.querySelectorAll('.r-bulk-sortable').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var col = this.dataset.col;
+      if (bulkSort.col === col) {
+        bulkSort.dir = bulkSort.dir === 1 ? -1 : 1;
+      } else {
+        bulkSort.col = col;
+        bulkSort.dir = 1;
+      }
+      updateSortHeaders();
+      renderBulkPatients(patientsCache);
+      updateBulkCount();
+    });
+  });
+
+  document.getElementById('bulk-action-confirm').addEventListener('click', async function () {
+    var ids = getSelectedPatientIds();
+    if (ids.length === 0) return;
+
+    var actionLabel = bulkActionType === 'delete' ? 'удалить' : 'заблокировать';
+    if (!confirm('Вы уверены? Действие ' + actionLabel + ' ' + ids.length + ' пациентов.')) return;
+
+    var confirmBtn = document.getElementById('bulk-action-confirm');
+    confirmBtn.disabled = true;
+    var origText = confirmBtn.textContent;
+    confirmBtn.textContent = 'Выполнение...';
+
+    var endpoint = bulkActionType === 'delete'
+      ? '/api/v1/researcher/patients/bulk-delete'
+      : '/api/v1/researcher/patients/bulk-block';
+
+    try {
+      var resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ patient_ids: ids }),
+      });
+      if (!resp.ok) {
+        var err = await resp.json().catch(function () { return {}; });
+        alert(err.detail || 'Ошибка выполнения операции');
+        return;
+      }
+      bulkModal.classList.remove('visible');
+      loadPatients();
+      loadStats();
+    } catch (e) {
+      alert('Ошибка соединения');
+    } finally {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = origText;
+    }
+  });
+
+  // =========================================================================
   // Unlock
   // =========================================================================
 
