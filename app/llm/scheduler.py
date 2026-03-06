@@ -7,7 +7,8 @@ APScheduler — планировщик проактивных сообщений
   proactive_evening   — 20:00
 
 Каждое задание:
-  1. Получает список активных пациентов (is_onboarded=True, is_locked=False).
+  1. Получает список активных пациентов (is_onboarded=True, is_locked=False,
+     consent_personal_data=True, telegram_id IS NOT NULL).
   2. Для каждого вызывает deliver_proactive_messages в отдельной DB-сессии.
 
 API:
@@ -32,7 +33,14 @@ _scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
 
 async def _get_active_patient_ids() -> list[int]:
-    """Возвращает список ID всех активных (онбордированных, незаблокированных) пациентов."""
+    """Возвращает список ID пациентов, которым можно отправлять проактивные сообщения.
+
+    Условия:
+      - is_onboarded=True      — прошли онбординг
+      - is_locked=False        — аккаунт не заблокирован
+      - consent_personal_data  — дали согласие на обработку данных
+      - telegram_id IS NOT NULL — подключён Telegram (есть куда доставить)
+    """
     from sqlalchemy import select
     from app.users.models import User
     from core.db.engine import async_session_maker
@@ -42,8 +50,10 @@ async def _get_active_patient_ids() -> list[int]:
         async with async_session_maker() as db:
             result = await db.execute(
                 select(User.id).where(
-                    User.is_onboarded == True,  # noqa: E712
-                    User.is_locked == False,    # noqa: E712
+                    User.is_onboarded == True,           # noqa: E712
+                    User.is_locked == False,             # noqa: E712
+                    User.consent_personal_data == True,  # noqa: E712
+                    User.telegram_id.isnot(None),
                 )
             )
             patient_ids = list(result.scalars().all())

@@ -144,8 +144,48 @@ async def bulk_delete_patients(
     session: AsyncSession,
     patient_ids: list[int],
 ) -> int:
-    """Hard-delete multiple patients by id. Returns count of deleted records."""
-    from sqlalchemy import delete as sa_delete
+    """Hard-delete multiple patients by id. Returns count of deleted records.
+
+    Manually cascades deletions for FK references that lack ON DELETE CASCADE.
+    """
+    from sqlalchemy import delete as sa_delete, text
+    from app.vitals.models import BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake
+    from app.medications.models import MedicationIntake, MedicationPrescription
+    from app.dialysis.models import DialysisSchedule
+    from app.sleep_tracker.models import SleepRecord
+
+    if not patient_ids:
+        return 0
+
+    # 1. Medication intakes (FK → prescriptions, so delete first)
+    await session.execute(
+        sa_delete(MedicationIntake).where(MedicationIntake.patient_id.in_(patient_ids))
+    )
+    # 2. Medication prescriptions
+    await session.execute(
+        sa_delete(MedicationPrescription).where(MedicationPrescription.patient_id.in_(patient_ids))
+    )
+    # 3. Vitals (use user_id column)
+    for VitalsModel in (BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake):
+        await session.execute(
+            sa_delete(VitalsModel).where(VitalsModel.user_id.in_(patient_ids))
+        )
+    # 4. Dialysis schedules
+    await session.execute(
+        sa_delete(DialysisSchedule).where(DialysisSchedule.patient_id.in_(patient_ids))
+    )
+    # 5. Sleep records
+    await session.execute(
+        sa_delete(SleepRecord).where(SleepRecord.patient_id.in_(patient_ids))
+    )
+    # 6. Public badge/notification/streak tables (raw SQL — no ORM model)
+    for table in ("patient_badges", "patient_notifications", "patient_streaks"):
+        await session.execute(
+            text(f"DELETE FROM {table} WHERE patient_id = ANY(:pids)"),  # noqa: S608
+            {"pids": patient_ids},
+        )
+
+    # 7. Delete users — CASCADE handles the rest (education, scales, routine, llm, etc.)
     result = await session.execute(
         sa_delete(User).where(User.id.in_(patient_ids))
     )
