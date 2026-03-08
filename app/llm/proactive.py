@@ -95,7 +95,7 @@ async def generate_daily_queue(
     if len(messages) < 3:
         try:
             scores = await calculate_domain_scores(patient_id, db)
-            logger.warning(
+            logger.info(
                 "[proactive] domain scores patient=%d: %s", patient_id, scores
             )
             priority_domains = get_priority_domains(scores)

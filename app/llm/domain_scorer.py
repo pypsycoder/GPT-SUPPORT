@@ -149,7 +149,7 @@ async def _score_medication(patient_id: int, db: AsyncSession) -> float:
 
 
 async def _score_vitals(patient_id: int, db: AsyncSession) -> float:
-    """Скор на основе последнего систолического АД."""
+    """Скор на основе последнего АД (систолическое + диастолическое, берём худший)."""
     from app.vitals.models import BPMeasurement
 
     result = await db.execute(
@@ -165,13 +165,25 @@ async def _score_vitals(patient_id: int, db: AsyncSession) -> float:
 
     systolic = bp.systolic
     if systolic > 180:
-        return 0.1
+        sys_score = 0.1
     elif systolic > 160:
-        return 0.4
+        sys_score = 0.4
     elif systolic > 140:
-        return 0.7
+        sys_score = 0.7
     else:
-        return 1.0
+        sys_score = 1.0
+
+    diastolic = bp.diastolic
+    if diastolic > 110:
+        dia_score = 0.1
+    elif diastolic > 100:
+        dia_score = 0.4
+    elif diastolic > 90:
+        dia_score = 0.7
+    else:
+        dia_score = 1.0
+
+    return min(sys_score, dia_score)
 
 
 async def _score_emotion(patient_id: int, db: AsyncSession) -> float | None:

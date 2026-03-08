@@ -62,6 +62,7 @@ class GigaChatClient:
         self.tokens_used: int = 0
 
         self._lock = asyncio.Lock()
+        self._token_lock = asyncio.Lock()
         self._access_token: str | None = None
         self._token_expires_at: float = 0.0
 
@@ -76,30 +77,35 @@ class GigaChatClient:
 
     async def _get_access_token(self) -> str:
         """Возвращает действующий access_token, при необходимости обновляет."""
-        # Если токен ещё не истёк (с запасом 60 сек), используем кэшированный
+        # Быстрый путь — без лока, если токен ещё свежий
         if self._access_token and time.time() < self._token_expires_at - 60:
             return self._access_token
 
-        verify = _get_ssl_verify()
-        async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
-            resp = await client.post(
-                GIGACHAT_AUTH_URL,
-                headers={
-                    "Authorization": f"Basic {self.api_key}",
-                    "RqUID": str(uuid.uuid4()),
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-                data={"scope": "GIGACHAT_API_PERS"},
-            )
-            logger.debug("[pool] OAuth response status=%s body=%s", resp.status_code, resp.text)
-            resp.raise_for_status()
-            data = resp.json()
+        # Double-checked locking: только один корутин обновляет токен
+        async with self._token_lock:
+            if self._access_token and time.time() < self._token_expires_at - 60:
+                return self._access_token
 
-        self._access_token = _ascii_only(data["access_token"])
-        # expires_at приходит в миллисекундах
-        self._token_expires_at = data.get("expires_at", 0) / 1000.0
-        logger.debug("[pool] Токен обновлён, аккаунт=%s", self.account_id)
-        return self._access_token
+            verify = _get_ssl_verify()
+            async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
+                resp = await client.post(
+                    GIGACHAT_AUTH_URL,
+                    headers={
+                        "Authorization": f"Basic {self.api_key}",
+                        "RqUID": str(uuid.uuid4()),
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    data={"scope": "GIGACHAT_API_PERS"},
+                )
+                logger.debug("[pool] OAuth response status=%s body=%s", resp.status_code, resp.text)
+                resp.raise_for_status()
+                data = resp.json()
+
+            self._access_token = _ascii_only(data["access_token"])
+            # expires_at приходит в миллисекундах
+            self._token_expires_at = data.get("expires_at", 0) / 1000.0
+            logger.debug("[pool] Токен обновлён, аккаунт=%s", self.account_id)
+            return self._access_token
 
     # ------------------------------------------------------------------
     # API call
@@ -146,7 +152,7 @@ class GigaChatClient:
                             json=payload,
                         )
 
-                        print(f"[DEBUG] status={resp.status_code} body={resp.text[:500]}")
+                        logger.debug("[pool] status=%s body=%.500s", resp.status_code, resp.text)
                         resp.raise_for_status()
                         data = resp.json()
 

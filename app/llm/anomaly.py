@@ -138,6 +138,13 @@ async def _check_weight(patient_id: int, db: AsyncSession) -> list[AnomalyAlert]
     if latest_dt < since:
         return []
 
+    # Предыдущая запись должна быть не старше 7 дней — иначе разница нерепрезентативна
+    prev_dt = previous.measured_at
+    if hasattr(prev_dt, "tzinfo") and prev_dt.tzinfo is not None:
+        prev_dt = prev_dt.replace(tzinfo=None)
+    if prev_dt < datetime.utcnow() - timedelta(days=7):
+        return []
+
     gain = float(latest.weight) - float(previous.weight)
     if gain > 2.0:
         return [AnomalyAlert("weight_gain", round(gain, 2), 2.0, "WARNING", "self_care")]

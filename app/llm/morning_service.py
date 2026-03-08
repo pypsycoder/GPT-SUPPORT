@@ -30,8 +30,11 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
+
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm import ChatMessage
@@ -174,7 +177,7 @@ async def build_daily_context(
     streak_best: int = int(streak_data[1]) if streak_data else 0
 
     return {
-        "time_of_day": _time_of_day(datetime.now()),
+        "time_of_day": _time_of_day(datetime.now(tz=MOSCOW_TZ)),
         "dialysis_today": dialysis_today,
         "morning_meds_total": morning_meds_total,
         "morning_meds_done": morning_meds_done,
@@ -307,15 +310,22 @@ async def ensure_morning_message(patient_id: int, session: AsyncSession) -> None
     """
     Вызывается при открытии чата (GET /api/chat/history/{patient_id}).
 
-    Если пациент открыл чат после 06:00 и утреннего сообщения ещё нет —
+    Если пациент открыл чат после 06:00 MSK и утреннего сообщения ещё нет —
     генерирует и сохраняет его на лету.
     Повторный вызов в тот же день ничего не делает.
+    Advisory lock предотвращает дублирование при параллельных запросах.
     """
-    now = datetime.now()
+    now = datetime.now(tz=MOSCOW_TZ)
     if now.hour < 6:
         return
 
-    today = date.today()
+    today = now.date()
+
+    # Транзакционный advisory lock — только один конкурентный вызов проходит дальше
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:pid)"), {"pid": patient_id}
+    )
+
     if await _is_morning_sent_today(patient_id, today, session):
         return
 
@@ -349,8 +359,16 @@ async def deliver_morning_message(patient_id: int, session: AsyncSession) -> Non
     """
     Cron-функция: отправляет утреннее сообщение одному пациенту.
     Вызывается из scheduler в 08:00. Session создаётся снаружи (изолированно).
+    Advisory lock предотвращает дублирование если cron и ensure_morning_message
+    сработали одновременно (например, при рестарте сервера около 08:00).
     """
-    today = date.today()
+    today = datetime.now(tz=MOSCOW_TZ).date()
+
+    # Транзакционный advisory lock — только один конкурентный вызов проходит дальше
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:pid)"), {"pid": patient_id}
+    )
+
     if await _is_morning_sent_today(patient_id, today, session):
         logger.debug("[morning] пропуск patient=%d — уже отправлено", patient_id)
         return

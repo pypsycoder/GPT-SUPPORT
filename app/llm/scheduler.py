@@ -18,9 +18,13 @@ API:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+# Ограничение параллельных задач: не превышать ёмкость пула GigaChat
+_CONCURRENCY = 5
 
 logger = logging.getLogger("gpt-support-llm.scheduler")
 
@@ -65,7 +69,7 @@ async def _get_active_patient_ids() -> list[int]:
 async def _run_proactive_job() -> None:
     """
     Получает всех активных пациентов и запускает deliver_proactive_messages
-    для каждого в отдельной сессии БД.
+    параллельно, ограничивая конкурентность семафором.
     """
     from app.llm.proactive import deliver_proactive_messages
     from core.db.engine import async_session_maker
@@ -73,21 +77,24 @@ async def _run_proactive_job() -> None:
     patient_ids = await _get_active_patient_ids()
     logger.info("[scheduler] Проактивные сообщения: %d пациентов", len(patient_ids))
 
-    # Каждый пациент — отдельная сессия, чтобы изолировать ошибки
-    for patient_id in patient_ids:
-        async with async_session_maker() as db:
-            try:
-                await deliver_proactive_messages(patient_id, db)
-            except Exception as exc:
-                logger.error(
-                    "[scheduler] patient=%d ошибка: %s", patient_id, exc
-                )
+    sem = asyncio.Semaphore(_CONCURRENCY)
+
+    async def _process(patient_id: int) -> None:
+        async with sem:
+            async with async_session_maker() as db:
+                try:
+                    await deliver_proactive_messages(patient_id, db)
+                except Exception as exc:
+                    logger.error("[scheduler] patient=%d ошибка: %s", patient_id, exc)
+
+    await asyncio.gather(*(_process(pid) for pid in patient_ids))
 
 
 async def _run_morning_job() -> None:
     """
     08:00 MSK — шаблонное утреннее сообщение для каждого активного пациента.
     Использует build_daily_context + build_morning_message (без LLM).
+    Выполняется параллельно, ограничение — семафор _CONCURRENCY.
     """
     from app.llm.morning_service import deliver_morning_message
     from core.db.engine import async_session_maker
@@ -95,14 +102,17 @@ async def _run_morning_job() -> None:
     patient_ids = await _get_active_patient_ids()
     logger.info("[scheduler] Утренние сообщения: %d пациентов", len(patient_ids))
 
-    for patient_id in patient_ids:
-        async with async_session_maker() as db:
-            try:
-                await deliver_morning_message(patient_id, db)
-            except Exception as exc:
-                logger.error(
-                    "[scheduler] morning patient=%d ошибка: %s", patient_id, exc
-                )
+    sem = asyncio.Semaphore(_CONCURRENCY)
+
+    async def _process(patient_id: int) -> None:
+        async with sem:
+            async with async_session_maker() as db:
+                try:
+                    await deliver_morning_message(patient_id, db)
+                except Exception as exc:
+                    logger.error("[scheduler] morning patient=%d ошибка: %s", patient_id, exc)
+
+    await asyncio.gather(*(_process(pid) for pid in patient_ids))
 
 
 # ---------------------------------------------------------------------------

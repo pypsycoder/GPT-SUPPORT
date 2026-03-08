@@ -17,8 +17,6 @@ import json
 import logging
 import re
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 logger = logging.getLogger("gpt-support-llm.parser")
 
 # ---------------------------------------------------------------------------
@@ -109,7 +107,6 @@ def normalize_pulse(value: str) -> int | None:
 async def parse_patient_message(
     text: str,
     patient_id: int,
-    db: AsyncSession,
 ) -> dict:
     """
     Парсит сообщение пациента в структурированные данные через GigaChat-2 (lite).
@@ -117,7 +114,6 @@ async def parse_patient_message(
     Args:
         text:       свободный текст сообщения пациента
         patient_id: ID пациента (для логирования)
-        db:         AsyncSession (не используется для записи)
 
     Returns:
         dict с полями: vitals, medications, practices, mood, domain_hints

@@ -135,17 +135,22 @@ async def generate_response(
     from app.llm.context_builder import build_context, format_context_for_llm
     from app.models.llm import LLMRequestLog  # локальный импорт избегает циклов
 
-    # 1. Собираем данные пациента из БД (включая RAG-контекст по тексту запроса)
-    patient_context = await build_context(patient_id, db, query=user_input)
+    # 1. Собираем данные пациента из БД
+    # Для кнопок RAG не нужен — они не несут смысловой нагрузки для поиска по урокам
+    rag_query = "" if router_result.request_type == RequestType.QUICK_ACTION else user_input
+    patient_context = await build_context(patient_id, db, query=rag_query)
     context_text = format_context_for_llm(patient_context)
 
     # 1b. Парсим сообщение пациента для извлечения структурированных данных
     _parsed_domain_hints: list[str] = []
     _pending_vitals: list[dict] = []
     try:
-        if len(user_input) > 7:
+        if (
+            len(user_input) > 30
+            and router_result.request_type != RequestType.QUICK_ACTION
+        ):
             from app.llm.parser import parse_patient_message
-            parsed = await parse_patient_message(user_input, patient_id, db)
+            parsed = await parse_patient_message(user_input, patient_id)
             logger.info("[agent] parsed: %s", parsed)
             if parsed:
                 # Витальные НЕ записываем в БД — возвращаем для подтверждения пациентом
