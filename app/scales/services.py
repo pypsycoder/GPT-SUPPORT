@@ -27,6 +27,7 @@ from app.scales.config.kop_25a1 import KOP25A_CONFIG
 from app.scales.config.psqi import PSQI_CONFIG
 from app.scales.config.pss10 import PSS10_CONFIG
 from app.scales.config.wcq_lazarus import WCQ_CONFIG
+from app.scales.schemas import PsqiAnswerIn, ScaleAnswerIn
 from app.scales.models import (
     KdqolResponse,
     KdqolSubscaleScore,

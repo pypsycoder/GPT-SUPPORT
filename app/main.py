@@ -13,13 +13,11 @@ from pathlib import Path
 # сторонние библиотеки
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 # наше
-from app.models import Base  # общий Base, если понадобится metadata
 from app.users.api import router as users_api_router
 from app.pages.router import router as pages_router
 from app.education.router import router as education_router
@@ -40,7 +38,6 @@ from app.notifications.badges import router as badges_router
 from app.llm.scheduler import start_scheduler, stop_scheduler
 from core.db.engine import engine
 
-from fastapi.routing import APIRoute
 
 # --- Настройка логгера ---
 

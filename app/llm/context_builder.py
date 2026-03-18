@@ -176,7 +176,6 @@ async def _get_recent_water(patient_id: int, db: AsyncSession) -> list[str]:
 
 async def _get_routine_summary(patient_id: int, db: AsyncSession) -> list[str]:
     """Верификации рутины за 7 дней из routine.daily_verifications."""
-    from datetime import date as date_type
 
     from app.routine.models import DailyVerification
 

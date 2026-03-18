@@ -20,7 +20,7 @@ async def init_db():
         # List created tables
         def list_tables(sync_conn):
             tables = list(Base.metadata.tables.values())
-            print(f"[OK] Database initialized successfully!")
+            print("[OK] Database initialized successfully!")
             print(f"[*] Total tables created: {len(tables)}")
             print("\n[*] Tables by schema:")
             

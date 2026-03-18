@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, List, Literal, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.scales.models import MeasurementPoint, ScaleResult
+from app.scales.schemas import PsqiAnswerIn, ScaleAnswerIn
 from app.scales.services import (
     calculate_hads_result,
     calculate_kop25a_result,
@@ -64,18 +65,8 @@ class ScaleDefinitionOut(BaseModel):
     questions: List[ScaleQuestionOut]
 
 
-class ScaleAnswerIn(BaseModel):
-    question_id: str
-    option_id: str
-
-
 class ScaleSubmitRequest(BaseModel):
     answers: List[ScaleAnswerIn]
-
-
-class PsqiAnswerIn(BaseModel):
-    question_id: str
-    value: Any
 
 
 class PsqiSubmitRequest(BaseModel):

@@ -31,7 +31,7 @@ async def get_current_user_optional(
     import logging
     logger = logging.getLogger("gpt-support-auth")
     
-    logger.info(f"[auth] get_current_user_optional called")
+    logger.info("[auth] get_current_user_optional called")
     logger.info(f"[auth] patient_session cookie: {patient_session[:20] if patient_session else 'None'}...")
     
     if not patient_session:
@@ -41,11 +41,11 @@ async def get_current_user_optional(
     # Get session from database
     db_session = await get_session(session, patient_session)
     if db_session is None:
-        logger.warning(f"[auth] Session token not found in database or expired!")
+        logger.warning("[auth] Session token not found in database or expired!")
         return None
     
     if db_session.user_id is None:
-        logger.warning(f"[auth] Session is for researcher, not patient!")
+        logger.warning("[auth] Session is for researcher, not patient!")
         return None
     
     # Get user from database

@@ -230,7 +230,7 @@ async def _get_education_summary(session: AsyncSession, user_id: int) -> Educati
     completed_stmt = (
         select(func.count(LessonProgress.id))
         .where(LessonProgress.user_id == user_id)
-        .where(LessonProgress.is_completed == True)
+        .where(LessonProgress.is_completed.is_(True))
     )
     completed_result = await session.execute(completed_stmt)
     lessons_completed = completed_result.scalar_one() or 0
@@ -239,7 +239,7 @@ async def _get_education_summary(session: AsyncSession, user_id: int) -> Educati
     tests_stmt = (
         select(func.count(LessonTestResult.id))
         .where(LessonTestResult.user_id == user_id)
-        .where(LessonTestResult.passed == True)
+        .where(LessonTestResult.passed.is_(True))
     )
     tests_result = await session.execute(tests_stmt)
     tests_passed = tests_result.scalar_one() or 0

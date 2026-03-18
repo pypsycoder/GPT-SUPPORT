@@ -3,7 +3,6 @@
 Скрипт для применения миграции вручную (SQL)
 """
 
-import asyncio
 from sqlalchemy import text, create_engine
 from core.db.engine import DATABASE_URL
 

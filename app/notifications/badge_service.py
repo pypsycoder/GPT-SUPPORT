@@ -16,7 +16,6 @@ Badge Service — выдача бейджей достижений.
 from __future__ import annotations
 
 import logging
-from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession

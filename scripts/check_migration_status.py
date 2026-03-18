@@ -13,11 +13,8 @@
 """
 
 import asyncio
-import sys
-from datetime import datetime
-from sqlalchemy import text, inspect
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 # Читаем конфиг БД
 from core.db.engine import DATABASE_URL
@@ -35,7 +32,7 @@ async def check_migration_status():
             current_version = result.scalar()
             
             
-            print(f"\n=== Current Migration Version ===")
+            print("\n=== Current Migration Version ===")
             print(f"Version: {current_version}")
             
             # 2. Проверяем колонки в таблице users
@@ -47,7 +44,7 @@ async def check_migration_status():
             """))
             columns = result.fetchall()
             
-            print(f"\n=== Columns in users.users ===")
+            print("\n=== Columns in users.users ===")
             required_columns = {
                 'patient_number': False,
                 'pin_hash': False,
@@ -65,7 +62,7 @@ async def check_migration_status():
             if missing:
                 print(f"\n[ERROR] Missing columns: {missing}")
             else:
-                print(f"\n[OK] All required columns present")
+                print("\n[OK] All required columns present")
             
             # 3. Проверяем наличие таблицы researchers
             result = await conn.execute(text("""
@@ -76,7 +73,7 @@ async def check_migration_status():
             """))
             researchers_exists = result.scalar()
             
-            print(f"\n=== Researchers Table ===")
+            print("\n=== Researchers Table ===")
             if researchers_exists:
                 print("[OK] Table exists")
                 result = await conn.execute(text("""
@@ -92,7 +89,7 @@ async def check_migration_status():
             
             
             # Summary
-            print(f"\n=== SUMMARY ===")
+            print("\n=== SUMMARY ===")
             print(f"[INFO] Migrations applied up to: {current_version}")
             print(f"[INFO] Users columns: {'OK' if not missing else 'MISSING: ' + str(missing)}")
             print(f"[INFO] Researchers table: {'OK' if researchers_exists else 'MISSING'}")

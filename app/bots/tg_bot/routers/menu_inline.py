@@ -17,7 +17,6 @@ from app.bots.tg_bot.keyboards.inline import (
     learning_menu_ikb,
     vitals_menu_ikb,
 )
-from app.scales.fsm.questionnaire import start_hads
 
 menu_router = Router()
 

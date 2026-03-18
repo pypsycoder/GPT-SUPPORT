@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint, func

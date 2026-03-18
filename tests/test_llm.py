@@ -105,7 +105,6 @@ def _format_ms(ms: int) -> str:
 
 async def run_tests() -> None:
     from app.llm.agent import generate_response
-    from app.llm.pool import MODEL_NAMES
     from app.llm.router import classify_request
 
     db = MockAsyncSession()

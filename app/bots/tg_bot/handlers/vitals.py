@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.tg_bot.keyboards.inline import (
     vitals_menu_ikb,
-    main_menu_ikb,
     bp_context_ikb,
     pulse_context_ikb,
     weight_context_ikb,

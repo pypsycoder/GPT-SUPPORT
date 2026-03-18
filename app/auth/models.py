@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func, CheckConstraint
-from sqlalchemy.orm import relationship
 
 from app.models import Base
 

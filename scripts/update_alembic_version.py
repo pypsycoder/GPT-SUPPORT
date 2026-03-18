@@ -3,7 +3,6 @@
 Скрипт для отладки и исправления alembic версий
 """
 
-import asyncio
 from sqlalchemy import text, create_engine
 from core.db.engine import DATABASE_URL
 

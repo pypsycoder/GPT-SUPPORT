@@ -50,7 +50,7 @@ async def main() -> None:
             print(f"{cred['id']:<4} {cred['name']:<25} {cred['number']:<10} {cred['pin']:<6}")
         
         print(f"\n{'='*80}")
-        print(f"\nDetailed credentials:\n")
+        print("\nDetailed credentials:\n")
         
         for idx, cred in enumerate(patient_creds, 1):
             print(f"Patient {idx}:")
