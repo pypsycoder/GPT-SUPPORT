@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -15,6 +16,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import Session
+
+
+def _hash_token(token: str) -> str:
+    """Return a stable SHA-256 hash for a session token."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 async def create_session(
@@ -33,7 +39,7 @@ async def create_session(
         raise ValueError("Only one of user_id or researcher_id should be provided")
 
     db_session = Session(
-        token=token,
+        token=_hash_token(token),
         user_id=user_id,
         researcher_id=researcher_id,
         expires_at=expires_at,
@@ -47,7 +53,10 @@ async def create_session(
 
 async def get_session(session: AsyncSession, token: str) -> Optional[Session]:
     """Get a session by token."""
-    result = await session.execute(select(Session).where(Session.token == token))
+    token_hash = _hash_token(token)
+    result = await session.execute(
+        select(Session).where(Session.token.in_([token_hash, token]))
+    )
     db_session = result.scalar_one_or_none()
 
     if db_session is None:
@@ -71,7 +80,10 @@ async def delete_session(session: AsyncSession, token: str) -> bool:
     Returns:
         True if session was deleted, False if not found
     """
-    result = await session.execute(delete(Session).where(Session.token == token))
+    token_hash = _hash_token(token)
+    result = await session.execute(
+        delete(Session).where(Session.token.in_([token_hash, token]))
+    )
     await session.commit()
     return result.rowcount > 0
 

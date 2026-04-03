@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from core.db.session import get_async_session
+from app.core.config import settings
 from app.auth.schemas import (
     PatientLoginRequest,
     PatientLoginResponse,
@@ -35,6 +36,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Cookie settings
 _COOKIE_MAX_AGE = 30 * 24 * 3600  # 30 days
+_COOKIE_SECURE = settings.environment.lower() not in {"dev", "development", "test"}
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +86,7 @@ async def patient_login(
         value=token,
         max_age=_COOKIE_MAX_AGE,
         httponly=True,
+        secure=_COOKIE_SECURE,
         samesite="lax",
     )
 
@@ -173,6 +176,7 @@ async def researcher_login(
         value=token,
         max_age=_COOKIE_MAX_AGE,
         httponly=True,
+        secure=_COOKIE_SECURE,
         samesite="lax",
     )
 

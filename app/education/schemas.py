@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # EducationItem – минимальная схема обучающего материала
@@ -41,8 +41,7 @@ class LessonRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # схема карточки урока (LessonCard) – для новых эндпоинтов, если пригодится
@@ -53,8 +52,7 @@ class LessonCardRead(BaseModel):
     card_type: str
     content_md: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------

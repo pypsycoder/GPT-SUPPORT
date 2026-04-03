@@ -12,9 +12,9 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from app.models import Base  # noqa: E402
 from app.users.models import User  # noqa: E402
-from app.vitals.crud import bp_crud  # noqa: E402
+from app.vitals.models import BPMeasurement, WaterIntake  # noqa: E402
+from app.vitals.crud import bp_crud, water_crud  # noqa: E402
 from app.vitals.service import VitalsService  # noqa: E402
 
 
@@ -26,16 +26,18 @@ async def session_ctx() -> AsyncSession:
         execution_options={"schema_translate_map": {"vitals": None, "users": None}},
     )
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(User.__table__.create)
+        await conn.run_sync(BPMeasurement.__table__.create)
+        await conn.run_sync(WaterIntake.__table__.create)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session
     await engine.dispose()
 
 
-async def create_user(session: AsyncSession) -> User:
+async def create_user(session: AsyncSession, telegram_id: str = "12345") -> User:
     user = User(
-        telegram_id="12345",
+        telegram_id=telegram_id,
         full_name="Test User",
         consent_personal_data=True,
         consent_bot_use=True,
@@ -49,7 +51,7 @@ async def create_user(session: AsyncSession) -> User:
 def test_create_bp():
     async def runner():
         async with session_ctx() as session:
-            user = await create_user(session)
+            user = await create_user(session, "user-bp")
             measurement = await bp_crud.create(
                 session,
                 VitalsService.prepare_bp_data(
@@ -70,7 +72,7 @@ def test_create_bp():
 def test_filter_by_date():
     async def runner():
         async with session_ctx() as session:
-            user = await create_user(session)
+            user = await create_user(session, "user-filter")
             now = datetime.now(timezone.utc)
             earlier = now - timedelta(days=2)
             later = now + timedelta(days=2)
@@ -99,7 +101,7 @@ def test_filter_by_date():
 def test_ordering():
     async def runner():
         async with session_ctx() as session:
-            user = await create_user(session)
+            user = await create_user(session, "user-order")
             first = datetime(2023, 1, 1, tzinfo=timezone.utc)
             second = datetime(2023, 1, 2, tzinfo=timezone.utc)
 
@@ -119,7 +121,7 @@ def test_ordering():
 
             records = await bp_crud.list(session, user_id=user.id)
             assert len(records) == 2
-            assert records[0].measured_at == second
+            assert records[0].measured_at.replace(tzinfo=timezone.utc) == second
 
     asyncio.run(runner())
 
@@ -127,11 +129,46 @@ def test_ordering():
 def test_invalid_values():
     async def runner():
         async with session_ctx() as session:
-            user = await create_user(session)
+            user = await create_user(session, "user-invalid")
             try:
                 VitalsService.prepare_bp_data(user_id=user.id, systolic=20, diastolic=80)
             except ValueError:
                 return
             assert False, "Expected ValueError for invalid blood pressure"
+
+    asyncio.run(runner())
+
+
+def test_delete_water_only_for_owner():
+    async def runner():
+        async with session_ctx() as session:
+            owner = await create_user(session, "user-owner")
+            other_user = await create_user(session, "user-other")
+            owner_id = owner.id
+            other_user_id = other_user.id
+
+            measurement = await water_crud.create(
+                session,
+                VitalsService.prepare_water_data(
+                    user_id=owner.id,
+                    volume_ml=250,
+                    measured_at=datetime.now(timezone.utc),
+                ),
+            )
+            await session.commit()
+            measurement_id = measurement.id
+
+            deleted_other = await water_crud.delete_for_user(session, measurement_id, other_user_id)
+            assert deleted_other is False
+            await session.rollback()
+
+            still_exists = await water_crud.get(session, measurement_id)
+            assert still_exists is not None
+
+            deleted_owner = await water_crud.delete_for_user(session, measurement_id, owner_id)
+            assert deleted_owner is True
+            await session.commit()
+
+            assert await water_crud.get(session, measurement_id) is None
 
     asyncio.run(runner())

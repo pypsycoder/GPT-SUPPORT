@@ -115,7 +115,13 @@ class WeightMeasurementsCRUD(
 class WaterIntakeCRUD(
     VitalsCRUDBase[models.WaterIntake, schemas.WaterIntakeCreate, schemas.WaterIntakeUpdate]
 ):
-    pass
+    async def delete_for_user(self, session: AsyncSession, obj_id: UUID, user_id: int) -> bool:
+        stmt = delete(self.model).where(
+            self.model.id == obj_id,
+            self.model.user_id == user_id,
+        )
+        result = await session.execute(stmt)
+        return result.rowcount > 0
 
 
 bp_crud = BPMeasurementsCRUD(models.BPMeasurement)

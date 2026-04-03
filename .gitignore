@@ -21,6 +21,8 @@ venv.bak/
 .cursorignore
 .claude/
 *.iml
+.roo
+.playwright-mcp
 
 # 📝 Cursor AI logs
 Cursor_log/

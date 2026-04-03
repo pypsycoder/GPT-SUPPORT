@@ -35,7 +35,13 @@ class Session(Base):
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
-        return datetime.now(timezone.utc) >= self.expires_at
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) >= expires_at
 
     def __repr__(self) -> str:
-        return f"<Session token={self.token[:10]}... user_id={self.user_id} researcher_id={self.researcher_id}>"
+        return (
+            f"<Session token_hash={self.token[:10]}... "
+            f"user_id={self.user_id} researcher_id={self.researcher_id}>"
+        )

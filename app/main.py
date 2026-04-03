@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 # stdlib
+from contextlib import asynccontextmanager
 import logging
 from pathlib import Path
 
@@ -58,8 +59,38 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 # --- Инициализация FastAPI ---
-app = FastAPI(title="GPT Support API")
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Lifecycle hooks for application startup and shutdown."""
+    db: AsyncEngine = engine
+
+    async with db.begin() as conn:
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "vitals"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "users"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "education"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "scales"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "sleep"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "medications"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "kdqol"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "practices"'))
+        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "llm"'))
+
+        result = await conn.execute(text("SELECT 1"))
+        _ = result.scalar_one_or_none()
+
+    logger.info("GPT Support API started, database connection established.")
+    start_scheduler()
+
+    try:
+        yield
+    finally:
+        stop_scheduler()
+
+
+# --- ????????????? FastAPI ---
+app = FastAPI(title="GPT Support API", lifespan=lifespan)
 
 # --- CORS ---
 app.add_middleware(
@@ -117,49 +148,6 @@ app.include_router(kdqol_researcher_router, prefix="/api/v1")
 # ============================================
 #   Startup и healthcheck
 # ============================================
-@app.on_event("startup")
-async def startup() -> None:
-    """
-    Хук запуска приложения.
-
-    Здесь:
-    - проверяем подключение к БД;
-    - создаём схемы (идемпотентно).
-    Таблицы создаём отдельно через scripts/init_db_from_models.py,
-    чтобы не мешать Alembic.
-    """
-    db: AsyncEngine = engine
-
-    async with db.begin() as conn:
-        # создаём схемы, если вдруг их ещё нет
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "vitals"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "users"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "education"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "scales"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "sleep"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "medications"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "kdqol"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "practices"'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "llm"'))
-
-        # лёгкий health-check
-        result = await conn.execute(text("SELECT 1"))
-        _ = result.scalar_one_or_none()
-
-    logger.info("✅ GPT Support API запущен, соединение с БД установлено.")
-
-    # Запускаем планировщик проактивных сообщений
-    start_scheduler()
-
-
-
-# --- Shutdown ---
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    """Хук завершения: останавливаем планировщик."""
-    stop_scheduler()
-
-
 # --- Healthcheck ---
 @app.get("/health")
 async def healthcheck() -> dict[str, str]:

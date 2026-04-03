@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.vitals import crud, schemas, service
@@ -340,10 +341,16 @@ async def get_daily_water_total_me(
 
 @router.delete("/water/{measurement_id}")
 async def delete_water(
-    measurement_id: str, # UUID передаем как строку, FastAPI сконвертит
-    session: AsyncSession = Depends(get_session),
+    measurement_id: str, # UUID ???????? ??? ??????, FastAPI ??????????
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
 ):
-    # TODO: Проверка прав доступа если нужно (сейчас удаляем просто по ID)
-    await crud.water_crud.delete(session, measurement_id)
+    deleted = await crud.water_crud.delete_for_user(
+        session,
+        UUID(measurement_id),
+        user.id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="?????? ?? ???????")
     await session.commit()
     return {"ok": True}
