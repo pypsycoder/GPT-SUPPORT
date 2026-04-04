@@ -17,6 +17,8 @@ import json
 import logging
 import re
 
+from app.llm.errors import LLMResponseError, LLMTransportError
+
 logger = logging.getLogger("gpt-support-llm.parser")
 
 # ---------------------------------------------------------------------------
@@ -129,7 +131,7 @@ async def parse_patient_message(
     try:
         client = await pool.get_available("lite")
         raw_text, _, _, _ = await client.call(messages, system)
-    except Exception as exc:
+    except (LLMTransportError, LLMResponseError) as exc:
         logger.warning("[parser] LLM call failed: %s", exc)
         return {}
 

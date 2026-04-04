@@ -4,6 +4,9 @@ import asyncio
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.llm.errors import LLMError
 
 
 _CONCURRENCY = 5
@@ -30,7 +33,7 @@ async def _get_active_patient_ids() -> list[int]:
                 )
             )
             patient_ids = list(result.scalars().all())
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         logger.error("[scheduler] failed to fetch active patients: %s", exc)
     return patient_ids
 
@@ -49,7 +52,7 @@ async def _run_proactive_job() -> None:
             async with async_session_maker() as db:
                 try:
                     await deliver_proactive_messages(patient_id, db)
-                except Exception as exc:
+                except (LLMError, SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
                     logger.error("[scheduler] patient=%d failed: %s", patient_id, exc)
 
     await asyncio.gather(*(_process(pid) for pid in patient_ids))
@@ -69,7 +72,7 @@ async def _run_morning_job() -> None:
             async with async_session_maker() as db:
                 try:
                     await deliver_morning_message(patient_id, db)
-                except Exception as exc:
+                except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
                     logger.error("[scheduler] morning patient=%d failed: %s", patient_id, exc)
 
     await asyncio.gather(*(_process(pid) for pid in patient_ids))

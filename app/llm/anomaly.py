@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("gpt-support-llm.anomaly")
@@ -47,7 +48,7 @@ async def check_anomalies(patient_id: int, db: AsyncSession) -> list[AnomalyAler
     ]:
         try:
             alerts.extend(await check_fn(patient_id, db))
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.warning(
                 "[anomaly] %s check failed patient=%d: %s", name, patient_id, exc
             )

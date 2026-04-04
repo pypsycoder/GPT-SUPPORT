@@ -18,6 +18,7 @@ import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import select, func, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("gpt-support-llm.domain_scorer")
@@ -77,7 +78,7 @@ async def _score_sleep(patient_id: int, db: AsyncSession) -> float | None:
                 if second_half - first_half < -0.5:
                     s -= 0.1
             sleep_score = max(0.0, min(1.0, s))
-    except Exception as exc:
+    except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
         logger.debug("[domain_scorer] sleep_records error: %s", exc)
 
     # --- PSQI score (свежесть 30 дней) ---
@@ -98,7 +99,7 @@ async def _score_sleep(patient_id: int, db: AsyncSession) -> float | None:
         rec = row.fetchone()
         if rec is not None and rec.total is not None:
             psqi_score = round(max(0.0, min(1.0, 1.0 - float(rec.total) / 21.0)), 3)
-    except Exception as exc:
+    except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
         logger.debug("[domain_scorer] PSQI error: %s", exc)
 
     # --- blend ---
@@ -212,7 +213,7 @@ async def _score_emotion(patient_id: int, db: AsyncSession) -> float | None:
             {"pid": patient_id},
         )
         rec = row.fetchone()
-    except Exception as exc:
+    except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
         logger.debug("[domain_scorer] HADS error: %s", exc)
         return None
 
@@ -364,7 +365,7 @@ async def _score_motivation(patient_id: int, db: AsyncSession) -> float | None:
             completion_rate = min(float(rec.verified_days) / 7.0, 1.0)
             if rec.avg_control is not None:
                 control_norm = min(float(rec.avg_control) / MAX_DAY_CONTROL_SCORE, 1.0)
-    except Exception as exc:
+    except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
         logger.debug("[domain_scorer] routine error: %s", exc)
 
     # --- KOP-25A (total_score = PL, диапазон 0-100) ---
@@ -385,7 +386,7 @@ async def _score_motivation(patient_id: int, db: AsyncSession) -> float | None:
         rec = row.fetchone()
         if rec is not None and rec.pl is not None:
             kop_score = round(max(0.0, min(1.0, float(rec.pl) / 100.0)), 3)
-    except Exception as exc:
+    except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
         logger.debug("[domain_scorer] KOP25A error: %s", exc)
 
     # --- blend ---
@@ -451,7 +452,7 @@ async def calculate_domain_scores(
     for domain, fn in {**legacy_scorers, **new_scorers}.items():
         try:
             scores[domain] = await fn(patient_id, db)
-        except Exception as exc:
+        except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
             logger.warning("[domain_scorer] Домен '%s' упал: %s", domain, exc)
             scores[domain] = 0.5  # fallback только при Exception
 

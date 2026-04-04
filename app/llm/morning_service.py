@@ -33,6 +33,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -332,7 +333,7 @@ async def ensure_morning_message(patient_id: int, session: AsyncSession) -> None
     try:
         ctx = await build_daily_context(patient_id, today, session)
         msg = build_morning_message(ctx)
-    except Exception as exc:
+    except (SQLAlchemyError, TypeError, ValueError, KeyError) as exc:
         logger.error("[morning] build_daily_context failed patient=%d: %s", patient_id, exc)
         return
 

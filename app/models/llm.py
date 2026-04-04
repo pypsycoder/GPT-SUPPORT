@@ -122,6 +122,12 @@ class LLMRequestLog(Base):
 
     error_message: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
+    diagnostics_json: Mapped[dict | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        comment="Pipeline diagnostics: stage status, fallbacks, context sizes, and RAG/provider signals.",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime,
         nullable=False,

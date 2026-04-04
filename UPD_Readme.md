@@ -37,6 +37,10 @@ cp .env.example .env
 # 3. Миграции
 alembic upgrade head
 
+# Примечание
+# Для безопасного порядка запуска Alembic, проверки revision и правил использования stamp
+# см. ALEMBIC_RUNBOOK.md в корне проекта.
+
 # 4. Запуск API
 uvicorn app.main:app --reload
 
@@ -401,3 +405,6 @@ pytest
 
 python scripts/import_practices.py
 # → добавлено 9 / обновлено 0 / ошибок 0
+
+### Окружение лежит в 
+d:/PROJECT/venv/venv311/.venv/Scripts/Activate.ps1

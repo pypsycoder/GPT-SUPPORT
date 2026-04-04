@@ -105,6 +105,7 @@ class ChatLogItem(BaseModel):
     response_time_ms: int = 0
     success: bool = True
     error_message: Optional[str] = None
+    diagnostics_json: Optional[dict] = None
 
 
 class ChatLogsResponse(BaseModel):

@@ -206,6 +206,7 @@ async def create_item_me(
 ## Правила — что НЕ делать
 
 1. **Alembic миграции** — не генерировать и не применять без явной команды. Только `alembic revision --autogenerate` и `alembic upgrade head` по запросу.
+   Для безопасного порядка запуска, верификации revision и правил использования `stamp` см. `ALEMBIC_RUNBOOK.md`.
 2. **Схемы БД** — не менять `__table_args__` schema без уточнения.
 3. **Бизнес-логика в router** — не писать валидацию или обработку данных прямо в эндпоинтах.
 4. **commit() в crud/service** — коммит только в router.

@@ -46,8 +46,17 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from app.llm.http import aclose_shared_http_clients, get_shared_http_client
+
+    # Warm up shared HTTP transports for provider calls to avoid recreating clients per request.
+    get_shared_http_client("oauth")
+    get_shared_http_client("chat")
+    get_shared_http_client("embeddings")
     logger.info("GPT Support API started.")
-    yield
+    try:
+        yield
+    finally:
+        await aclose_shared_http_clients()
 
 
 def create_app() -> FastAPI:

@@ -257,6 +257,7 @@ _CHAT_LOG_SQL = """
         lrl.response_time_ms,
         lrl.success,
         lrl.error_message,
+        lrl.diagnostics_json,
         cm_asst.domain                              AS domain,
         LEFT(cm_user.content, 300)                  AS user_content,
         LEFT(cm_asst.content, 300)                  AS assistant_content
@@ -396,6 +397,7 @@ async def get_chat_logs(
             response_time_ms=row["response_time_ms"] or 0,
             success=bool(row["success"]),
             error_message=row["error_message"],
+            diagnostics_json=row["diagnostics_json"],
         )
         for row in rows
     ]

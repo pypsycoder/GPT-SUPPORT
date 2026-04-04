@@ -128,11 +128,13 @@
 - сократить мёртвый и compatibility-only код в bot-слое.
 
 ### 1. LLM / RAG optimization
-- [ ] Уменьшить количество broad `except` в LLM/RAG модулях.
-- [ ] Переиспользовать `httpx.AsyncClient` через lifecycle-managed схему.
-- [ ] Нормализовать timeout/retry/error handling.
+- [x] Зафиксировать целевую схему pipeline: `classify -> build patient context -> retrieve knowledge -> assemble prompt -> call model -> persist/metrics`.
+- [x] Разделить в коде и диагностике `patient context` и собственно `RAG retrieval`, чтобы не считать весь LLM-контекст "RAG".
+- [x] Уменьшить количество broad `except` в LLM/RAG модулях, оставив graceful degradation только в явно согласованных точках.
+- [x] Переиспользовать `httpx.AsyncClient` через lifecycle-managed схему для chat/oauth/embeddings вызовов.
+- [x] Нормализовать timeout/retry/error handling по провайдеру и retrieval-слою.
+- [x] Добавить более полезную диагностику: stage latency, provider errors, fallback points, prompt/context size, RAG hit/miss.
 - [ ] Спроектировать и/или реализовать перенос embeddings search ближе к БД/`pgvector`.
-- [ ] Добавить более полезную диагностику: latency, provider errors, fallback points.
 
 ### 2. Coverage for critical scenarios
 - [ ] Добавить тесты на scheduler-safe behavior.
@@ -150,6 +152,7 @@
 
 ### Definition of done
 - [ ] LLM/RAG слой стал предсказуемее по ошибкам и ресурсам.
+- [ ] Формально зафиксировано, что текущая система — это `context-enriched assistant`, где RAG отвечает только за retrieval образовательных модулей.
 - [ ] Критичные сценарии покрыты регрессией.
 - [ ] Legacy-слой бота инвентаризирован и очищен.
 
@@ -159,11 +162,35 @@
 - [ ] Результат теста и замечания зафиксированы ниже.
 
 ### Notes
-- Статус: `not started`
-- Дата начала:
+- Статус: `in progress`
+- Дата начала: `2026-04-04`
 - Дата завершения:
 - Итог теста:
 - Замечания:
+  - На старте спринта зафиксировано, что текущее ядро качества ответа определяется прежде всего `system prompt` + `patient context` + `chat history`, а не retrieval.
+  - Текущий RAG в узком смысле ограничен поиском релевантных educational chunks; остальной LLM-контекст не должен трактоваться как RAG.
+  - Главный порядок работ спринта: сначала наблюдаемость и явный pipeline, затем lifecycle-managed HTTP clients и error handling, затем migration плана/реализации для `pgvector`.
+  - До миграции `pgvector` текущий retrieval остаётся дорогим: query embedding вычисляется сетевым вызовом, затем embeddings загружаются целиком и similarity считается в Python.
+  - Отдельно проверить, какие деградации допустимы без ошибки для пользователя, а какие должны поднимать технический сигнал в логах/метриках.
+  - В `app/llm/context_builder.py` введён `build_context_bundle()` с раздельной диагностикой по секциям контекста и retrieval.
+  - В `app/llm/agent.py` добавлена pipeline-диагностика по стадиям `patient_context` / `parser` / `prompt` / `llm_call` без изменения пользовательского API-контракта чата.
+  - Введён shared transport `app/llm/http.py`; `app/llm/pool.py`, `app/rag/retriever.py`, `app/rag/indexer.py` переведены на переиспользуемые `httpx.AsyncClient`, а API lifespan закрывает клиенты на shutdown.
+  - В provider/retrieval слоях введены предметные ошибки `LLMTransportError` / `LLMResponseError` / `RetrievalError`; parser и agent переведены с broad `except` на более узкие категории для этих стадий.
+  - Timeout/retry policy централизован в `app/llm/http.py` через `request_json_with_policy()`; oauth/chat/embeddings вызовы больше не дублируют вручную `httpx`-ошибки и retry-ветки в `pool/retriever/indexer`.
+  - По состоянию на сейчас поиск `except Exception|except:` в `app/llm` и `app/rag` не находит broad handlers.
+  - В `llm.llm_request_logs` добавлено поле `diagnostics_json` (миграция `alembic/versions/20260404_02_add_llm_request_diagnostics.py`) для сохранения полного pipeline trace по каждому LLM-turn.
+  - `app/llm/agent.py` теперь сохраняет `classify/patient_context/parser/prompt/llm_call/summary` с явными `status`, `error_type`, `failure_stage`, `fallback_points`, размером prompt/context и RAG hit/miss.
+  - `app/llm/context_builder.py` расширен полями `total_latency_ms`, `section_item_counts`, `rag.skipped_reason`, а также детализацией RAG latency на `embedding_request_ms`, `vector_search_ms`, `progress_lookup_ms`, чтобы было видно не только падение секции, но и точный bottleneck retrieval-пути.
+  - Researcher chat logs теперь могут возвращать `diagnostics_json`, чтобы разбирать проблемные ответы без поиска по runtime-логам.
+  - Для RAG добавлен readiness-слой `app/rag/capabilities.py`: retrieval теперь явно диагностирует backend (`python_cosine` vs `pgvector`) и причину fallback (`pgvector_extension_missing` / `embedding_vector_column_missing` / `embedding_vector_index_missing`).
+  - `app/rag/retriever.py` уже умеет выбирать backend через capability-check и готов к SQL retrieval через `pgvector`.
+  - Добавлена миграция `alembic/versions/20260404_03_add_pgvector_embedding_support.py`: при наличии server-side `vector` она создаёт `embedding_vector vector(1024)`, backfill из `embedding TEXT` и `ivfflat`-индекс; при отсутствии extension завершает ревизию безопасно через `NOTICE`.
+  - `app/rag/indexer.py` переведён на dual write: если `embedding_vector` доступен, новые embeddings пишутся и в `embedding TEXT`, и в `embedding_vector`.
+  - Server-side `pgvector` установлен локально вручную для PostgreSQL 17.5, extension `vector 0.8.1` успешно создан в `hemo_db`.
+  - В `education.lesson_embeddings` локально создан `embedding_vector vector(1024)`, выполнен backfill `145/145` строк и создан `ivfflat`-индекс `ix_lesson_embeddings_embedding_vector_ivfflat`.
+  - `app/rag/indexer.py` теперь логирует backend readiness перед переиндексацией, чтобы было видно, почему embeddings всё ещё пишутся только в JSON/TEXT слой.
+  - Добавлен документ `LLM_upd_01.md` в корне проекта с отдельным планом по mixed anxiety/clinical policy и regression-защите.
+  - Добавлены unit-тесты `tests/llm/test_context_builder.py`, `tests/llm/test_parser.py`, `tests/llm/test_http_policy.py`, `tests/llm/test_agent_diagnostics.py`, `tests/llm/test_rag_retriever.py`, `tests/llm/test_rag_indexer.py`; текущий локальный прогон: `pytest tests/llm/test_context_builder.py tests/llm/test_http_policy.py tests/llm/test_parser.py tests/llm/test_agent_diagnostics.py tests/llm/test_rag_retriever.py tests/llm/test_rag_indexer.py tests/llm/test_worker.py -q` -> 14 passed.
 
 ---
 
@@ -177,6 +204,7 @@
 - [ ] Зафиксирован подход к scheduler deployment.
 - [x] Зафиксирован подход к scheduler deployment.
 - [ ] Зафиксирован план по LLM/RAG migration.
+- [x] Зафиксирован план по LLM/RAG migration.
 
 
 
