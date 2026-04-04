@@ -1,23 +1,17 @@
-# scripts/init_db_from_models.py
 import asyncio
-from sqlalchemy import text
 
-from core.db.engine import engine as async_engine
-from app.models import Base  # все модели (users, vitals, scales, medications, ...)
-import app.medications.models  # noqa: F401 — регистрация таблиц в metadata
+from app.core.config import load_environment
+
+
+load_environment()
+
+from core.db.engine import engine
+from core.db.init import ensure_database_schemas
 
 
 async def init_db() -> None:
-    async with async_engine.begin() as conn:
-        # создаём схемы
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS users'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS scales'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS vitals'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS education'))
-        await conn.execute(text('CREATE SCHEMA IF NOT EXISTS medications'))
-
-        # создаём *все* таблицы из моделей
-        await conn.run_sync(Base.metadata.create_all)
+    await ensure_database_schemas(engine)
+    print("[OK] Database schemas are ready. Run `alembic upgrade head` to apply tables and migrations.")
 
 
 if __name__ == "__main__":

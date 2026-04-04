@@ -1,6 +1,11 @@
 (function () {
   'use strict';
 
+  function getCookie(name) {
+    var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()\[\]\\/+^]/g, '\\$&') + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   // --- Login form (only on /researcher/login page) ---
   var form = document.getElementById('r-login-form');
   if (form) {
@@ -70,6 +75,9 @@
     logout: async function () {
       await fetch('/api/v1/auth/researcher/logout', {
         method: 'POST',
+        headers: {
+          'X-CSRF-Token': getCookie('csrf_token') || '',
+        },
         credentials: 'include',
       });
       window.location.href = '/researcher/login';

@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.csrf import require_csrf
 from core.db.session import get_async_session
 from app.auth.dependencies import get_current_user
 from app.consent.schemas import ConsentStatus, ConsentAcceptRequest, ConsentRevokeRequest
@@ -28,6 +29,7 @@ async def consent_status(user: User = Depends(get_current_user)):
 @router.post("/accept", response_model=ConsentStatus)
 async def consent_accept(
     body: ConsentAcceptRequest,
+    _csrf: None = Depends(require_csrf),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -50,6 +52,7 @@ async def consent_accept(
 @router.post("/revoke", response_model=ConsentStatus)
 async def consent_revoke(
     body: ConsentRevokeRequest,
+    _csrf: None = Depends(require_csrf),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):

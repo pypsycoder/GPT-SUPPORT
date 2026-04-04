@@ -16,8 +16,11 @@ import logging
 import sys
 import time
 from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv()
+
+from app.core.config import load_environment
+
+
+load_environment()
 
 # Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))

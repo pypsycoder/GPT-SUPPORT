@@ -34,8 +34,12 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from app.core.config import load_environment
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+
+load_environment()
 
 from core.db.engine import engine as async_engine
 from app.education.models import Lesson, LessonCard  # поправь при необходимости

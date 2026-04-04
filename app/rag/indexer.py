@@ -68,12 +68,12 @@ def _vec_to_pg(v: list[float]) -> str:
 
 
 async def run_indexer() -> None:
-    from dotenv import load_dotenv
-
-    load_dotenv()
+    from app.core.config import load_environment
 
     from core.db.session import async_session_factory
     from app.llm.pool import pool
+
+    load_environment()
 
     async with async_session_factory() as db:
         # Получаем токен через существующий пул

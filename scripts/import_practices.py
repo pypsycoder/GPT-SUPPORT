@@ -21,9 +21,13 @@ import asyncio
 import re
 from typing import Optional
 
+from app.core.config import load_environment
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+
+load_environment()
 
 from core.db.engine import engine as async_engine
 from app.practices.models import StandalonePractice as Practice

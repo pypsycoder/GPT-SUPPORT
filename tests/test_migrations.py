@@ -4,7 +4,9 @@ import pytest
 from sqlalchemy import text
 
 
-@pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+
+
 async def test_tables_exist_after_migration(async_session):
     """Ensure key tables are present after running Alembic migrations."""
 

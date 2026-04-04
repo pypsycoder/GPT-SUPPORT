@@ -541,7 +541,10 @@
     const url = `/api/v1/profile/update`;
     const response = await fetch(url, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCookie('csrf_token') || '',
+      },
       credentials: 'include', // Включить cookies для авторизации
       body: JSON.stringify(data),
     });
@@ -555,7 +558,10 @@
     const url = `/api/v1/consent/revoke`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCookie('csrf_token') || '',
+      },
       credentials: 'include',
       body: JSON.stringify({
         revoke_personal_data: revokePersonalData,
@@ -725,6 +731,11 @@
   // ========================================
 
   let isEditing = false;
+
+  function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()\[\]\\/+^]/g, '\\$&') + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
 
   function toggleEditMode(enable) {
     isEditing = enable;

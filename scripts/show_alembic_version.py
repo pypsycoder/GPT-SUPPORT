@@ -7,7 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.core.config import load_environment
 from sqlalchemy import text, create_engine
+
+
+load_environment()
+
 from core.db.engine import DATABASE_URL
 
 def main():

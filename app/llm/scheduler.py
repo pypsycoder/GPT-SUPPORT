@@ -1,21 +1,3 @@
-"""
-APScheduler — планировщик проактивных сообщений.
-
-Три задания (timezone="Europe/Moscow"):
-  proactive_morning   — 08:00
-  proactive_afternoon — 14:00
-  proactive_evening   — 20:00
-
-Каждое задание:
-  1. Получает список активных пациентов (is_onboarded=True, is_locked=False,
-     consent_personal_data=True, telegram_id IS NOT NULL).
-  2. Для каждого вызывает deliver_proactive_messages в отдельной DB-сессии.
-
-API:
-  start_scheduler() — регистрирует задания и запускает планировщик.
-  stop_scheduler()  — останавливает планировщик (wait=False).
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -23,29 +5,16 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# Ограничение параллельных задач: не превышать ёмкость пула GigaChat
+
 _CONCURRENCY = 5
 
 logger = logging.getLogger("gpt-support-llm.scheduler")
-
 _scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
 
-# ---------------------------------------------------------------------------
-# Job
-# ---------------------------------------------------------------------------
-
-
 async def _get_active_patient_ids() -> list[int]:
-    """Возвращает список ID пациентов, которым можно отправлять проактивные сообщения.
-
-    Условия:
-      - is_onboarded=True      — прошли онбординг
-      - is_locked=False        — аккаунт не заблокирован
-      - consent_personal_data  — дали согласие на обработку данных
-      - telegram_id IS NOT NULL — подключён Telegram (есть куда доставить)
-    """
     from sqlalchemy import select
+
     from app.users.models import User
     from core.db.engine import async_session_maker
 
@@ -62,20 +31,16 @@ async def _get_active_patient_ids() -> list[int]:
             )
             patient_ids = list(result.scalars().all())
     except Exception as exc:
-        logger.error("[scheduler] Не удалось получить список пациентов: %s", exc)
+        logger.error("[scheduler] failed to fetch active patients: %s", exc)
     return patient_ids
 
 
 async def _run_proactive_job() -> None:
-    """
-    Получает всех активных пациентов и запускает deliver_proactive_messages
-    параллельно, ограничивая конкурентность семафором.
-    """
     from app.llm.proactive import deliver_proactive_messages
     from core.db.engine import async_session_maker
 
     patient_ids = await _get_active_patient_ids()
-    logger.info("[scheduler] Проактивные сообщения: %d пациентов", len(patient_ids))
+    logger.info("[scheduler] proactive job: %d patients", len(patient_ids))
 
     sem = asyncio.Semaphore(_CONCURRENCY)
 
@@ -85,22 +50,17 @@ async def _run_proactive_job() -> None:
                 try:
                     await deliver_proactive_messages(patient_id, db)
                 except Exception as exc:
-                    logger.error("[scheduler] patient=%d ошибка: %s", patient_id, exc)
+                    logger.error("[scheduler] patient=%d failed: %s", patient_id, exc)
 
     await asyncio.gather(*(_process(pid) for pid in patient_ids))
 
 
 async def _run_morning_job() -> None:
-    """
-    08:00 MSK — шаблонное утреннее сообщение для каждого активного пациента.
-    Использует build_daily_context + build_morning_message (без LLM).
-    Выполняется параллельно, ограничение — семафор _CONCURRENCY.
-    """
     from app.llm.morning_service import deliver_morning_message
     from core.db.engine import async_session_maker
 
     patient_ids = await _get_active_patient_ids()
-    logger.info("[scheduler] Утренние сообщения: %d пациентов", len(patient_ids))
+    logger.info("[scheduler] morning job: %d patients", len(patient_ids))
 
     sem = asyncio.Semaphore(_CONCURRENCY)
 
@@ -110,19 +70,17 @@ async def _run_morning_job() -> None:
                 try:
                     await deliver_morning_message(patient_id, db)
                 except Exception as exc:
-                    logger.error("[scheduler] morning patient=%d ошибка: %s", patient_id, exc)
+                    logger.error("[scheduler] morning patient=%d failed: %s", patient_id, exc)
 
     await asyncio.gather(*(_process(pid) for pid in patient_ids))
 
 
-# ---------------------------------------------------------------------------
-# Lifecycle
-# ---------------------------------------------------------------------------
-
-
 def start_scheduler() -> None:
-    """Регистрирует задания и запускает AsyncIOScheduler."""
-    # Утреннее шаблонное сообщение (без LLM) — только в 08:00
+    if _scheduler.running:
+        logger.info("[scheduler] already running")
+        return
+
+    _scheduler.remove_all_jobs()
     _scheduler.add_job(
         _run_morning_job,
         trigger="cron",
@@ -131,7 +89,6 @@ def start_scheduler() -> None:
         id="morning_context",
         replace_existing=True,
     )
-    # GigaChat-проактивные (аномалии, домены) — 08:00, 14:00, 20:00
     _scheduler.add_job(
         _run_proactive_job,
         trigger="cron",
@@ -157,11 +114,10 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
     _scheduler.start()
-    logger.info("[scheduler] APScheduler запущен. Morning: 08:00, Proactive: 08:05/14:00/20:00 MSK")
+    logger.info("[scheduler] started")
 
 
 def stop_scheduler() -> None:
-    """Останавливает планировщик без ожидания завершения текущих задач."""
     if _scheduler.running:
         _scheduler.shutdown(wait=False)
-        logger.info("[scheduler] APScheduler остановлен")
+        logger.info("[scheduler] stopped")

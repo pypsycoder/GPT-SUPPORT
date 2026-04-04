@@ -13,10 +13,13 @@
 """
 
 import asyncio
+from app.core.config import load_environment
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # Читаем конфиг БД
+load_environment()
+
 from core.db.engine import DATABASE_URL
 
 async def check_migration_status():

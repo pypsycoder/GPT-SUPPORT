@@ -3,7 +3,12 @@
 Скрипт для применения миграции вручную (SQL)
 """
 
+from app.core.config import load_environment
 from sqlalchemy import text, create_engine
+
+
+load_environment()
+
 from core.db.engine import DATABASE_URL
 
 def apply_migration_manually():

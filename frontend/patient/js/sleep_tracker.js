@@ -360,18 +360,17 @@
     nightContinue.disabled = true;
     fetch('/api/v1/sleep/me/by-date?date=' + encodeURIComponent(sleepDate), { credentials: 'include' })
       .then(function (res) {
-        if (res.status === 404) {
+        if (!res.ok) throw new Error(res.statusText);
+        return res.json();
+      })
+      .then(function (body) {
+        if (!body) {
           showScreen('form');
           resetForm();
           state.sleep_date = sleepDate;
           nightContinue.disabled = false;
           return;
         }
-        if (!res.ok) throw new Error(res.statusText);
-        return res.json();
-      })
-      .then(function (body) {
-        if (!body) return;
         state.existingRecord = body;
         showScreen('duplicate');
         nightContinue.disabled = false;

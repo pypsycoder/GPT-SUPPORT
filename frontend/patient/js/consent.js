@@ -6,6 +6,11 @@
   var consentBtn = document.getElementById('consent-btn');
   var errorDiv = document.getElementById('consent-error');
 
+  function getCookie(name) {
+    var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()\[\]\\/+^]/g, '\\$&') + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   function updateButton() {
     consentBtn.disabled = !(checkPd.checked && checkBot.checked);
   }
@@ -35,7 +40,11 @@
     try {
       var resp = await fetch('/api/v1/consent/accept', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCookie('csrf_token') || '',
+        },
+        credentials: 'include',
         body: JSON.stringify({
           consent_personal_data: true,
           consent_bot_use: true,

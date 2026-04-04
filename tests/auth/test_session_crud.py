@@ -14,7 +14,14 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from app.auth.models import Session  # noqa: E402
-from app.auth.session_crud import create_session, delete_session, get_session  # noqa: E402
+from app.auth.session_crud import (  # noqa: E402
+    cleanup_sessions,
+    create_session,
+    delete_session,
+    get_session,
+    revoke_session,
+    touch_session,
+)
 from app.users.models import User  # noqa: E402
 
 
@@ -89,5 +96,61 @@ def test_delete_session_accepts_raw_token():
             result = await session.execute(select(Session))
             assert result.scalar_one_or_none() is None
             assert await get_session(session, raw_token) is None
+
+    asyncio.run(runner())
+
+
+def test_revoked_session_is_not_resolvable_and_is_cleaned_up():
+    async def runner():
+        async with session_ctx() as session:
+            user = await create_user(session)
+            raw_token = "revoked-token"
+
+            created = await create_session(
+                session,
+                token=raw_token,
+                user_id=user.id,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+            )
+            assert created.revoked_at is None
+
+            revoked = await revoke_session(session, raw_token, reason="test")
+            assert revoked is True
+
+            assert await get_session(session, raw_token) is None
+            cleaned = await cleanup_sessions(session)
+            assert cleaned == 0
+
+    asyncio.run(runner())
+
+
+def test_touch_session_updates_last_seen_and_last_seen_ip():
+    async def runner():
+        async with session_ctx() as session:
+            user = await create_user(session)
+            raw_token = "touch-me"
+
+            created = await create_session(
+                session,
+                token=raw_token,
+                user_id=user.id,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+                ip_address="127.0.0.1",
+            )
+            original_last_seen = created.last_seen_at
+
+            created.last_seen_at = created.last_seen_at - timedelta(minutes=10)
+            await session.commit()
+
+            touched = await touch_session(
+                session,
+                created,
+                user_agent="pytest-agent",
+                ip_address="10.0.0.5",
+            )
+
+            assert touched.last_seen_at > original_last_seen - timedelta(minutes=5)
+            assert touched.last_seen_ip == "10.0.0.5"
+            assert touched.user_agent == "pytest-agent"
 
     asyncio.run(runner())

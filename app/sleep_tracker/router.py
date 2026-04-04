@@ -8,7 +8,7 @@ import datetime
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.sleep_tracker import crud, schemas, service
@@ -22,7 +22,7 @@ from core.db.session import get_async_session
 router = APIRouter(prefix="/sleep", tags=["sleep"])
 
 
-@router.get("/me/by-date", response_model=schemas.SleepRecordRead)
+@router.get("/me/by-date", response_model=schemas.SleepRecordRead | None)
 async def get_sleep_record_by_date_me(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
@@ -30,8 +30,6 @@ async def get_sleep_record_by_date_me(
 ):
     """Получить запись сна за выбранную ночь (для проверки дубликата и предзаполнения формы)."""
     record = await crud.get_by_patient_and_date(session, patient_id=user.id, sleep_date=qdate)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Запись за эту ночь не найдена")
     return record
 
 
