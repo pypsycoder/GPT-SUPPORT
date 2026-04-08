@@ -143,3 +143,39 @@ class ChatStatsResponse(BaseModel):
     activity_by_hour: dict = {}
     activity_by_weekday: dict = {}
     dialysis_vs_nondialysis: Optional[dict] = None
+
+
+class HumanTraceSection(BaseModel):
+    title: str
+    items: List[str]
+
+
+class ResearcherChatDebugRequest(BaseModel):
+    patient_id: int
+    message: str
+    source: str = "text"
+    forced_model_tier: Optional[str] = None
+    session_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    persist_messages: bool = False
+
+
+class ResearcherChatDebugResponse(BaseModel):
+    response: str
+    tokens_used: int
+    response_time_ms: int
+    domain: Optional[str] = None
+    model: str
+    requested_model_tier: Optional[str] = None
+    actual_model_tier: Optional[str] = None
+    account_id: Optional[str] = None
+    request_type: Optional[str] = None
+    session_id: str
+    thread_id: str
+    saved_to_chat: bool = False
+    diagnostics_json: Optional[dict] = None
+    human_trace: List[HumanTraceSection] = []
+    memory_before: List[dict] = []
+    memory_after: List[dict] = []
+    pending_st_memory: List[dict] = []
+    pending_lt_memory: List[dict] = []

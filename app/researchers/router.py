@@ -22,6 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.session import get_async_session
 from app.auth.dependencies import get_current_researcher
+from app.llm.agent import generate_response
+from app.llm.errors import LLMConfigurationError
+from app.llm.memory import st_memory_store
+from app.llm.router import ModelTier, RouterResult, classify_request
+from app.llm.trace_humanizer import build_human_trace
+from app.models.llm import ChatMessage
 from app.researchers.models import Researcher
 from app.researchers.schemas import (
     PatientCreateRequest,
@@ -37,10 +43,39 @@ from app.researchers.schemas import (
     ChatStatsResponse,
     TokensByDate,
     CohortItem,
+    HumanTraceSection,
+    ResearcherChatDebugRequest,
+    ResearcherChatDebugResponse,
 )
 from app.researchers import crud
 
 router = APIRouter(prefix="/researcher", tags=["researcher"])
+
+
+def _normalize_debug_session_token(value: str | None, patient_id: int) -> str:
+    token = str(value or "").strip()
+    return token or f"researcher-debug-patient-{patient_id}"
+
+
+def _normalize_debug_thread_token(value: str | None) -> str:
+    token = str(value or "").strip()
+    return token or "main"
+
+
+def _apply_forced_model_tier(router_result: RouterResult, forced_tier: str | None) -> RouterResult:
+    value = str(forced_tier or "").strip().lower()
+    if not value:
+        return router_result
+    try:
+        tier = ModelTier(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректный model tier. Допустимо: lite, pro, max") from exc
+    return RouterResult(
+        request_type=router_result.request_type,
+        model_tier=tier,
+        domain_hint=router_result.domain_hint,
+        priority=router_result.priority,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +443,113 @@ async def get_chat_logs(
         avg_response_ms=round(float(stats_row["avg_ms"]), 1),
         request_types_today=request_types_today,
         items=items,
+    )
+
+
+@router.post("/chat-debug/message", response_model=ResearcherChatDebugResponse)
+async def researcher_chat_debug_message(
+    body: ResearcherChatDebugRequest,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResearcherChatDebugResponse:
+    """Researcher sandbox chat with patient context and human-readable diagnostics."""
+    patient = await crud.get_patient_by_id(session, body.patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Пациент не найден")
+
+    from app.llm.morning_service import get_daily_context_for_llm
+
+    session_id = _normalize_debug_session_token(body.session_id, body.patient_id)
+    thread_id = _normalize_debug_thread_token(body.thread_id)
+    router_result = classify_request(body.message, body.source)
+    router_result = _apply_forced_model_tier(router_result, body.forced_model_tier)
+
+    memory_before = st_memory_store.read(
+        patient_id=body.patient_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    daily_ctx = await get_daily_context_for_llm(body.patient_id, session)
+
+    try:
+        llm_result = await generate_response(
+            patient_id=body.patient_id,
+            user_input=body.message,
+            router_result=router_result,
+            context={
+                "daily_context": daily_ctx,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "st_memory": memory_before,
+            },
+            db=session,
+        )
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    pending_st_memory = list(llm_result.get("pending_st_memory") or [])
+    pending_lt_memory = list(llm_result.get("pending_lt_memory") or [])
+    memory_after = st_memory_store.write(
+        patient_id=body.patient_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        updates=pending_st_memory,
+    )
+
+    if body.persist_messages:
+        session.add(
+            ChatMessage(
+                patient_id=body.patient_id,
+                role="user",
+                content=body.message,
+                tokens_used=0,
+                model_used=None,
+                domain=llm_result.get("domain"),
+                request_type=router_result.request_type.value,
+            )
+        )
+        session.add(
+            ChatMessage(
+                patient_id=body.patient_id,
+                role="assistant",
+                content=llm_result["response"],
+                tokens_used=int(llm_result.get("tokens_input", 0)) + int(llm_result.get("tokens_output", 0)),
+                model_used=llm_result.get("model"),
+                domain=llm_result.get("domain"),
+                request_type=router_result.request_type.value,
+                is_read=False,
+            )
+        )
+        await session.commit()
+
+    diagnostics_json = llm_result.get("diagnostics") or {}
+    human_trace = [
+        HumanTraceSection(
+            title=str(section.get("title") or "Trace"),
+            items=[str(item) for item in section.get("items") or []],
+        )
+        for section in build_human_trace(diagnostics_json)
+    ]
+
+    return ResearcherChatDebugResponse(
+        response=llm_result["response"],
+        tokens_used=int(llm_result.get("tokens_input", 0)) + int(llm_result.get("tokens_output", 0)),
+        response_time_ms=int(diagnostics_json.get("total_latency_ms") or 0),
+        domain=llm_result.get("domain"),
+        model=str(llm_result.get("model") or ""),
+        requested_model_tier=llm_result.get("requested_model_tier"),
+        actual_model_tier=llm_result.get("actual_model_tier"),
+        account_id=llm_result.get("account_id"),
+        request_type=router_result.request_type.value,
+        session_id=session_id,
+        thread_id=thread_id,
+        saved_to_chat=bool(body.persist_messages),
+        diagnostics_json=diagnostics_json,
+        human_trace=human_trace,
+        memory_before=memory_before,
+        memory_after=memory_after,
+        pending_st_memory=pending_st_memory,
+        pending_lt_memory=pending_lt_memory,
     )
 
 

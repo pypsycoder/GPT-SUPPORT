@@ -12,8 +12,9 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 
-from app.llm.errors import LLMResponseError, LLMTransportError
+from app.llm.errors import LLMConfigurationError, LLMResponseError, LLMTransportError
 from app.llm.http import request_json_with_policy
 
 
@@ -31,29 +32,46 @@ MODEL_NAMES: dict[str, str] = {
 _TIER_PRIORITY: dict[str, int] = {"lite": 0, "pro": 1, "max": 2}
 
 
+@dataclass
+class _SharedAccountState:
+    api_key: str
+    access_token: str | None = None
+    token_expires_at: float = 0.0
+    lock: asyncio.Lock | None = None
+    token_lock: asyncio.Lock | None = None
+
+    def __post_init__(self) -> None:
+        if self.lock is None:
+            self.lock = asyncio.Lock()
+        if self.token_lock is None:
+            self.token_lock = asyncio.Lock()
+
+
 class GigaChatClient:
-    def __init__(self, account_id: str, api_key: str, model_tier: str) -> None:
+    def __init__(
+        self,
+        account_id: str,
+        api_key: str,
+        model_tier: str,
+        *,
+        shared_state: _SharedAccountState | None = None,
+    ) -> None:
         self.account_id = account_id
-        self.api_key = api_key
         self.model_tier = model_tier
         self.tokens_used: int = 0
-
-        self._lock = asyncio.Lock()
-        self._token_lock = asyncio.Lock()
-        self._access_token: str | None = None
-        self._token_expires_at: float = 0.0
+        self._state = shared_state or _SharedAccountState(api_key=api_key)
 
     @property
     def is_busy(self) -> bool:
-        return self._lock.locked()
+        return self._state.lock.locked()
 
     async def _get_access_token(self) -> str:
-        if self._access_token and time.time() < self._token_expires_at - 60:
-            return self._access_token
+        if self._state.access_token and time.time() < self._state.token_expires_at - 60:
+            return self._state.access_token
 
-        async with self._token_lock:
-            if self._access_token and time.time() < self._token_expires_at - 60:
-                return self._access_token
+        async with self._state.token_lock:
+            if self._state.access_token and time.time() < self._state.token_expires_at - 60:
+                return self._state.access_token
 
             try:
                 data = await request_json_with_policy(
@@ -62,7 +80,7 @@ class GigaChatClient:
                     url=GIGACHAT_AUTH_URL,
                     operation=f"oauth for account {self.account_id}",
                     headers={
-                        "Authorization": f"Basic {self.api_key}",
+                        "Authorization": f"Basic {self._state.api_key}",
                         "RqUID": str(uuid.uuid4()),
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
@@ -75,13 +93,13 @@ class GigaChatClient:
                     f"oauth returned invalid payload for account {self.account_id}"
                 ) from exc
 
-            self._access_token = access_token
-            self._token_expires_at = expires_at
+            self._state.access_token = access_token
+            self._state.token_expires_at = expires_at
             logger.debug("[pool] token refreshed account=%s", self.account_id)
-            return self._access_token
+            return self._state.access_token
 
     async def call(self, messages: list[dict], system_prompt: str) -> tuple[str, int, int, int]:
-        async with self._lock:
+        async with self._state.lock:
             start = time.monotonic()
             token = await self._get_access_token()
             model_name = MODEL_NAMES.get(self.model_tier, "GigaChat-2-Pro")
@@ -145,7 +163,7 @@ class GigaChatClient:
                     )
 
                 if attempt == 0:
-                    self._access_token = None
+                    self._state.access_token = None
                     try:
                         token = await self._get_access_token()
                     except (LLMTransportError, LLMResponseError):
@@ -170,6 +188,9 @@ class AccountPool:
         self._build_pool()
 
     def _build_pool(self) -> None:
+        configured_accounts: list[tuple[str, str, str]] = []
+        available_tiers: set[str] = set()
+
         for i in range(1, 20):
             account_id = f"A{i}"
             key = os.getenv(f"GIGACHAT_KEY_{account_id}")
@@ -182,16 +203,57 @@ class AccountPool:
             if tier not in MODEL_NAMES:
                 tier = "pro"
 
-            client = GigaChatClient(account_id=account_id, api_key=key, model_tier=tier)
-            self.clients.append(client)
-            logger.info("[pool] added account %s tier=%s", account_id, tier)
+            configured_accounts.append((account_id, key, tier))
+            self._add_client(account_id=account_id, api_key=key, tier=tier)
+            available_tiers.add(tier)
+
+        unique_keys = {key for _, key, _ in configured_accounts}
+        if configured_accounts and len(unique_keys) == 1:
+            base_account_id, shared_key, _ = configured_accounts[0]
+            shared_state = next(
+                client._state for client in self.clients
+                if client.account_id == base_account_id
+            )
+            for tier in MODEL_NAMES:
+                if tier in available_tiers:
+                    continue
+                alias_account_id = f"{base_account_id}-{tier}"
+                self._add_client(
+                    account_id=alias_account_id,
+                    api_key=shared_key,
+                    tier=tier,
+                    shared_state=shared_state,
+                )
+                logger.info(
+                    "[pool] added shared-tier alias %s tier=%s using key from %s",
+                    alias_account_id,
+                    tier,
+                    base_account_id,
+                )
 
         if not self.clients:
             logger.warning("[pool] no GigaChat accounts configured")
 
-    async def get_available(self, model_tier: str) -> GigaChatClient:
+    def _add_client(
+        self,
+        *,
+        account_id: str,
+        api_key: str,
+        tier: str,
+        shared_state: _SharedAccountState | None = None,
+    ) -> None:
+        client = GigaChatClient(
+            account_id=account_id,
+            api_key=api_key,
+            model_tier=tier,
+            shared_state=shared_state,
+        )
+        self.clients.append(client)
+        logger.info("[pool] added account %s tier=%s", account_id, tier)
+
+    async def get_available(self, model_tier: str, *, allow_fallback: bool = False) -> GigaChatClient:
         if not self.clients:
-            raise RuntimeError("AccountPool is empty - no configured GigaChat accounts")
+            raise LLMConfigurationError("No GigaChat accounts configured")
 
         tier = model_tier.lower()
         min_priority = _TIER_PRIORITY.get(tier, 1)
@@ -199,6 +261,10 @@ class AccountPool:
             c for c in self.clients
             if _TIER_PRIORITY.get(c.model_tier, 1) >= min_priority
         ]
+        if not candidates and not allow_fallback:
+            raise LLMConfigurationError(
+                f"No GigaChat account configured for requested tier '{tier}'"
+            )
         if not candidates:
             candidates = self.clients
 

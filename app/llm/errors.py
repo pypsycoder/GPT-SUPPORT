@@ -13,5 +13,9 @@ class LLMResponseError(LLMError):
     """Provider returned an invalid or unusable response."""
 
 
+class LLMConfigurationError(LLMError):
+    """Local LLM configuration cannot satisfy the requested call."""
+
+
 class RetrievalError(LLMError):
     """Knowledge retrieval stage failed."""

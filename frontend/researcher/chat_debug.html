@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Отладочный чат — GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/researcher/css/researcher.css">
+  <style>
+    .r-debug-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr 420px;
+      gap: 1rem;
+      align-items: start;
+    }
+    @media (max-width: 1280px) {
+      .r-debug-grid { grid-template-columns: 1fr; }
+    }
+    .r-debug-card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 1rem;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+      overflow: hidden;
+    }
+    .r-debug-head {
+      padding: 1rem 1.1rem;
+      border-bottom: 1px solid #e5e7eb;
+      font-weight: 700;
+      color: #111827;
+    }
+    .r-debug-body {
+      padding: 1rem 1.1rem;
+    }
+    .r-debug-form {
+      display: grid;
+      gap: 0.85rem;
+    }
+    .r-debug-field {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .r-debug-field label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .r-debug-field input,
+    .r-debug-field select,
+    .r-debug-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.7rem;
+      background: #f9fafb;
+      font: inherit;
+      color: #111827;
+    }
+    .r-debug-field textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+    .r-debug-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .r-debug-btn {
+      padding: 0.7rem 1rem;
+      border: none;
+      border-radius: 0.7rem;
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .r-debug-btn.secondary {
+      background: #eef2ff;
+      color: #1d4ed8;
+    }
+    .r-debug-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.92rem;
+      color: #374151;
+    }
+    .r-debug-session-pill {
+      display: inline-flex;
+      gap: 0.45rem;
+      align-items: center;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .r-debug-chat {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      max-height: 72vh;
+      overflow-y: auto;
+    }
+    .r-debug-msg {
+      padding: 0.9rem 1rem;
+      border-radius: 1rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      border: 1px solid #e5e7eb;
+    }
+    .r-debug-msg.user {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }
+    .r-debug-msg.assistant {
+      background: #f9fafb;
+    }
+    .r-debug-meta {
+      margin-top: 0.45rem;
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+    .r-trace-section + .r-trace-section {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid #f1f5f9;
+    }
+    .r-trace-title {
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 0.55rem;
+    }
+    .r-trace-list {
+      margin: 0;
+      padding-left: 1.1rem;
+      color: #374151;
+      line-height: 1.45;
+    }
+    .r-trace-json {
+      margin-top: 1rem;
+      padding: 0.85rem;
+      border-radius: 0.8rem;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 0.78rem;
+      overflow: auto;
+      max-height: 24rem;
+    }
+    .r-debug-empty {
+      color: #9ca3af;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="r-wrapper" style="max-width: 1600px;">
+    <div class="r-header">
+      <div class="r-header-title">GPT Health Support</div>
+      <div class="r-header-actions">
+        <span class="r-header-user" id="r-user-name"></span>
+        <button class="r-logout-btn" id="r-logout-btn">Выйти</button>
+      </div>
+    </div>
+
+    <div class="r-nav">
+      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
+      <a href="/researcher/chat-monitor" class="r-nav-btn">Мониторинг чатов</a>
+      <a href="/researcher/chat-debug" class="r-nav-btn active">Отладочный чат</a>
+    </div>
+
+    <div class="r-debug-grid">
+      <div class="r-debug-card">
+        <div class="r-debug-head">Параметры</div>
+        <div class="r-debug-body">
+          <div class="r-debug-form">
+            <div class="r-debug-field">
+              <label for="dbg-patient">Пациент</label>
+              <select id="dbg-patient"></select>
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-session">Session ID</label>
+              <input id="dbg-session" type="text">
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-thread">Thread ID</label>
+              <input id="dbg-thread" type="text" value="main">
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-tier">Модель</label>
+              <select id="dbg-tier">
+                <option value="">Авто</option>
+                <option value="lite">Lite</option>
+                <option value="pro">Pro</option>
+                <option value="max">Max</option>
+              </select>
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-message">Сообщение</label>
+              <textarea id="dbg-message" placeholder="Напишите сообщение от имени пациента"></textarea>
+            </div>
+            <div class="r-debug-actions">
+              <button type="button" class="r-debug-btn" id="dbg-send">Отправить</button>
+              <button type="button" class="r-debug-btn secondary" id="dbg-clear">Очистить чат</button>
+            </div>
+            <label class="r-debug-checkbox">
+              <input id="dbg-persist" type="checkbox">
+              <span>Сохранять в обычную историю чата пациента</span>
+            </label>
+            <div class="r-debug-session-pill" id="dbg-session-pill">session: — / thread: —</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="r-debug-card">
+        <div class="r-debug-head">Диалог</div>
+        <div class="r-debug-body">
+          <div class="r-debug-chat" id="dbg-chat">
+            <div class="r-debug-empty">Здесь появится диалог исследователя с моделью от имени выбранного пациента.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="r-debug-card">
+        <div class="r-debug-head">Лог пайплайна</div>
+        <div class="r-debug-body">
+          <div id="dbg-trace">
+            <div class="r-debug-empty">После отправки сообщения здесь появится разбор: что система поняла, какие агенты вызвала и что записала в память.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/frontend/researcher/js/auth.js"></script>
+  <script src="/frontend/researcher/js/chat_debug.js"></script>
+</body>
+</html>

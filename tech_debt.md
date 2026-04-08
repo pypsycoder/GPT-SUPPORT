@@ -33,7 +33,7 @@
 - [x] Сделать запуск scheduler безопасным для multi-worker/multi-instance сценариев.
 
 ### 3. Test harness cleanup
-- [x] Удалить кастомный async-hook из `tests/conftest.py`.
+- [x] Удалить кастомный async-hook из `tests_py/conftest.py`.
 - [x] Перевести async-тесты на штатный `pytest-asyncio`.
 - [x] Разделить `unit` и `integration` тесты.
 - [x] Привести фикстуры БД к одному предсказуемому паттерну.
@@ -107,7 +107,7 @@
 - Статус: `in progress`
 - Дата начала: `2026-04-04`
 - Дата завершения:
-- Итог теста: `pytest tests/auth/test_session_crud.py tests/auth/test_auth_api.py -q` -> 10 passed; `pytest tests/auth/test_auth_api.py -q` -> 8 passed; `pytest -m unit -q` -> 27 passed, 6 deselected
+- Итог теста: `pytest tests_py/auth/test_session_crud.py tests_py/auth/test_auth_api.py -q` -> 10 passed; `pytest tests_py/auth/test_auth_api.py -q` -> 8 passed; `pytest -m unit -q` -> 27 passed, 6 deselected
 - Замечания:
   - Primary API base зафиксирован как `/api/v1`; для legacy-маршрутов оставлены совместимые alias на `/api` для переходного периода.
   - Единый источник API-префиксов: `app/api.py`; `app/main.py` собирает versioned и legacy router mounts из общих констант.
@@ -190,7 +190,7 @@
   - В `education.lesson_embeddings` локально создан `embedding_vector vector(1024)`, выполнен backfill `145/145` строк и создан `ivfflat`-индекс `ix_lesson_embeddings_embedding_vector_ivfflat`.
   - `app/rag/indexer.py` теперь логирует backend readiness перед переиндексацией, чтобы было видно, почему embeddings всё ещё пишутся только в JSON/TEXT слой.
   - Добавлен документ `LLM_upd_01.md` в корне проекта с отдельным планом по mixed anxiety/clinical policy и regression-защите.
-  - Добавлены unit-тесты `tests/llm/test_context_builder.py`, `tests/llm/test_parser.py`, `tests/llm/test_http_policy.py`, `tests/llm/test_agent_diagnostics.py`, `tests/llm/test_rag_retriever.py`, `tests/llm/test_rag_indexer.py`; текущий локальный прогон: `pytest tests/llm/test_context_builder.py tests/llm/test_http_policy.py tests/llm/test_parser.py tests/llm/test_agent_diagnostics.py tests/llm/test_rag_retriever.py tests/llm/test_rag_indexer.py tests/llm/test_worker.py -q` -> 14 passed.
+  - Добавлены unit-тесты `tests_py/llm/test_context_builder.py`, `tests_py/llm/test_parser.py`, `tests_py/llm/test_http_policy.py`, `tests_py/llm/test_agent_diagnostics.py`, `tests_py/llm/test_rag_retriever.py`, `tests_py/llm/test_rag_indexer.py`; текущий локальный прогон: `pytest tests_py/llm/test_context_builder.py tests_py/llm/test_http_policy.py tests_py/llm/test_parser.py tests_py/llm/test_agent_diagnostics.py tests_py/llm/test_rag_retriever.py tests_py/llm/test_rag_indexer.py tests_py/llm/test_worker.py -q` -> 14 passed.
 
 ---
 

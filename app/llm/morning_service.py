@@ -62,6 +62,43 @@ def _time_of_day(now: datetime) -> str:
     return "evening"
 
 
+def _build_weekly_summary(ctx: dict) -> dict:
+    """Builds a short deterministic summary for morning/proactive messages."""
+    summary_lines: list[str] = []
+    focus_topic: str | None = None
+    cta_text: str | None = None
+
+    sleep_days = int(ctx.get("recent_sleep_days_logged", 0) or 0)
+    med_days = int(ctx.get("recent_medication_days_logged", 0) or 0)
+    active_meds = int(ctx.get("recent_active_medications", 0) or 0)
+    bp_days = int(ctx.get("recent_bp_days_logged", 0) or 0)
+
+    if sleep_days <= 3:
+        summary_lines.append("В последнее время сон отмечался нерегулярно.")
+        focus_topic = focus_topic or "sleep"
+
+    if active_meds > 0 and med_days <= 4:
+        summary_lines.append("Лекарства в последние дни отмечались не каждый день.")
+        focus_topic = focus_topic or "medication"
+
+    if bp_days <= 2:
+        summary_lines.append("Показатели в последние дни отмечались нерегулярно.")
+        focus_topic = focus_topic or "routine"
+
+    if focus_topic == "sleep":
+        cta_text = "Хотите посмотреть короткий материал про сон?"
+    elif focus_topic == "medication":
+        cta_text = "Хотите короткое напоминание, как упростить приём лекарств?"
+    elif focus_topic == "routine":
+        cta_text = "Хотите вместе мягко восстановить ритм на сегодня?"
+
+    return {
+        "summary_lines": summary_lines[:2],
+        "focus_topic": focus_topic,
+        "cta_text": cta_text,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Сбор контекста
 # ---------------------------------------------------------------------------
@@ -177,7 +214,57 @@ async def build_daily_context(
     streak_medications: int = int(streak_data[0]) if streak_data else 0
     streak_best: int = int(streak_data[1]) if streak_data else 0
 
-    return {
+    # 6. ???????? ?????? ?? ????????? 7 ???? (?? ?????????? ??? ????????????)
+    trend_end = target_date - timedelta(days=1)
+    trend_start = trend_end - timedelta(days=6)
+
+    sleep_days_row = await session.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM sleep.sleep_records
+            WHERE patient_id = :pid
+              AND sleep_date BETWEEN :start_date AND :end_date
+        """),
+        {"pid": patient_id, "start_date": trend_start, "end_date": trend_end},
+    )
+    recent_sleep_days_logged: int = int(sleep_days_row.scalar() or 0)
+
+    active_meds_row = await session.execute(
+        text("""
+            SELECT COUNT(*)
+            FROM medications.medication_prescriptions
+            WHERE patient_id = :pid
+              AND status = 'active'
+              AND start_date <= :d
+              AND (end_date IS NULL OR end_date >= :d)
+        """),
+        {"pid": patient_id, "d": target_date},
+    )
+    recent_active_medications: int = int(active_meds_row.scalar() or 0)
+
+    med_days_row = await session.execute(
+        text("""
+            SELECT COUNT(DISTINCT DATE(intake_datetime))
+            FROM medications.medication_intakes
+            WHERE patient_id = :pid
+              AND DATE(intake_datetime) BETWEEN :start_date AND :end_date
+        """),
+        {"pid": patient_id, "start_date": trend_start, "end_date": trend_end},
+    )
+    recent_medication_days_logged: int = int(med_days_row.scalar() or 0)
+
+    bp_days_row = await session.execute(
+        text("""
+            SELECT COUNT(DISTINCT DATE(measured_at))
+            FROM vitals.bp_measurements
+            WHERE user_id = :uid
+              AND DATE(measured_at) BETWEEN :start_date AND :end_date
+        """),
+        {"uid": patient_id, "start_date": trend_start, "end_date": trend_end},
+    )
+    recent_bp_days_logged: int = int(bp_days_row.scalar() or 0)
+
+    ctx = {
         "time_of_day": _time_of_day(datetime.now(tz=MOSCOW_TZ)),
         "dialysis_today": dialysis_today,
         "morning_meds_total": morning_meds_total,
@@ -186,7 +273,13 @@ async def build_daily_context(
         "missed_yesterday": missed_yesterday,
         "streak_medications": streak_medications,
         "streak_best": streak_best,
+        "recent_sleep_days_logged": recent_sleep_days_logged,
+        "recent_active_medications": recent_active_medications,
+        "recent_medication_days_logged": recent_medication_days_logged,
+        "recent_bp_days_logged": recent_bp_days_logged,
     }
+    ctx.update(_build_weekly_summary(ctx))
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +311,7 @@ def build_morning_message(ctx: dict) -> dict:
                 "если принимали, можно внести сейчас."
             )
         buttons.append({"label": "💊 Отметить", "action": "open_medications"})
-        buttons.append({"label": "Позже",       "action": "dismiss_morning"})
+        buttons.append({"label": "Позже", "action": "dismiss_morning"})
         blocks_used += 1
 
     elif ctx["missed_yesterday"] and blocks_used < 2:
@@ -227,9 +320,9 @@ def build_morning_message(ctx: dict) -> dict:
         missed = ctx["missed_yesterday"]
         if len(missed) == 1:
             _single_action = {
-                "лекарства":  "open_medications",
+                "лекарства": "open_medications",
                 "показатели": "open_vitals",
-                "сон":        "open_sleep",
+                "сон": "open_sleep",
             }
             action = _single_action.get(missed[0], "open_trackers")
         else:
@@ -245,7 +338,27 @@ def build_morning_message(ctx: dict) -> dict:
             lines.append(f"Вы уже {s} дней подряд отмечаете лекарства.")
         blocks_used += 1
 
-    if blocks_used == 0:
+    if ctx.get("summary_lines") and blocks_used < 3:
+        lines.append(" ".join(ctx["summary_lines"]))
+
+    if ctx.get("cta_text"):
+        lines.append(ctx["cta_text"])
+        focus_topic = ctx.get("focus_topic")
+        action_map = {
+            "sleep": "open_sleep_lesson",
+            "medication": "open_medications",
+            "routine": "open_trackers",
+        }
+        action = action_map.get(focus_topic)
+        if action and not any(button.get("action") == action for button in buttons):
+            label_map = {
+                "sleep": "Открыть материал",
+                "medication": "Посмотреть подсказку",
+                "routine": "Открыть трекеры",
+            }
+            buttons.append({"label": label_map[focus_topic], "action": action})
+
+    if blocks_used == 0 and not ctx.get("summary_lines"):
         lines.append("Вчера вы всё отметили — так держать.")
 
     return {
@@ -425,10 +538,16 @@ async def get_daily_context_for_llm(patient_id: int, session: AsyncSession) -> s
         parts.append("утренние лекарства не отмечены")
     if ctx.get("missed_yesterday"):
         parts.append(f"вчера пропущено: {', '.join(ctx['missed_yesterday'])}")
+    if ctx.get("summary_lines"):
+        parts.append("; ".join(ctx["summary_lines"]))
     if ctx.get("streak_medications", 0) >= 3:
         parts.append(f"серия лекарств: {ctx['streak_medications']} дней")
+    if ctx.get("cta_text"):
+        parts.append(f"мягкий фокус: {ctx['cta_text']}")
 
     if not parts:
         return "Пациент сегодня всё выполнил."
 
     return "Контекст дня: " + "; ".join(parts) + "."
+
+    return "???????? ???: " + "; ".join(parts) + "."

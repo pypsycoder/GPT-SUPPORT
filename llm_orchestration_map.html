@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM Orchestration Map</title>
+  <style>
+    :root {
+      --bg: #f6f2e8;
+      --paper: #fffdf8;
+      --ink: #1f2a2a;
+      --muted: #5b6a67;
+      --line: #d9d0bf;
+      --accent: #d26a3d;
+      --accent-soft: #f3d6c8;
+      --sage: #7a9a86;
+      --sage-soft: #dce9df;
+      --sea: #2f6f78;
+      --sea-soft: #d7ebee;
+      --gold: #c8962f;
+      --gold-soft: #f6ebcf;
+      --rose: #b3565f;
+      --rose-soft: #f4d7da;
+      --shadow: 0 18px 40px rgba(41, 43, 36, 0.08);
+      --radius: 20px;
+      --radius-sm: 14px;
+      --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+      --sans: "Segoe UI", "Trebuchet MS", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, #fff7ed 0, transparent 28rem),
+        radial-gradient(circle at top right, #eef7f1 0, transparent 26rem),
+        linear-gradient(180deg, #f7f3ea 0%, #f1ece1 100%);
+    }
+
+    .page {
+      width: min(1580px, calc(100vw - 32px));
+      margin: 24px auto 56px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, rgba(255,253,248,0.96), rgba(247,242,232,0.98));
+      border: 1px solid rgba(217, 208, 191, 0.9);
+      border-radius: 28px;
+      padding: 26px 28px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -80px auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(210,106,61,0.16), rgba(210,106,61,0));
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--sea);
+      background: var(--sea-soft);
+      border-radius: 999px;
+      padding: 7px 12px;
+    }
+
+    h1 {
+      margin: 16px 0 12px;
+      font-size: clamp(32px, 4vw, 52px);
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+      max-width: 900px;
+    }
+
+    .lead {
+      max-width: 980px;
+      font-size: 17px;
+      line-height: 1.55;
+      color: var(--muted);
+      margin: 0 0 18px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    .summary-box,
+    .legend-box {
+      background: rgba(255,255,255,0.72);
+      border: 1px solid rgba(217, 208, 191, 0.92);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+
+    .summary-box h2,
+    .legend-box h2,
+    .lane-header h2,
+    .side-panel h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+      letter-spacing: 0.02em;
+    }
+
+    .summary-list,
+    .legend-list,
+    .packet-list,
+    .note-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .summary-list li,
+    .legend-list li,
+    .packet-list li,
+    .note-list li {
+      padding-left: 14px;
+      position: relative;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .summary-list li::before,
+    .legend-list li::before,
+    .packet-list li::before,
+    .note-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.58em;
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      border: 1px solid transparent;
+      background: #fff;
+    }
+
+    .chip strong {
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .chip.control { background: var(--sea-soft); border-color: #b9d8de; }
+    .chip.context { background: var(--sage-soft); border-color: #bed3c4; }
+    .chip.output { background: var(--gold-soft); border-color: #eadca8; }
+    .chip.guard { background: var(--rose-soft); border-color: #e8b2b8; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 28px;
+      margin-top: 22px;
+      align-items: start;
+      overflow: hidden;
+    }
+
+    .board {
+      display: grid;
+      gap: 20px;
+      min-width: 0;
+      grid-column: 1;
+    }
+
+    .lane {
+      background: rgba(255, 253, 248, 0.86);
+      border: 1px solid rgba(217, 208, 191, 0.95);
+      border-radius: 26px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .lane-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+
+    .lane-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 760px;
+    }
+
+    .badge {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: var(--sea);
+      white-space: nowrap;
+    }
+
+    .flow {
+      display: flex;
+      gap: 14px;
+      align-items: stretch;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .flow.vertical {
+      flex-direction: column;
+      overflow: visible;
+    }
+
+    .node {
+      min-width: 245px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      position: relative;
+      flex: 1 1 0;
+    }
+
+    .node.control { border-top: 5px solid var(--sea); }
+    .node.context { border-top: 5px solid var(--sage); }
+    .node.output { border-top: 5px solid var(--gold); }
+    .node.guard { border-top: 5px solid var(--rose); }
+
+    .node h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+
+    .node .sub {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--sea);
+      margin-bottom: 10px;
+    }
+
+    .node p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .node ul {
+      margin: 0;
+      padding-left: 17px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .arrow {
+      display: grid;
+      place-items: center;
+      min-width: 42px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      opacity: 0.9;
+    }
+
+    .branch-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--sea);
+      background: rgba(47, 111, 120, 0.08);
+      padding: 7px 10px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+      border: 1px solid rgba(47, 111, 120, 0.15);
+    }
+
+    .specialists {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .packet {
+      margin-top: 12px;
+      padding: 12px 13px;
+      border-radius: var(--radius-sm);
+      background: #fbf8f1;
+      border: 1px dashed #d8ccb1;
+    }
+
+    .packet h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-family: var(--mono);
+      color: var(--ink);
+    }
+
+    details {
+      margin-top: 12px;
+      border-top: 1px solid rgba(217, 208, 191, 0.8);
+      padding-top: 10px;
+    }
+
+    summary {
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--sea);
+      user-select: none;
+    }
+
+    .early-exits {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(210px, 1fr));
+      gap: 14px;
+    }
+
+    .side-panel {
+      display: grid;
+      gap: 18px;
+      align-self: start;
+      width: 100%;
+      min-width: 0;
+      grid-column: 2;
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel-box {
+      background: rgba(255,253,248,0.98);
+      border: 1px solid rgba(217,208,191,0.96);
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel-box p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 14px;
+    }
+
+    .key {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 12px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 4px 7px;
+      margin: 4px 6px 0 0;
+    }
+
+    .footer-note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    @media (max-width: 1320px) {
+      .layout,
+      .hero-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .side-panel {
+        position: static;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .specialists,
+      .early-exits {
+        grid-template-columns: 1fr;
+      }
+
+      .flow {
+        flex-direction: column;
+        overflow: visible;
+      }
+
+      .arrow {
+        min-height: 26px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">LLM Full Orchestration • current repo map</div>
+      <h1>Карта оркестрации: кто что делает, что получает и что передаёт дальше</h1>
+      <p class="lead">
+        Эта схема собрана по текущему коду в <code>app/llm/agent.py</code>, <code>app/llm/context_builder.py</code>,
+        <code>app/llm/orchestration.py</code> и orchestration-prompts. Она показывает основной путь
+        <code>llm_full</code>, ранние выходы и ключевые пакеты данных между слоями.
+      </p>
+
+      <div class="hero-grid">
+        <div class="summary-box">
+          <h2>Главная идея</h2>
+          <ul class="summary-list">
+            <li>Сначала система собирает контекст пациента, память, intake и role-specific RAG views.</li>
+            <li>Потом router выбирает не более двух specialist-веток и назначает primary-agent.</li>
+            <li>Каждый specialist пишет строго структурированный JSON-вклад: что увидел, что советует, чего избегать.</li>
+            <li>Composer собирает единый ответ только из specialist outputs, а critic проверяет согласованность и policy.</li>
+            <li>Параллельно пишутся diagnostics, memory candidates и shadow validation.</li>
+          </ul>
+        </div>
+
+        <div class="legend-box">
+          <h2>Легенда</h2>
+          <div class="chip-row">
+            <span class="chip control"><strong>CONTROL</strong> управляет маршрутом</span>
+            <span class="chip context"><strong>CONTEXT</strong> собирает и фильтрует данные</span>
+            <span class="chip output"><strong>OUTPUT</strong> формирует вклад или ответ</span>
+            <span class="chip guard"><strong>GUARD</strong> проверяет, режет или останавливает</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="board">
+        <section class="lane">
+          <div class="lane-header">
+            <div>
+              <h2>1. Вход и сбор контекста</h2>
+              <p>Здесь система ещё не отвечает. Она собирает patient-context, делает parser/intake и подготавливает именно те данные, которые потом увидят orchestration-агенты.</p>
+            </div>
+            <span class="badge">entry → context</span>
+          </div>
+
+          <div class="flow">
+            <article class="node control">
+              <h3>User Message</h3>
+              <div class="sub">input</div>
+              <p>Сырое сообщение пациента и служебный контекст чата.</p>
+              <ul>
+                <li><code>user_input</code></li>
+                <li><code>session_id</code>, <code>thread_id</code></li>
+                <li><code>daily_context</code>, history</li>
+              </ul>
+            </article>
+
+            <div class="arrow">→</div>
+
+            <article class="node control">
+              <h3>Classify Request</h3>
+              <div class="sub">router_result</div>
+              <p>Определяет request type, model tier, domain hint и priority.</p>
+              <ul>
+                <li><code>request_type</code></li>
+                <li><code>domain_hint</code></li>
+                <li><code>model_tier</code></li>
+                <li><code>priority</code></li>
+              </ul>
+            </article>
+
+            <div class="arrow">→</div>
+
+            <article class="node context">
+              <h3>Context Builder</h3>
+              <div class="sub">patient_context bundle</div>
+              <p>Поднимает patient sections, retrieval, role-specific views и diagnostics.</p>
+              <ul>
+                <li>vitals, meds, sleep, routine</li>
+                <li><code>rag_context</code></li>
+                <li><code>rag_grounding_items</code></li>
+                <li><code>rag_views</code>: psych_support / routine / education</li>
+              </ul>
+              <div class="packet">
+                <h4>Передаёт дальше</h4>
+                <div class="key">patient_summary_prompt</div>
+                <div class="key">patient_summary_views</div>
+                <div class="key">rag_views</div>
+                <div class="key">rag_grounding_items</div>
+              </div>
+            </article>
+
+            <div class="arrow">→</div>
+
+            <article class="node context">
+              <h3>Parser + Intake</h3>
+              <div class="sub">structured hints</div>
+              <p>Parser извлекает mood/domain hints, intake определяет patient intent, primary problem и нужен ли clarifier.</p>
+              <ul>
+                <li><code>parser.mood</code></li>
+                <li><code>parser.domain_hints</code></li>
+                <li><code>intake.primary_problem</code></li>
+                <li><code>intake.patient_intent</code></li>
+              </ul>
+            </article>
+
+            <div class="arrow">→</div>
+
+            <article class="node context">
+              <h3>Policy + Memory Prep</h3>
+              <div class="sub">response policy</div>
+              <p>Выбирает response policy, применяет continuation из ST-memory и готовит memory candidates на запись.</p>
+              <ul>
+                <li><code>selected_policy</code></li>
+                <li><code>effective_domain</code></li>
+                <li><code>memory.candidates</code></li>
+                <li><code>memory.write_decisions</code></li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-header">
+            <div>
+              <h2>2. Основная orchestration-ветка</h2>
+              <p>Это путь для <code>orchestration_mode = llm_full</code>. Он начинается после context-builder и заканчивается composer/critic-парой.</p>
+            </div>
+            <span class="badge">llm_full path</span>
+          </div>
+
+          <div class="flow vertical">
+            <article class="node control">
+              <h3>Router Specialist Selector</h3>
+              <div class="sub">route decision</div>
+              <p>LLM-router выбирает до двух specialist-агентов и назначает primary/secondary. После этого route дополнительно постобрабатывается кодом.</p>
+              <ul>
+                <li><code>selected_agents</code></li>
+                <li><code>primary_agent</code></li>
+                <li><code>secondary_agents</code></li>
+                <li><code>routing_reasons</code>, <code>why_not_selected</code></li>
+              </ul>
+              <details>
+                <summary>Постпроцесс route</summary>
+                <ul>
+                  <li><code>routine</code> выкидывается, если <code>rag_views["routine"]</code> пуст.</li>
+                  <li>Если primary был <code>routine</code>, он переключается на оставшегося агента.</li>
+                </ul>
+              </details>
+            </article>
+
+            <div class="arrow">↓</div>
+
+            <div>
+              <div class="branch-label">parallel specialist stage</div>
+              <div class="specialists">
+                <article class="node output">
+                  <h3>psych_support</h3>
+                  <div class="sub">practice-only specialist</div>
+                  <p>Видит только practice metadata и role-specific psych-support view. Не имеет права выдумывать технику, если grounded practice нет.</p>
+                  <ul>
+                    <li>input: <code>patient_summary_prompt</code>, <code>practice_metadata</code></li>
+                    <li>output: <code>signals</code></li>
+                    <li>output: <code>recommended_actions</code></li>
+                    <li>output: <code>draft</code>, <code>notes_for_composer</code></li>
+                  </ul>
+                </article>
+
+                <article class="node output">
+                  <h3>routine</h3>
+                  <div class="sub">short-horizon practical specialist</div>
+                  <p>Берёт только actionable fragments из <code>rag_view_routine</code>. Не предлагает уроки и не пишет бытовые советы из головы.</p>
+                  <ul>
+                    <li>input: <code>patient_summary_prompt</code>, <code>rag_view_routine</code></li>
+                    <li>output: 1–2 short-horizon actions</li>
+                    <li>output: neutral draft if RAG empty</li>
+                  </ul>
+                </article>
+
+                <article class="node output">
+                  <h3>education</h3>
+                  <div class="sub">short explanatory specialist</div>
+                  <p>Использует только general <code>rag_context</code>. Может добавить мягкий CTA из <code>cta_*</code>, если он подтверждён retrieval metadata.</p>
+                  <ul>
+                    <li>input: <code>patient_summary_prompt</code>, <code>rag_context</code></li>
+                    <li>output: <code>draft</code></li>
+                    <li>output: <code>cta_type</code>, <code>cta_label</code>, <code>cta_target</code></li>
+                  </ul>
+                </article>
+              </div>
+            </div>
+
+            <div class="arrow">↓ specialists[]</div>
+
+            <article class="node output">
+              <h3>Composer</h3>
+              <div class="sub">single final draft</div>
+              <p>Собирает единый ответ пациенту. Может использовать только то, что уже пришло из specialist outputs: <code>draft</code>, <code>recommended_actions</code>, <code>cta_*</code>, <code>notes_for_composer</code>.</p>
+              <ul>
+                <li>output: <code>draft_response</code></li>
+                <li>output: <code>blocks</code></li>
+                <li>output: <code>composition_rules</code></li>
+                <li>output: <code>guidance_text</code></li>
+              </ul>
+              <details>
+                <summary>Что ему запрещено</summary>
+                <ul>
+                  <li>Новые техники, sleep-hygiene и эскалация без specialist grounding.</li>
+                  <li>Action block, если у specialists пустой <code>recommended_actions</code>.</li>
+                </ul>
+              </details>
+            </article>
+
+            <div class="arrow">↓</div>
+
+            <article class="node guard">
+              <h3>Critic</h3>
+              <div class="sub">quality + policy guard</div>
+              <p>Проверяет route/response alignment, early escalation, ungrounded technique, template reassurance и необходимость rewrite.</p>
+              <ul>
+                <li><code>status</code>: pass / fail</li>
+                <li><code>violations</code></li>
+                <li><code>rewrite_required</code></li>
+                <li><code>rewrite_reasons</code></li>
+              </ul>
+            </article>
+
+            <div class="arrow">↓</div>
+
+            <article class="node guard">
+              <h3>Final Response + Shadow Validation</h3>
+              <div class="sub">visible answer + diagnostics</div>
+              <p>Если critic пропускает, пациент получает composer draft. Параллельно legacy validator проверяет те же риски и сравнивается с critic verdict.</p>
+              <ul>
+                <li>patient-visible <code>response</code></li>
+                <li><code>shadow_validation</code></li>
+                <li><code>matches_critic</code></li>
+                <li><code>rewrite.status</code></li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-header">
+            <div>
+              <h2>3. Ранние выходы и guard-ветки</h2>
+              <p>Эти маршруты могут остановить обычный путь до specialist loop или вместо него.</p>
+            </div>
+            <span class="badge">early exits</span>
+          </div>
+
+          <div class="early-exits">
+            <article class="node guard">
+              <h3>Safety Route</h3>
+              <div class="sub">highest priority override</div>
+              <p>Для crisis / acute medical / urgent dialysis-risk. Обычная orchestration не запускается.</p>
+              <ul>
+                <li>нет обычного specialist loop</li>
+                <li>нет обычного retrieval route</li>
+                <li>ответ идёт по safety-specific mode</li>
+              </ul>
+            </article>
+
+            <article class="node guard">
+              <h3>Clarifier Exit</h3>
+              <div class="sub">help request but not enough info</div>
+              <p>Если intake видит help-request, но данных не хватает, система возвращает уточняющий вопрос и не идёт в main LLM response path.</p>
+              <ul>
+                <li><code>clarification_needed = true</code></li>
+                <li><code>rewrite.status = skipped_clarifier</code></li>
+              </ul>
+            </article>
+
+            <article class="node guard">
+              <h3>Boundary Guard</h3>
+              <div class="sub">before LLM call</div>
+              <p>Останавливает ответ, если пользователь пытается выйти за допустимую границу поведения системы.</p>
+              <ul>
+                <li>LLM call skipped</li>
+                <li>готовый boundary response</li>
+                <li>diagnostics stay intact</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-header">
+            <div>
+              <h2>4. Что именно передаётся между узлами</h2>
+              <p>Это самые важные структуры, по которым удобно дебажить и читать researcher traces.</p>
+            </div>
+            <span class="badge">data contracts</span>
+          </div>
+
+          <div class="flow">
+            <article class="node context">
+              <h3><code>patient_context</code></h3>
+              <p>Большой bundle, собранный context-builder. Именно отсюда берутся sections для prompt и orchestration.</p>
+              <div class="packet">
+                <h4>Ключи</h4>
+                <div class="key">rag_context</div>
+                <div class="key">rag_grounding_items</div>
+                <div class="key">rag_views</div>
+                <div class="key">patient_summary_prompt</div>
+                <div class="key">patient_summary_views</div>
+              </div>
+            </article>
+
+            <div class="arrow">→</div>
+
+            <article class="node control">
+              <h3><code>route</code></h3>
+              <p>Итог router stage после JSON normalization и code-level postprocess.</p>
+              <div class="packet">
+                <h4>Ключи</h4>
+                <div class="key">selected_agents</div>
+                <div class="key">primary_agent</div>
+                <div class="key">secondary_agents</div>
+                <div class="key">routing_reasons</div>
+                <div class="key">why_not_selected</div>
+              </div>
+            </article>
+
+            <div class="arrow">→</div>
+
+            <article class="node output">
+              <h3><code>specialists[]</code></h3>
+              <p>Массив specialist outputs, из которых composer обязан собирать ответ.</p>
+              <div class="packet">
+                <h4>Ключи</h4>
+                <div class="key">agent</div>
+                <div class="key">signals</div>
+                <div class="key">recommended_actions</div>
+                <div class="key">draft</div>
+                <div class="key">cta_*</div>
+                <div class="key">notes_for_composer</div>
+              </div>
+            </article>
+
+            <div class="arrow">→</div>
+
+            <article class="node guard">
+              <h3><code>composer</code> + <code>critic</code></h3>
+              <p>Один собирает финальный текст, второй решает, проходить ли дальше и нужен ли rewrite.</p>
+              <div class="packet">
+                <h4>Ключи</h4>
+                <div class="key">draft_response</div>
+                <div class="key">blocks</div>
+                <div class="key">violations</div>
+                <div class="key">rewrite_required</div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <aside class="side-panel">
+        <section class="panel-box">
+          <h2>Кто за что отвечает</h2>
+          <ul class="note-list">
+            <li><strong>Context Builder</strong> собирает факты и role-specific retrieval views.</li>
+            <li><strong>Router</strong> решает, какие специалисты вообще должны участвовать.</li>
+            <li><strong>Specialists</strong> дают узкие, grounded-вклады в JSON-формате.</li>
+            <li><strong>Composer</strong> собирает пациентский ответ, ничего не придумывая поверх specialist outputs.</li>
+            <li><strong>Critic</strong> проверяет policy, качество и согласованность route ↔ response.</li>
+          </ul>
+        </section>
+
+        <section class="panel-box">
+          <h2>Самые полезные поля в trace</h2>
+          <ul class="packet-list">
+            <li><code>patient_context.rag.views.*_count</code> — какие ветки реально получили grounded контекст.</li>
+            <li><code>orchestration.route</code> — кого выбрал router и кого потом срезал postprocess.</li>
+            <li><code>specialists[*].recommended_actions</code> — есть ли grounded action вообще.</li>
+            <li><code>composer.normalized_output</code> — что реально ушло в финальный draft после guard-логики.</li>
+            <li><code>shadow_validation</code> — совпадает ли legacy validator с critic.</li>
+          </ul>
+        </section>
+
+        <section class="panel-box">
+          <h2>Как читать проблемный кейс</h2>
+          <p>Если ответ выглядит странно, обычно удобно идти справа налево:</p>
+          <ul class="note-list">
+            <li>Сначала посмотреть финальный <code>composer.draft_response</code>.</li>
+            <li>Потом проверить, что реально дали <code>specialists</code>.</li>
+            <li>Потом проверить, были ли у них вообще нужные <code>rag_views</code>.</li>
+            <li>И только потом смотреть, правильно ли router выбрал route.</li>
+          </ul>
+          <p class="footer-note">
+            Файл автономный: можно открыть в браузере без сборки фронтенда.
+          </p>
+        </section>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

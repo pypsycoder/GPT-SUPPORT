@@ -195,7 +195,7 @@ python -m app.bots.tg_bot.main
 ├── alembic/                      # Миграции БД
 │   ├── env.py
 │   └── versions/
-├── tests/                        # Тесты
+├── tests_py/                     # Тесты Python / pytest
 │   ├── conftest.py
 │   ├── test_migrations.py
 │   ├── bot/                      # Тесты бота

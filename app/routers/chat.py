@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.llm.agent import generate_response
+from app.llm.errors import LLMConfigurationError
+from app.llm.memory import st_memory_store
 from app.llm.pool import pool
 from app.llm.router import classify_request
 from app.models.llm import ChatMessage
@@ -36,6 +38,8 @@ class MessageRequest(BaseModel):
     patient_id: int
     message: str = Field(..., min_length=1, max_length=4000)
     source: str = Field(default="text", description="text | button | system")
+    session_id: Optional[str] = None
+    thread_id: Optional[str] = None
 
 
 class MessageResponse(BaseModel):
@@ -86,18 +90,42 @@ async def send_message(
 
     # 1. Классифицируем запрос
     router_result = classify_request(body.message, body.source)
+    session_id = (body.session_id or f"patient-{body.patient_id}-default").strip()
+    thread_id = (body.thread_id or "main").strip()
 
     # 2. Собираем дневной контекст для LLM (если есть — подставится в system prompt)
     from app.llm.morning_service import get_daily_context_for_llm
     daily_ctx = await get_daily_context_for_llm(body.patient_id, db)
+    st_memory = st_memory_store.read(
+        patient_id=body.patient_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
 
     # 3. Генерируем ответ (с логированием в llm_request_logs)
-    llm_result = await generate_response(
+    try:
+        llm_result = await generate_response(
+            patient_id=body.patient_id,
+            user_input=body.message,
+            router_result=router_result,
+            context={
+                "daily_context": daily_ctx,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "st_memory": st_memory,
+            },
+            db=db,
+        )
+    except LLMConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Запрошенный tier модели сейчас не настроен на сервере",
+        ) from exc
+    st_memory_store.write(
         patient_id=body.patient_id,
-        user_input=body.message,
-        router_result=router_result,
-        context={"daily_context": daily_ctx},
-        db=db,
+        session_id=session_id,
+        thread_id=thread_id,
+        updates=list(llm_result.get("pending_st_memory") or []),
     )
 
     elapsed_ms = int((time.monotonic() - wall_start) * 1000)
