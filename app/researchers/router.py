@@ -12,16 +12,31 @@ import csv
 import io
 import json
 from datetime import date, datetime, time as dt_time
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, List, Optional
 from uuid import UUID
 
+<<<<<<< Updated upstream
 from fastapi import APIRouter, Depends, HTTPException, status
+=======
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
+>>>>>>> Stashed changes
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.session import get_async_session
 from app.auth.dependencies import get_current_researcher
+<<<<<<< Updated upstream
+=======
+from app.llm.agent_v2 import generate_response_v2
+from app.llm.errors import LLMConfigurationError, LLMError
+from app.llm.memory import st_memory_store
+from app.llm.router import ModelTier, RouterResult, classify_request
+from app.llm.trace_humanizer import build_human_trace
+from app.models.llm import ChatMessage
+>>>>>>> Stashed changes
 from app.researchers.models import Researcher
 from app.researchers.schemas import (
     PatientCreateRequest,
@@ -36,12 +51,86 @@ from app.researchers.schemas import (
     ChatStatsResponse,
     TokensByDate,
     CohortItem,
+<<<<<<< Updated upstream
+=======
+    HumanTraceSection,
+    ResearcherChatDebugRequest,
+    ResearcherChatDebugResponse,
+    ResearcherDebugReportSaveRequest,
+    ResearcherDebugReportSaveResponse,
+>>>>>>> Stashed changes
 )
 from app.researchers import crud
 
 router = APIRouter(prefix="/researcher", tags=["researcher"])
+_DEBUG_SUPERVISOR_STATE_STORE: dict[tuple[int, str, str], dict[str, Any]] = {}
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_DEBUG_REPORTS_DIR = _PROJECT_ROOT / "LLM_test" / "reports"
 
 
+<<<<<<< Updated upstream
+=======
+def _normalize_debug_session_token(value: str | None, patient_id: int) -> str:
+    token = str(value or "").strip()
+    return token or f"researcher-debug-patient-{patient_id}"
+
+
+def _normalize_debug_thread_token(value: str | None) -> str:
+    token = str(value or "").strip()
+    return token or "main"
+
+
+def _debug_state_key(patient_id: int, session_id: str, thread_id: str) -> tuple[int, str, str]:
+    return (patient_id, session_id, thread_id)
+
+
+def _read_debug_supervisor_state(patient_id: int, session_id: str, thread_id: str) -> dict[str, Any] | None:
+    return _DEBUG_SUPERVISOR_STATE_STORE.get(_debug_state_key(patient_id, session_id, thread_id))
+
+
+def _write_debug_supervisor_state(
+    patient_id: int,
+    session_id: str,
+    thread_id: str,
+    supervisor_state: dict[str, Any] | None,
+) -> None:
+    key = _debug_state_key(patient_id, session_id, thread_id)
+    if supervisor_state:
+        _DEBUG_SUPERVISOR_STATE_STORE[key] = dict(supervisor_state)
+    else:
+        _DEBUG_SUPERVISOR_STATE_STORE.pop(key, None)
+
+
+def _apply_forced_model_tier(router_result: RouterResult, forced_tier: str | None) -> RouterResult:
+    value = str(forced_tier or "").strip().lower()
+    if not value:
+        return router_result
+    try:
+        tier = ModelTier(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректный model tier. Допустимо: lite, pro, max") from exc
+    return RouterResult(
+        request_type=router_result.request_type,
+        model_tier=tier,
+        domain_hint=router_result.domain_hint,
+        priority=router_result.priority,
+    )
+
+
+def _next_debug_report_path(now: datetime | None = None) -> Path:
+    current = now or datetime.now()
+    base_name = current.strftime("%Y.%m.%d_%H.%M")
+    candidate = _DEBUG_REPORTS_DIR / f"{base_name}.json"
+    suffix = 1
+
+    while candidate.exists():
+        candidate = _DEBUG_REPORTS_DIR / f"{base_name}_{suffix:02d}.json"
+        suffix += 1
+
+    return candidate
+
+
+>>>>>>> Stashed changes
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
@@ -377,6 +466,190 @@ async def get_chat_logs(
     )
 
 
+<<<<<<< Updated upstream
+=======
+@router.post("/chat-debug/message", response_model=ResearcherChatDebugResponse)
+async def researcher_chat_debug_message(
+    body: ResearcherChatDebugRequest,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+) -> ResearcherChatDebugResponse:
+    """Researcher sandbox chat with patient context and human-readable diagnostics."""
+    patient = await crud.get_patient_by_id(session, body.patient_id)
+    if patient is None:
+        raise HTTPException(status_code=404, detail="Пациент не найден")
+
+    from app.llm.morning_service import get_daily_context_for_llm
+
+    session_id = _normalize_debug_session_token(body.session_id, body.patient_id)
+    thread_id = _normalize_debug_thread_token(body.thread_id)
+    router_result = classify_request(body.message, body.source)
+    router_result = _apply_forced_model_tier(router_result, body.forced_model_tier)
+    supervisor_state = body.supervisor_state or _read_debug_supervisor_state(
+        patient_id=body.patient_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+
+    memory_before = st_memory_store.read(
+        patient_id=body.patient_id,
+        session_id=session_id,
+        thread_id=thread_id,
+    )
+    daily_ctx = await get_daily_context_for_llm(body.patient_id, session)
+
+    try:
+        llm_result = await generate_response_v2(
+            patient_id=body.patient_id,
+            user_input=body.message,
+            router_result=router_result,
+            context={
+                "source": body.source,
+                "daily_context": daily_ctx,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "st_memory": memory_before,
+                "supervisor_state": supervisor_state,
+            },
+            db=session,
+        )
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMError as exc:
+        diagnostics_json = dict(getattr(exc, "diagnostics", {}) or {})
+        human_trace = [
+            {
+                "title": str(section.get("title") or "Trace"),
+                "items": [str(item) for item in section.get("items") or []],
+            }
+            for section in build_human_trace(diagnostics_json)
+        ]
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "error": str(exc),
+                "detail": str(exc),
+                "response": f"Ошибка debug-чата: {exc}",
+                "tokens_used": 0,
+                "response_time_ms": 0,
+                "domain": None,
+                "model": "",
+                "requested_model_tier": router_result.model_tier.value,
+                "actual_model_tier": None,
+                "account_id": None,
+                "request_type": router_result.request_type.value,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "saved_to_chat": False,
+                "diagnostics_json": diagnostics_json,
+                "human_trace": human_trace,
+                "memory_before": memory_before,
+                "memory_after": memory_before,
+                "pending_st_memory": [],
+                "pending_lt_memory": [],
+                "supervisor_state": supervisor_state,
+                "supervisor_state_delta": {},
+            },
+        )
+
+    pending_st_memory = list(llm_result.get("pending_st_memory") or [])
+    pending_lt_memory = list(llm_result.get("pending_lt_memory") or [])
+    _write_debug_supervisor_state(
+        patient_id=body.patient_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        supervisor_state=llm_result.get("supervisor_state"),
+    )
+    memory_after = st_memory_store.write(
+        patient_id=body.patient_id,
+        session_id=session_id,
+        thread_id=thread_id,
+        updates=pending_st_memory,
+    )
+
+    if body.persist_messages:
+        session.add(
+            ChatMessage(
+                patient_id=body.patient_id,
+                role="user",
+                content=body.message,
+                tokens_used=0,
+                model_used=None,
+                domain=llm_result.get("domain"),
+                request_type=router_result.request_type.value,
+            )
+        )
+        session.add(
+            ChatMessage(
+                patient_id=body.patient_id,
+                role="assistant",
+                content=llm_result["response"],
+                tokens_used=int(llm_result.get("tokens_input", 0)) + int(llm_result.get("tokens_output", 0)),
+                model_used=llm_result.get("model"),
+                domain=llm_result.get("domain"),
+                request_type=router_result.request_type.value,
+                is_read=False,
+            )
+        )
+        await session.commit()
+
+    diagnostics_json = llm_result.get("diagnostics") or {}
+    human_trace = [
+        HumanTraceSection(
+            title=str(section.get("title") or "Trace"),
+            items=[str(item) for item in section.get("items") or []],
+        )
+        for section in build_human_trace(diagnostics_json)
+    ]
+
+    return ResearcherChatDebugResponse(
+        response=llm_result["response"],
+        tokens_used=int(llm_result.get("tokens_input", 0)) + int(llm_result.get("tokens_output", 0)),
+        response_time_ms=int(diagnostics_json.get("total_latency_ms") or 0),
+        domain=llm_result.get("domain"),
+        model=str(llm_result.get("model") or ""),
+        requested_model_tier=llm_result.get("requested_model_tier"),
+        actual_model_tier=llm_result.get("actual_model_tier"),
+        account_id=llm_result.get("account_id"),
+        request_type=router_result.request_type.value,
+        session_id=session_id,
+        thread_id=thread_id,
+        saved_to_chat=bool(body.persist_messages),
+        diagnostics_json=diagnostics_json,
+        human_trace=human_trace,
+        memory_before=memory_before,
+        memory_after=memory_after,
+        pending_st_memory=pending_st_memory,
+        pending_lt_memory=pending_lt_memory,
+        supervisor_state=llm_result.get("supervisor_state"),
+        supervisor_state_delta=llm_result.get("supervisor_state_delta") or {},
+    )
+
+
+@router.post("/chat-debug/save-report", response_model=ResearcherDebugReportSaveResponse)
+async def researcher_chat_debug_save_report(
+    body: ResearcherDebugReportSaveRequest,
+    _researcher: Researcher = Depends(get_current_researcher),
+) -> ResearcherDebugReportSaveResponse:
+    """Save current researcher debug report into project-local LLM_test/reports."""
+    _DEBUG_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = _next_debug_report_path()
+    payload = dict(body.report_data or {})
+    payload.setdefault("saved_at", datetime.now().isoformat())
+    payload.setdefault("saved_from", "researcher_chat_debug")
+    target_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return ResearcherDebugReportSaveResponse(
+        ok=True,
+        filename=target_path.name,
+        relative_path=str(target_path.relative_to(_PROJECT_ROOT)).replace("\\", "/"),
+    )
+
+
+>>>>>>> Stashed changes
 # ---------------------------------------------------------------------------
 # Cohorts
 # ---------------------------------------------------------------------------

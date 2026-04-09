@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Отладочный чат - GPT Health Support</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/frontend/researcher/css/researcher.css">
+  <style>
+    .r-debug-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 1rem;
+      align-items: start;
+    }
+    @media (max-width: 1180px) {
+      .r-debug-grid { grid-template-columns: 1fr; }
+    }
+    .r-debug-card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 1rem;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+      overflow: hidden;
+    }
+    .r-debug-head {
+      padding: 1rem 1.1rem;
+      border-bottom: 1px solid #e5e7eb;
+      font-weight: 700;
+      color: #111827;
+    }
+    .r-debug-body {
+      padding: 1rem 1.1rem;
+    }
+    .r-debug-form {
+      display: grid;
+      gap: 0.85rem;
+    }
+    .r-debug-field {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .r-debug-field label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .r-debug-field input,
+    .r-debug-field select,
+    .r-debug-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.7rem;
+      background: #f9fafb;
+      font: inherit;
+      color: #111827;
+    }
+    .r-debug-field textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+    .r-debug-actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .r-debug-btn {
+      padding: 0.7rem 1rem;
+      border: none;
+      border-radius: 0.7rem;
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .r-debug-btn.secondary {
+      background: #eef2ff;
+      color: #1d4ed8;
+    }
+    .r-debug-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.92rem;
+      color: #374151;
+    }
+    .r-debug-session-pill {
+      display: inline-flex;
+      gap: 0.45rem;
+      align-items: center;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .r-debug-state-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      width: fit-content;
+    }
+    .r-debug-state-badge.fresh {
+      background: #f3f4f6;
+      color: #4b5563;
+    }
+    .r-debug-state-badge.continued {
+      background: #ecfdf5;
+      color: #047857;
+    }
+    .r-debug-chat {
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      max-height: 78vh;
+      overflow-y: auto;
+    }
+    .r-debug-msg {
+      padding: 0.9rem 1rem;
+      border-radius: 1rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      border: 1px solid #e5e7eb;
+      max-width: 72%;
+    }
+    .r-debug-msg.user {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      margin-left: 33%;
+    }
+    .r-debug-msg.assistant {
+      background: #f9fafb;
+      margin-right: 50%;
+    }
+    @media (max-width: 900px) {
+      .r-debug-msg {
+        max-width: 100%;
+      }
+      .r-debug-msg.user,
+      .r-debug-msg.assistant {
+        margin-left: 0;
+        margin-right: 0;
+      }
+    }
+    .r-debug-meta {
+      margin-top: 0.45rem;
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+    .r-turn-card + .r-turn-card {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid #f1f5f9;
+    }
+    .r-turn-title,
+    .r-trace-title {
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 0.55rem;
+    }
+    .r-turn-details {
+      display: grid;
+      gap: 0.6rem;
+      margin-top: 0.7rem;
+      margin-bottom: 0.8rem;
+    }
+    .r-collapsible {
+      border: 1px solid #e5e7eb;
+      border-radius: 0.9rem;
+      background: #f8fafc;
+      overflow: hidden;
+    }
+    .r-collapsible summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 0.8rem 0.9rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      user-select: none;
+    }
+    .r-collapsible summary::-webkit-details-marker {
+      display: none;
+    }
+    .r-collapsible summary::after {
+      content: "Развернуть";
+      float: right;
+      font-size: 0.72rem;
+      color: #64748b;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 600;
+    }
+    .r-collapsible[open] summary::after {
+      content: "Свернуть";
+    }
+    .r-collapsible-body {
+      padding: 0 0.8rem 0.8rem;
+    }
+    .r-state-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      line-height: 1.45;
+    }
+    .r-state-table th,
+    .r-state-table td {
+      border-top: 1px solid #e5e7eb;
+      padding: 0.45rem 0.5rem;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+    .r-state-table thead th {
+      border-top: none;
+      color: #475569;
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: #f8fafc;
+    }
+    .r-state-key {
+      width: 32%;
+      color: #334155;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .r-state-value {
+      width: 34%;
+      color: #111827;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .r-state-value.changed {
+      background: #ecfdf5;
+      color: #166534;
+      font-weight: 600;
+    }
+    .r-state-key.continuation {
+      color: #94a3b8;
+    }
+    .r-trace-list {
+      margin: 0;
+      padding-left: 1.1rem;
+      color: #374151;
+      line-height: 1.45;
+    }
+    .r-pipeline-chain {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-bottom: 0.85rem;
+      align-items: center;
+    }
+    .r-pipeline-stage {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 0.76rem;
+      font-weight: 600;
+    }
+    .r-pipeline-stage.skipped {
+      border-color: #e5e7eb;
+      background: #f8fafc;
+      color: #64748b;
+    }
+    .r-pipeline-stage.error {
+      border-color: #fecaca;
+      background: #fef2f2;
+      color: #b91c1c;
+    }
+    .r-pipeline-stage.active {
+      border-color: #bbf7d0;
+      background: #ecfdf5;
+      color: #166534;
+    }
+    .r-pipeline-arrow {
+      color: #94a3b8;
+      font-size: 0.8rem;
+    }
+    .r-trace-section + .r-trace-section {
+      margin-top: 0.9rem;
+      padding-top: 0.9rem;
+      border-top: 1px solid #f1f5f9;
+    }
+    .r-debug-empty {
+      color: #9ca3af;
+      font-size: 0.95rem;
+    }
+    .r-export-panel {
+      margin-top: 1rem;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 1rem;
+      display: grid;
+      gap: 0.8rem;
+    }
+    .r-export-title {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .r-export-row {
+      display: grid;
+      gap: 0.75rem;
+      align-items: center;
+      grid-template-columns: auto auto auto;
+      justify-content: start;
+    }
+    .r-export-row.with-input {
+      grid-template-columns: auto auto auto auto;
+    }
+    .r-export-option {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: #334155;
+      font-size: 0.92rem;
+      white-space: nowrap;
+    }
+    .r-export-input {
+      width: 280px;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.7rem;
+      background: #f9fafb;
+      font: inherit;
+      color: #111827;
+    }
+    .r-export-hint {
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+    .r-export-actions {
+      display: inline-flex;
+      gap: 0.55rem;
+      align-items: center;
+      flex-wrap: nowrap;
+    }
+    @media (max-width: 1100px) {
+      .r-export-row,
+      .r-export-row.with-input {
+        grid-template-columns: 1fr;
+      }
+      .r-export-actions {
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="r-wrapper" style="max-width: 1700px;">
+    <div class="r-header">
+      <div class="r-header-title">GPT Health Support</div>
+      <div class="r-header-actions">
+        <span class="r-header-user" id="r-user-name"></span>
+        <button class="r-logout-btn" id="r-logout-btn">Выйти</button>
+      </div>
+    </div>
+
+    <div class="r-nav">
+      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
+      <a href="/researcher/chat-monitor" class="r-nav-btn">Мониторинг чатов</a>
+      <a href="/researcher/chat-debug" class="r-nav-btn active">Отладочный чат</a>
+    </div>
+
+    <div class="r-debug-grid">
+      <div class="r-debug-card">
+        <div class="r-debug-head">Параметры</div>
+        <div class="r-debug-body">
+          <div class="r-debug-form">
+            <div class="r-debug-field">
+              <label for="dbg-patient">Пациент</label>
+              <select id="dbg-patient"></select>
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-session">Session ID</label>
+              <input id="dbg-session" type="text">
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-thread">Thread ID</label>
+              <input id="dbg-thread" type="text" value="main">
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-tier">Модель</label>
+              <select id="dbg-tier">
+                <option value="">Авто</option>
+                <option value="lite">Lite</option>
+                <option value="pro">Pro</option>
+                <option value="max">Max</option>
+              </select>
+            </div>
+            <div class="r-debug-field">
+              <label for="dbg-message">Сообщение</label>
+              <textarea id="dbg-message" placeholder="Напишите сообщение от имени пациента"></textarea>
+            </div>
+            <div class="r-debug-actions">
+              <button type="button" class="r-debug-btn" id="dbg-send">Отправить</button>
+              <button type="button" class="r-debug-btn secondary" id="dbg-clear">Очистить чат</button>
+            </div>
+            <label class="r-debug-checkbox">
+              <input id="dbg-persist" type="checkbox">
+              <span>Сохранять в обычную историю чата пациента</span>
+            </label>
+            <div class="r-debug-session-pill" id="dbg-session-pill">session: - / thread: -</div>
+            <div class="r-debug-state-badge fresh" id="dbg-state-badge">fresh state</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="r-debug-card">
+        <div class="r-debug-head">Диалог + State</div>
+        <div class="r-debug-body">
+          <div class="r-debug-chat" id="dbg-chat">
+            <div class="r-debug-empty">Здесь появится поток ходов: фраза пациента, state до/после рядом, pipeline и затем фраза бота.</div>
+          </div>
+          <div class="r-export-panel">
+            <div class="r-export-title">Экспорт</div>
+            <div class="r-export-row">
+              <label class="r-export-option">
+                <input type="radio" name="dbg-export-mode" id="dbg-export-all" value="all" checked>
+                <span>Все ходы</span>
+              </label>
+              <div class="r-export-actions">
+                <button type="button" class="r-debug-btn secondary" id="dbg-export-all-btn">Экспорт</button>
+                <button type="button" class="r-debug-btn secondary" id="dbg-save-all-btn">Сохранить в проект</button>
+              </div>
+            </div>
+            <div class="r-export-row with-input">
+              <label class="r-export-option">
+                <input type="radio" name="dbg-export-mode" id="dbg-export-selected" value="selected">
+                <span>Отдельные</span>
+              </label>
+              <input class="r-export-input" id="dbg-export-turns" type="text" placeholder="Например: 1-2, 5, 8" aria-label="Номера ходов для экспорта">
+              <button type="button" class="r-debug-btn secondary" id="dbg-export-selected-btn">Экспорт</button>
+              <button type="button" class="r-debug-btn secondary" id="dbg-save-selected-btn">Сохранить в проект</button>
+            </div>
+            <div class="r-export-hint">Формат как в печати страниц: <code>1-2, 5, 8</code>.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/frontend/researcher/js/auth.js?v=20260409d"></script>
+  <script src="/frontend/researcher/js/chat_debug.js?v=20260409d"></script>
+</body>
+</html>
