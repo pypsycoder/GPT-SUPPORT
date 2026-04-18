@@ -21,9 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.llm.anomaly import AnomalyAlert, check_anomalies
+from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.router import ModelTier, RequestType, RouterResult
 
 logger = logging.getLogger("gpt-support-llm.proactive")
+_llm_pipeline = LLMPipeline()
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -204,7 +206,6 @@ async def deliver_proactive_messages(patient_id: int, db: AsyncSession) -> None:
 
     Сохраняет assistant-сообщения в llm.chat_messages с request_type="proactive".
     """
-    from app.llm.agent import generate_response
     from app.models.llm import ChatMessage
 
     # --- Проверка дублей (6 часов) ---
@@ -235,20 +236,22 @@ async def deliver_proactive_messages(patient_id: int, db: AsyncSession) -> None:
     # --- Генерируем ответы и сохраняем ---
     for msg in queue:
         try:
-            result_dict = await generate_response(
-                patient_id=patient_id,
-                user_input=msg.user_input,
-                router_result=msg.router_result,
-                context={},
-                db=db,
+            llm_response = await _llm_pipeline.process(
+                LLMRequest(
+                    patient_id=patient_id,
+                    user_input=msg.user_input,
+                    source="system",
+                    router_result=msg.router_result,
+                    db=db,
+                )
             )
             assistant_msg = ChatMessage(
                 patient_id=patient_id,
                 role="assistant",
-                content=result_dict["response"],
-                tokens_used=result_dict["tokens_input"] + result_dict["tokens_output"],
-                model_used=result_dict["model"],
-                domain=result_dict["domain"],
+                content=llm_response.response,
+                tokens_used=llm_response.tokens_input + llm_response.tokens_output,
+                model_used=llm_response.model,
+                domain=llm_response.domain,
                 request_type="proactive",
             )
             db.add(assistant_msg)

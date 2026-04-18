@@ -1,14 +1,9 @@
 """
-Chat HTTP Router — эндпоинты для взаимодействия пациента с LLM-ассистентом.
-
-POST /api/chat/message    — отправить сообщение, получить ответ
-GET  /api/chat/history/{patient_id} — история сообщений
-GET  /api/chat/pool/stats — статус пула аккаунтов (для диагностики)
+Chat HTTP router for patient <-> LLM interaction.
 """
 
 from __future__ import annotations
 
-import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.llm.agent import generate_response
+from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import pool
 from app.llm.router import classify_request
 from app.models.llm import ChatMessage
@@ -25,11 +20,7 @@ from app.users.models import User
 from core.db.session import get_async_session
 
 router = APIRouter()
-
-
-# ---------------------------------------------------------------------------
-# Pydantic schemas
-# ---------------------------------------------------------------------------
+_llm_pipeline = LLMPipeline()
 
 
 class MessageRequest(BaseModel):
@@ -60,83 +51,63 @@ class ChatMessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
 
-# ---------------------------------------------------------------------------
-# POST /message
-# ---------------------------------------------------------------------------
-
 @router.post("/message", response_model=MessageResponse)
 async def send_message(
     body: MessageRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> MessageResponse:
-    """
-    Принимает сообщение от пациента, возвращает ответ LLM-ассистента.
-    Сохраняет оба сообщения (user + assistant) в chat_messages.
-    """
-    # Проверяем, что пациент запрашивает свой чат (или это admin)
     if current_user.id != body.patient_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к чату другого пациента",
         )
 
-    wall_start = time.monotonic()
-
-    # 1. Классифицируем запрос
     router_result = classify_request(body.message, body.source)
-
-    # 2. Генерируем ответ (с логированием в llm_request_logs)
-    llm_result = await generate_response(
-        patient_id=body.patient_id,
-        user_input=body.message,
-        router_result=router_result,
-        context={},
-        db=db,
+    llm_response = await _llm_pipeline.process(
+        LLMRequest(
+            patient_id=body.patient_id,
+            user_input=body.message,
+            source=body.source,
+            router_result=router_result,
+            db=db,
+        )
     )
+    tokens_total = llm_response.tokens_input + llm_response.tokens_output
 
-    elapsed_ms = int((time.monotonic() - wall_start) * 1000)
-    tokens_total = llm_result["tokens_input"] + llm_result["tokens_output"]
-
-    # 3. Сохраняем сообщение пользователя
-    user_msg = ChatMessage(
-        patient_id=body.patient_id,
-        role="user",
-        content=body.message,
-        tokens_used=0,
-        model_used=None,
-        domain=llm_result["domain"],
-        request_type=router_result.request_type.value,
+    db.add(
+        ChatMessage(
+            patient_id=body.patient_id,
+            role="user",
+            content=body.message,
+            tokens_used=0,
+            model_used=None,
+            domain=llm_response.domain,
+            request_type=router_result.request_type.value,
+        )
     )
-    db.add(user_msg)
-
-    # 4. Сохраняем ответ ассистента
-    assistant_msg = ChatMessage(
-        patient_id=body.patient_id,
-        role="assistant",
-        content=llm_result["response"],
-        tokens_used=tokens_total,
-        model_used=llm_result["model"],
-        domain=llm_result["domain"],
-        request_type=router_result.request_type.value,
+    db.add(
+        ChatMessage(
+            patient_id=body.patient_id,
+            role="assistant",
+            content=llm_response.response,
+            tokens_used=tokens_total,
+            model_used=llm_response.model,
+            domain=llm_response.domain,
+            request_type=router_result.request_type.value,
+        )
     )
-    db.add(assistant_msg)
-
     await db.commit()
 
     return MessageResponse(
-        response=llm_result["response"],
+        response=llm_response.response,
         tokens_used=tokens_total,
-        response_time_ms=elapsed_ms,
-        domain=llm_result["domain"],
-        model=llm_result["model"],
-        pending_vitals=llm_result.get("pending_vitals"),
+        response_time_ms=llm_response.response_time_ms,
+        domain=llm_response.domain,
+        model=llm_response.model,
+        pending_vitals=llm_response.pending_vitals,
     )
 
-
-# ---------------------------------------------------------------------------
-# GET /history/{patient_id}
-# ---------------------------------------------------------------------------
 
 @router.get("/history/{patient_id}", response_model=list[ChatMessageOut])
 async def get_history(
@@ -145,10 +116,6 @@ async def get_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> list[ChatMessageOut]:
-    """
-    Возвращает последние N сообщений чата пациента (user + assistant),
-    отсортированных по created_at ASC.
-    """
     if current_user.id != patient_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -161,10 +128,7 @@ async def get_history(
         .order_by(ChatMessage.created_at.desc())
         .limit(limit)
     )
-    messages = result.scalars().all()
-
-    # Разворачиваем в хронологический порядок
-    messages = list(reversed(messages))
+    messages = list(reversed(result.scalars().all()))
 
     return [
         ChatMessageOut(
@@ -181,11 +145,6 @@ async def get_history(
     ]
 
 
-# ---------------------------------------------------------------------------
-# POST /confirm-vitals
-# ---------------------------------------------------------------------------
-
-
 class ConfirmVitalsRequest(BaseModel):
     vitals: list[dict]
     confirmed: bool
@@ -197,15 +156,11 @@ async def confirm_vitals(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> dict:
-    """
-    Записывает витальные показатели в БД после подтверждения пациентом.
-    Если confirmed=False — ничего не делает.
-    """
     if not body.confirmed:
         return {"saved": 0}
 
-    from app.vitals.models import BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake
     from app.llm.parser import normalize_bp, normalize_pulse
+    from app.vitals.models import BPMeasurement, PulseMeasurement, WaterIntake, WeightMeasurement
 
     saved = 0
     for v in body.vitals:
@@ -235,13 +190,6 @@ async def confirm_vitals(
     return {"saved": saved}
 
 
-# ---------------------------------------------------------------------------
-# GET /pool/stats (диагностика)
-# ---------------------------------------------------------------------------
-
 @router.get("/pool/stats")
-async def get_pool_stats(
-    current_user: User = Depends(get_current_user),
-) -> dict:
-    """Возвращает статус пула аккаунтов GigaChat (для мониторинга)."""
+async def get_pool_stats(current_user: User = Depends(get_current_user)) -> dict:
     return pool.get_stats()

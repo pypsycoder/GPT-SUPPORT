@@ -10,6 +10,7 @@ from app.llm.langgraph_supervisor.models import (
 )
 from app.llm.pipeline.pipeline import LLMPipeline
 from app.llm.pipeline.types import LLMRequest
+from app.llm.router import ModelTier, RequestType, RouterResult
 from app.llm.supervisor.models import CurrentState
 
 
@@ -47,8 +48,12 @@ async def test_pipeline_greeting_opens_intake_without_legacy_router_fields(monke
     assert response.supervisor_state["pending_question"]["question_text"] == "Что хотел бы обсудить?"
     assert response.supervisor_state["needs_clarification"] is True
     assert response.diagnostics["supervisor"]["intake"]["card"]["problem"] == "не обозначена"
-    assert "goal_analysis" not in response.diagnostics["supervisor"]
-    assert "response_mode" not in response.diagnostics["supervisor"]
+    assert [stage["name"] for stage in response.diagnostics["stages"]] == [
+        "boundary_guard",
+        "classification",
+        "supervisor",
+        "memory_write",
+    ]
 
 
 @pytest.mark.asyncio
@@ -164,3 +169,39 @@ async def test_pipeline_raises_if_intake_analysis_fails_after_retries(monkeypatc
         )
 
     assert "supervisor intake analysis failed after 3 attempts" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_pipeline_keeps_safety_requests_on_current_runtime(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            IntakeCard(
+                problem="кризис",
+                context="пользователь говорит, что ему очень плохо",
+                needs_clarification=BinaryChoice.NO,
+                question="нет",
+                ready_to_delegate=BinaryChoice.NO,
+                rationale="нужно завершить ответом без уточнений",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+
+    response = await LLMPipeline().process(
+        LLMRequest(
+            patient_id=1,
+            user_input="мне очень плохо",
+            source="text",
+            router_result=RouterResult(
+                request_type=RequestType.SAFETY,
+                model_tier=ModelTier.PRO,
+                domain_hint="emotion",
+                priority=3,
+            ),
+        )
+    )
+
+    assert response.response.startswith("Я рядом.")
+    assert "8-800-2000-122" in response.response
+    assert response.diagnostics["supervisor"]["request_type"] == "safety"

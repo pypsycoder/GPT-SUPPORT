@@ -9,7 +9,6 @@ from typing import Any
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
 from app.llm.pipeline.types import PipelineContext, PipelineStage
-from app.llm.router import RequestType
 from app.llm.supervisor import CurrentState, PendingQuestion, SupervisorTurnResult
 
 logger = logging.getLogger("gpt-support-llm.pipeline.supervisor")
@@ -122,14 +121,6 @@ class SupervisorStage(PipelineStage):
         if context.classification is None:
             return context
 
-        if context.classification.request_type is RequestType.SAFETY:
-            context.diagnostics["supervisor"] = {
-                "enabled": False,
-                "reason": "safety_request",
-                "latency_ms": int((time.monotonic() - started) * 1000),
-            }
-            return context
-
         current_state = CurrentState.from_dict(context.supervisor_state)
         message_type = _derive_message_type(context.request.user_input)
 
@@ -150,6 +141,7 @@ class SupervisorStage(PipelineStage):
 
         supervisor_diagnostics = {
             "enabled": True,
+            "request_type": context.classification.request_type.value,
             "message_type": message_type,
             "graph_path": list(graph_state.diagnostics.get("graph_path") or []),
             "intake": dict(graph_state.diagnostics.get("intake") or {}),

@@ -24,9 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.session import get_async_session
 from app.auth.dependencies import get_current_researcher
-from app.llm.agent_v2 import generate_response_v2
 from app.llm.errors import LLMConfigurationError, LLMError
 from app.llm.memory import st_memory_store
+from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.router import ModelTier, RouterResult, classify_request
 from app.llm.trace_humanizer import build_human_trace
 from app.models.llm import ChatMessage
@@ -53,6 +53,7 @@ from app.researchers.schemas import (
 from app.researchers import crud
 
 router = APIRouter(prefix="/researcher", tags=["researcher"])
+_llm_pipeline = LLMPipeline()
 _DEBUG_SUPERVISOR_STATE_STORE: dict[tuple[int, str, str], dict[str, Any]] = {}
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEBUG_REPORTS_DIR = _PROJECT_ROOT / "LLM_test" / "reports"
@@ -1110,8 +1111,6 @@ async def researcher_chat_debug_message(
     if patient is None:
         raise HTTPException(status_code=404, detail="Пациент не найден")
 
-    from app.llm.morning_service import get_daily_context_for_llm
-
     session_id = _normalize_debug_session_token(body.session_id, body.patient_id)
     thread_id = _normalize_debug_thread_token(body.thread_id)
     router_result = classify_request(body.message, body.source)
@@ -1127,23 +1126,17 @@ async def researcher_chat_debug_message(
         session_id=session_id,
         thread_id=thread_id,
     )
-    daily_ctx = await get_daily_context_for_llm(body.patient_id, session)
-
     try:
-        llm_result = await generate_response_v2(
-            patient_id=body.patient_id,
-            user_input=body.message,
-            router_result=router_result,
-            context={
-                "source": body.source,
-                "daily_context": daily_ctx,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "st_memory": memory_before,
-                "supervisor_state": supervisor_state,
-                "strict_model_tier": bool(body.forced_model_tier),
-            },
-            db=session,
+        llm_response = await _llm_pipeline.process(
+            LLMRequest(
+                patient_id=body.patient_id,
+                user_input=body.message,
+                source=body.source,
+                router_result=router_result,
+                supervisor_state=supervisor_state,
+                strict_model_tier=bool(body.forced_model_tier),
+                db=session,
+            )
         )
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1185,13 +1178,13 @@ async def researcher_chat_debug_message(
             },
         )
 
-    pending_st_memory = list(llm_result.get("pending_st_memory") or [])
-    pending_lt_memory = list(llm_result.get("pending_lt_memory") or [])
+    pending_st_memory = list(llm_response.pending_st_memory or [])
+    pending_lt_memory = list(llm_response.pending_lt_memory or [])
     _write_debug_supervisor_state(
         patient_id=body.patient_id,
         session_id=session_id,
         thread_id=thread_id,
-        supervisor_state=llm_result.get("supervisor_state"),
+        supervisor_state=llm_response.supervisor_state,
     )
     memory_after = st_memory_store.write(
         patient_id=body.patient_id,
@@ -1208,7 +1201,7 @@ async def researcher_chat_debug_message(
                 content=body.message,
                 tokens_used=0,
                 model_used=None,
-                domain=llm_result.get("domain"),
+                domain=llm_response.domain,
                 request_type=router_result.request_type.value,
             )
         )
@@ -1216,17 +1209,17 @@ async def researcher_chat_debug_message(
             ChatMessage(
                 patient_id=body.patient_id,
                 role="assistant",
-                content=llm_result["response"],
-                tokens_used=int(llm_result.get("tokens_input", 0)) + int(llm_result.get("tokens_output", 0)),
-                model_used=llm_result.get("model"),
-                domain=llm_result.get("domain"),
+                content=llm_response.response,
+                tokens_used=llm_response.tokens_input + llm_response.tokens_output,
+                model_used=llm_response.model,
+                domain=llm_response.domain,
                 request_type=router_result.request_type.value,
                 is_read=False,
             )
         )
         await session.commit()
 
-    diagnostics_json = llm_result.get("diagnostics") or {}
+    diagnostics_json = llm_response.diagnostics or {}
     human_trace = [
         HumanTraceSection(
             title=str(section.get("title") or "Trace"),
@@ -1236,14 +1229,14 @@ async def researcher_chat_debug_message(
     ]
 
     return ResearcherChatDebugResponse(
-        response=llm_result["response"],
-        tokens_used=int(llm_result.get("tokens_input", 0)) + int(llm_result.get("tokens_output", 0)),
-        response_time_ms=int(diagnostics_json.get("total_latency_ms") or 0),
-        domain=llm_result.get("domain"),
-        model=str(llm_result.get("model") or ""),
-        requested_model_tier=llm_result.get("requested_model_tier"),
-        actual_model_tier=llm_result.get("actual_model_tier"),
-        account_id=llm_result.get("account_id"),
+        response=llm_response.response,
+        tokens_used=llm_response.tokens_input + llm_response.tokens_output,
+        response_time_ms=llm_response.response_time_ms,
+        domain=llm_response.domain,
+        model=llm_response.model,
+        requested_model_tier=llm_response.requested_model_tier,
+        actual_model_tier=llm_response.actual_model_tier,
+        account_id=llm_response.account_id,
         request_type=router_result.request_type.value,
         session_id=session_id,
         thread_id=thread_id,
@@ -1254,8 +1247,8 @@ async def researcher_chat_debug_message(
         memory_after=memory_after,
         pending_st_memory=pending_st_memory,
         pending_lt_memory=pending_lt_memory,
-        supervisor_state=llm_result.get("supervisor_state"),
-        supervisor_state_delta=llm_result.get("supervisor_state_delta") or {},
+        supervisor_state=llm_response.supervisor_state,
+        supervisor_state_delta=llm_response.supervisor_state_delta,
     )
 
 

@@ -12,6 +12,7 @@ from app.api_errors import register_api_exception_handlers
 from app.auth.dependencies import get_current_researcher
 from app.llm.errors import LLMResponseError
 from app.llm.memory import st_memory_store
+from app.llm.pipeline import LLMResponse
 from app.researchers.models import Researcher
 from app.researchers.router import router as researcher_router
 from app.users.models import User
@@ -58,119 +59,104 @@ def test_researcher_chat_debug_returns_graph_v2_trace(monkeypatch):
             async def override_researcher() -> Researcher:
                 return researcher
 
-            async def fake_daily_context(_patient_id: int, _db: AsyncSession):
-                return {"summary": "ctx"}
-
-            async def fake_generate_response_v2(*, patient_id, user_input, router_result, context, db):
-                return {
-                    "response": "Сочувствую. От чего тебе тревожно?",
-                    "tokens_input": 11,
-                    "tokens_output": 7,
-                    "domain": "emotion",
-                    "model": "mock-lite",
-                    "requested_model_tier": router_result.model_tier.value,
-                    "actual_model_tier": router_result.model_tier.value,
-                    "account_id": "SUPERVISOR",
-                    "pending_st_memory": [],
-                    "pending_lt_memory": [],
-                    "supervisor_state": {
-                        "goal": "тревога",
-                        "slots": {"intake_context": "причина пока не названа"},
-                        "risk_flags": [],
-                        "signals": [],
-                        "facts": [],
-                        "pending_question": {
-                            "slot_name": "clarify",
-                            "question_text": "От чего тебе тревожно?",
-                            "expected_kind": "free_text",
-                            "attempts": 1,
-                            "reason": "intake",
-                        },
-                        "last_selected_agents": [],
-                        "needs_clarification": True,
-                        "clarification_streak": 1,
-                    },
-                    "supervisor_state_delta": {
-                        "goal": "тревога",
-                        "pending_question": {
-                            "slot_name": "clarify",
-                            "question_text": "От чего тебе тревожно?",
-                            "expected_kind": "free_text",
-                            "attempts": 1,
-                            "reason": "intake",
-                        },
-                        "needs_clarification": True,
-                    },
-                    "diagnostics": {
-                        "total_latency_ms": 123,
-                        "classify": {
-                            "request_type": router_result.request_type.value,
-                            "effective_domain": "emotion",
-                            "supervisor_state_seeded": bool(context.get("supervisor_state")),
-                        },
-                        "supervisor": {
-                            "enabled": True,
-                            "message_type": "full_message",
-                            "graph_path": ["intake_analyze", "intake_validate", "intake_execute"],
-                            "selected_agents": [],
+            class FakePipeline:
+                async def process(self, request):
+                    return LLMResponse(
+                        response="Сочувствую. От чего тебе тревожно?",
+                        tokens_input=11,
+                        tokens_output=7,
+                        domain="emotion",
+                        model="mock-lite",
+                        response_time_ms=123,
+                        requested_model_tier=request.router_result.model_tier.value,
+                        actual_model_tier=request.router_result.model_tier.value,
+                        account_id="SUPERVISOR",
+                        pending_st_memory=[],
+                        pending_lt_memory=[],
+                        supervisor_state={
+                            "goal": "тревога",
+                            "slots": {"intake_context": "причина пока не названа"},
+                            "risk_flags": [],
+                            "signals": [],
+                            "facts": [],
+                            "pending_question": {
+                                "slot_name": "clarify",
+                                "question_text": "От чего тебе тревожно?",
+                                "expected_kind": "free_text",
+                                "attempts": 1,
+                                "reason": "intake",
+                            },
+                            "last_selected_agents": [],
                             "needs_clarification": True,
-                            "intake": {
-                                "card": {
-                                    "problem": "тревога",
-                                    "context": "причина пока не названа",
-                                    "needs_clarification": "да",
-                                    "question": "От чего тебе тревожно?",
-                                    "ready_to_delegate": "нет",
-                                    "rationale": "Нужен один уточняющий вопрос.",
-                                },
-                                "llm": {
-                                    "attempts_total": 1,
-                                    "succeeded_on_attempt": 1,
-                                    "final_status": "success",
-                                },
+                            "clarification_streak": 1,
+                        },
+                        supervisor_state_delta={
+                            "goal": "тревога",
+                            "pending_question": {
+                                "slot_name": "clarify",
+                                "question_text": "От чего тебе тревожно?",
+                                "expected_kind": "free_text",
+                                "attempts": 1,
+                                "reason": "intake",
                             },
-                            "delegation": {},
-                            "expert": {},
-                            "state_after": {
-                                "goal": "тревога",
+                            "needs_clarification": True,
+                        },
+                        diagnostics={
+                            "total_latency_ms": 123,
+                            "classify": {
+                                "request_type": request.router_result.request_type.value,
+                                "effective_domain": "emotion",
+                                "supervisor_state_seeded": bool(request.supervisor_state),
+                            },
+                            "supervisor": {
+                                "enabled": True,
+                                "message_type": "full_message",
+                                "graph_path": ["intake_analyze", "intake_validate", "intake_execute"],
+                                "selected_agents": [],
                                 "needs_clarification": True,
+                                "intake": {
+                                    "card": {
+                                        "problem": "тревога",
+                                        "context": "причина пока не названа",
+                                        "needs_clarification": "да",
+                                        "question": "От чего тебе тревожно?",
+                                        "ready_to_delegate": "нет",
+                                        "rationale": "Нужен один уточняющий вопрос.",
+                                    },
+                                    "llm": {
+                                        "attempts_total": 1,
+                                        "succeeded_on_attempt": 1,
+                                        "final_status": "success",
+                                    },
+                                },
+                                "delegation": {},
+                                "expert": {},
+                                "state_after": {
+                                    "goal": "тревога",
+                                    "needs_clarification": True,
+                                },
                             },
-                        },
-                        "memory": {
-                            "reads": {
-                                "st_count": len(context.get("st_memory") or []),
-                                "lt_count": 0,
+                            "memory": {
+                                "reads": {"st_count": 0, "lt_count": 0},
+                                "proposed_st_entries": [],
+                                "proposed_lt_entries": [],
                             },
-                            "proposed_st_entries": [],
-                            "proposed_lt_entries": [],
+                            "response": {
+                                "source": "supervisor",
+                                "account_id": "SUPERVISOR",
+                            },
+                            "stages": [
+                                {"name": "boundary_guard", "status": "ok", "latency_ms": 1},
+                                {"name": "classification", "status": "ok", "latency_ms": 2},
+                                {"name": "supervisor", "status": "ok", "latency_ms": 3},
+                                {"name": "memory_write", "status": "ok", "latency_ms": 1},
+                            ],
                         },
-                        "orchestration": {
-                            "skipped": True,
-                            "reason": "supervisor_turn",
-                        },
-                        "validation": {
-                            "triggered": True,
-                            "status": "supervisor_draft_kept",
-                        },
-                        "stages": [
-                            {"name": "boundary_guard", "status": "ok", "latency_ms": 1},
-                            {"name": "classification", "status": "ok", "latency_ms": 2},
-                            {"name": "supervisor", "status": "ok", "latency_ms": 3},
-                            {"name": "context", "status": "ok", "latency_ms": 0},
-                            {"name": "intake", "status": "ok", "latency_ms": 0},
-                            {"name": "orchestration", "status": "ok", "latency_ms": 0},
-                            {"name": "validation", "status": "ok", "latency_ms": 1},
-                            {"name": "memory_write", "status": "ok", "latency_ms": 1},
-                        ],
-                        "patient_context": {"skipped": True, "reason": "supervisor_turn"},
-                        "intake": {"skipped": True, "reason": "supervisor_turn"},
-                    },
-                }
+                    )
 
             app.dependency_overrides[get_async_session] = override_session
             app.dependency_overrides[get_current_researcher] = override_researcher
-            monkeypatch.setattr("app.researchers.router.generate_response_v2", fake_generate_response_v2)
-            monkeypatch.setattr("app.llm.morning_service.get_daily_context_for_llm", fake_daily_context)
+            monkeypatch.setattr("app.researchers.router._llm_pipeline", FakePipeline())
 
             client = TestClient(app)
             response = client.post(
@@ -187,7 +173,10 @@ def test_researcher_chat_debug_returns_graph_v2_trace(monkeypatch):
             assert response.status_code == 200
             payload = response.json()
             supervisor_section = next(section for section in payload["human_trace"] if section["title"] == "Supervisor")
-            assert any("Graph path: intake_analyze -> intake_validate -> intake_execute." == item for item in supervisor_section["items"])
+            assert any(
+                "Graph path: intake_analyze -> intake_validate -> intake_execute." == item
+                for item in supervisor_section["items"]
+            )
             assert payload["supervisor_state"]["pending_question"]["question_text"] == "От чего тебе тревожно?"
 
         st_memory_store.clear_all()
@@ -297,38 +286,35 @@ def test_researcher_chat_debug_returns_json_error_for_graph_v2_failure(monkeypat
             async def override_researcher() -> Researcher:
                 return researcher
 
-            async def fake_daily_context(_patient_id: int, _db: AsyncSession):
-                return {"summary": "ctx"}
-
-            async def fake_generate_response_v2(*, patient_id, user_input, router_result, context, db):
-                raise LLMResponseError(
-                    "supervisor intake analysis failed after 3 attempts",
-                    diagnostics={
-                        "supervisor": {
-                            "enabled": True,
-                            "intake": {
-                                "llm": {
-                                    "attempts_total": 3,
-                                    "succeeded_on_attempt": None,
-                                    "final_status": "failed_after_retries",
-                                    "failures": [
-                                        {
-                                            "attempt": 1,
-                                            "error_type": "ValueError",
-                                            "error_message": "missing required fields",
-                                            "raw_excerpt": "Internal Server Error",
-                                        }
-                                    ],
-                                }
-                            },
-                        }
-                    },
-                )
+            class FakePipeline:
+                async def process(self, request):
+                    raise LLMResponseError(
+                        "supervisor intake analysis failed after 3 attempts",
+                        diagnostics={
+                            "supervisor": {
+                                "enabled": True,
+                                "intake": {
+                                    "llm": {
+                                        "attempts_total": 3,
+                                        "succeeded_on_attempt": None,
+                                        "final_status": "failed_after_retries",
+                                        "failures": [
+                                            {
+                                                "attempt": 1,
+                                                "error_type": "ValueError",
+                                                "error_message": "missing required fields",
+                                                "raw_excerpt": "Internal Server Error",
+                                            }
+                                        ],
+                                    }
+                                },
+                            }
+                        },
+                    )
 
             app.dependency_overrides[get_async_session] = override_session
             app.dependency_overrides[get_current_researcher] = override_researcher
-            monkeypatch.setattr("app.researchers.router.generate_response_v2", fake_generate_response_v2)
-            monkeypatch.setattr("app.llm.morning_service.get_daily_context_for_llm", fake_daily_context)
+            monkeypatch.setattr("app.researchers.router._llm_pipeline", FakePipeline())
 
             client = TestClient(app)
             response = client.post(

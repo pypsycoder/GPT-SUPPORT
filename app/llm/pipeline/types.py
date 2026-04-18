@@ -1,5 +1,5 @@
 """
-Типы данных для LLM Pipeline.
+Data types for the LLM pipeline.
 """
 
 from __future__ import annotations
@@ -15,30 +15,21 @@ from app.llm.router import RouterResult
 
 @dataclass
 class LLMRequest:
-    """Входящий запрос в LLM систему."""
-    
+    """Incoming request for the LLM pipeline."""
+
     patient_id: int
     user_input: str
     source: str = "text"  # "text" | "button" | "system"
-    
-    # Опциональный контекст
-    session_id: str | None = None
-    thread_id: str | None = None
-    daily_context: str = ""
-    history: list[dict] = field(default_factory=list)
-    orchestration_mode: str = "llm_full"  # "llm_full" | "specialist_rag" | "disabled"
     supervisor_state: dict[str, Any] | None = None
     router_result: RouterResult | None = None
     strict_model_tier: bool = False
-
-    # Database session
     db: AsyncSession | None = None
 
 
 @dataclass
 class LLMResponse:
-    """Ответ LLM системы."""
-    
+    """Pipeline response returned to callers."""
+
     response: str
     tokens_input: int
     tokens_output: int
@@ -46,8 +37,6 @@ class LLMResponse:
     domain: str | None
     response_time_ms: int
     account_id: str | None
-    
-    # Дополнительные данные
     requested_model_tier: str
     actual_model_tier: str | None
     pending_vitals: list[dict] | None = None
@@ -60,19 +49,10 @@ class LLMResponse:
 
 @dataclass
 class PipelineContext:
-    """Контекст, передаваемый между stages pipeline."""
-    
-    # Исходный запрос
+    """Mutable context passed between pipeline stages."""
+
     request: LLMRequest
-    
-    # Результаты этапов
     classification: RouterResult | None = None
-    patient_context: dict[str, Any] = field(default_factory=dict)
-    memory_reads: dict[str, Any] = field(default_factory=dict)
-    parser_result: dict[str, Any] = field(default_factory=dict)
-    intake_result: Any = None
-    orchestration_result: Any = None
-    validation_result: Any = None
     supervisor_state: dict[str, Any] = field(default_factory=dict)
     supervisor_turn: Any = None
     response_draft: str | None = None
@@ -80,34 +60,19 @@ class PipelineContext:
     response_tokens_output: int = 0
     response_account_id: str | None = None
     response_actual_model_tier: str | None = None
-    
-    # Диагностика
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    
-    # Флаги управления
-    should_skip_orchestration: bool = False
     early_response: str | None = None
     early_response_source: str | None = None
 
 
 class PipelineStage(ABC):
-    """Базовый класс для этапа pipeline."""
-    
+    """Base class for pipeline stages."""
+
     @abstractmethod
     async def process(self, context: PipelineContext) -> PipelineContext:
-        """
-        Обрабатывает контекст и возвращает обновленный контекст.
-        
-        Args:
-            context: Текущий контекст pipeline
-            
-        Returns:
-            Обновленный контекст
-        """
-        pass
-    
+        """Process the context and return an updated context."""
+
     @property
     @abstractmethod
     def stage_name(self) -> str:
-        """Имя этапа для логирования."""
-        pass
+        """Stage name for diagnostics/logging."""

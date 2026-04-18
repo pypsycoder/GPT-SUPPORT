@@ -18,7 +18,7 @@ class MemoryWriteStage(PipelineStage):
         started = time.monotonic()
 
         memory_diag = dict(context.diagnostics.get("memory") or {})
-        memory_diag.setdefault("reads", context.memory_reads or {})
+        memory_diag.setdefault("reads", {})
         memory_diag.setdefault("candidates", [])
         memory_diag.setdefault("write_decisions", [])
         memory_diag.setdefault("proposed_st_entries", [])

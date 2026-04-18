@@ -87,7 +87,6 @@ class BoundaryGuardStage(PipelineStage):
             return context
 
         if any(pattern in normalized for pattern in _PROMPT_INJECTION_PATTERNS):
-            context.should_skip_orchestration = True
             context.early_response = _BOUNDARY_VIOLATION_RESPONSE
             context.early_response_source = "boundary_guard_direct"
             context.diagnostics["boundary_guard"] = {
@@ -106,7 +105,6 @@ class BoundaryGuardStage(PipelineStage):
         action_match = any(pattern in normalized for pattern in _PROMPT_REQUEST_ACTION_PATTERNS)
         target_match = any(pattern in normalized for pattern in _PROMPT_REQUEST_TARGET_PATTERNS)
         if action_match and target_match:
-            context.should_skip_orchestration = True
             context.early_response = _BOUNDARY_VIOLATION_RESPONSE
             context.early_response_source = "boundary_guard_combined"
             context.diagnostics["boundary_guard"] = {

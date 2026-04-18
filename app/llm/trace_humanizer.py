@@ -9,19 +9,6 @@ def _as_list(value: Any) -> list[Any]:
     return []
 
 
-def _humanize_validation_status(status: str | None) -> str | None:
-    mapping = {
-        "passed": "Ответ прошел валидацию без переписывания.",
-        "rewritten": "Ответ был переписан после валидации.",
-        "rewrite_failed": "Валидация запросила rewrite, но переписывание завершилось ошибкой.",
-        "supervisor_draft_kept": "Финальный ответ был взят напрямую из supervisor graph v2.",
-        "skipped_safety": "Для safety-ответа дополнительная валидация не запускалась.",
-        "skipped_early_response": "Пайплайн завершился ранним ответом до валидации.",
-        "skipped_no_response": "Валидация была пропущена, потому что не было черновика ответа.",
-    }
-    return mapping.get(str(status or "").strip())
-
-
 def _format_stage(stage: dict[str, Any]) -> str:
     name = str(stage.get("name") or "unknown")
     status = str(stage.get("status") or "unknown")
@@ -118,24 +105,20 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
     pipeline_items: list[str] = []
     stages = _as_list(diagnostics.get("stages"))
     if stages:
+        stage_names = [str(stage.get("name") or "unknown") for stage in stages]
+        if stage_names:
+            pipeline_items.append("Этапы pipeline: " + " -> ".join(stage_names) + ".")
+
         errors = [stage for stage in stages if str(stage.get("status") or "") == "error"]
         if errors:
             pipeline_items.append("На этапе возникла ошибка: " + "; ".join(_format_stage(stage) for stage in errors[:2]))
 
-    patient_context = diagnostics.get("patient_context") or {}
-    if patient_context.get("skipped"):
-        pipeline_items.append(f"Context stage пропущен: {patient_context.get('reason')}.")
-    intake_stage = diagnostics.get("intake") or {}
-    if intake_stage.get("skipped"):
-        pipeline_items.append(f"Intake stage пропущен: {intake_stage.get('reason')}.")
-    orchestration = diagnostics.get("orchestration") or {}
-    if orchestration.get("skipped"):
-        pipeline_items.append(f"Legacy orchestration пропущена: {orchestration.get('reason')}.")
-
-    validation = diagnostics.get("validation") or {}
-    validation_status = _humanize_validation_status(validation.get("status"))
-    if validation_status:
-        pipeline_items.append(validation_status)
+    response_info = diagnostics.get("response") or {}
+    response_source = str(response_info.get("source") or "").strip()
+    if response_source == "supervisor":
+        pipeline_items.append("Финальный ответ сформирован supervisor graph v2.")
+    elif response_source:
+        pipeline_items.append(f"Финальный ответ сформирован через {response_source}.")
 
     if pipeline_items:
         sections.append({"title": "Пайплайн", "items": pipeline_items})
@@ -154,18 +137,5 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
             memory_items.append(f"В ST-memory записали: {key} = {value}.")
     if memory_items:
         sections.append({"title": "Память", "items": memory_items})
-
-    llm_call = diagnostics.get("llm_call") or {}
-    llm_items: list[str] = []
-    if llm_call.get("model"):
-        llm_items.append(f"Модель: {llm_call['model']}.")
-    if llm_call.get("tokens_input") is not None and llm_call.get("tokens_output") is not None:
-        llm_items.append(
-            f"Токены: input {int(llm_call.get('tokens_input') or 0)}, output {int(llm_call.get('tokens_output') or 0)}."
-        )
-    if llm_call.get("latency_ms") is not None:
-        llm_items.append(f"Время вызова модели: {int(llm_call.get('latency_ms') or 0)} мс.")
-    if llm_items:
-        sections.append({"title": "Модель", "items": llm_items})
 
     return sections
