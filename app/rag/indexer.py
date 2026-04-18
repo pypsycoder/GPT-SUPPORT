@@ -77,7 +77,7 @@ async def run_indexer() -> None:
 
     async with async_session_factory() as db:
         # Получаем токен через существующий пул
-        gc_client = await pool.get_available("lite")
+        gc_client = await pool.get_available()
         token = await gc_client._get_access_token()
 
         # Достаём все активные карточки с заголовком урока

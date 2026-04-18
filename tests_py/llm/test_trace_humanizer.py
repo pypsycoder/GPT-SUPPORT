@@ -1,71 +1,106 @@
-"""Tests for human-readable supervisor trace."""
-
 from app.llm.trace_humanizer import build_human_trace
 
 
-def test_human_trace_marks_generic_distress_context_clarification():
+def test_human_trace_shows_graph_v2_blocks():
     trace = build_human_trace(
         {
             "supervisor": {
                 "enabled": True,
-                "message_type": "short_answer",
-                "selected_agents": [],
-                "used_pending_answer": True,
-                "needs_clarification": True,
-                "response_mode": "hybrid_clarify",
-                "context_sufficiency": {
-                    "support": False,
-                    "plan": False,
+                "message_type": "full_message",
+                "graph_path": [
+                    "intake_analyze",
+                    "intake_validate",
+                    "intake_execute",
+                    "delegation_analyze",
+                    "delegation_validate",
+                    "invoke_emotional_expert",
+                    "finalize_reply",
+                ],
+                "selected_agents": ["emotional_support"],
+                "intake": {
+                    "card": {
+                        "problem": "страх перед диализом",
+                        "needs_clarification": "нет",
+                        "ready_to_delegate": "да",
+                    },
+                    "llm": {
+                        "succeeded_on_attempt": 1,
+                    },
                 },
-                "goal_analysis": {
-                    "used": True,
-                    "goal": None,
-                    "goal_status": "generic_distress",
-                    "clarification_reason": "generic_distress",
-                    "attempts_total": 2,
-                    "succeeded_on_attempt": 2,
-                    "final_status": "success",
+                "delegation": {
+                    "card": {
+                        "expert": "эмоциональная_поддержка",
+                        "task": "помочь справиться со страхом перед процедурой",
+                    },
+                    "llm": {
+                        "succeeded_on_attempt": 1,
+                    },
                 },
-                "state_after": {
-                    "clarification_streak": 2,
+                "expert": {
+                    "card": {
+                        "step_now": "Скажи, что именно пугает сильнее всего.",
+                    },
+                    "llm": {
+                        "succeeded_on_attempt": 1,
+                    },
                 },
-                "turn_diagnostics": {
-                    "clarification_gate": {
-                        "reason": "generic_distress",
+            }
+        }
+    )
+
+    supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
+    assert "Supervisor определил тип хода: full_message." in supervisor_section["items"]
+    assert "Graph path: intake_analyze -> intake_validate -> intake_execute -> delegation_analyze -> delegation_validate -> invoke_emotional_expert -> finalize_reply." in supervisor_section["items"]
+    assert "Проблема: страх перед диализом." in supervisor_section["items"]
+    assert "Нужно уточнение: нет." in supervisor_section["items"]
+    assert "Эксперт: эмоциональная_поддержка." in supervisor_section["items"]
+    assert "Шаг сейчас: Скажи, что именно пугает сильнее всего.." in supervisor_section["items"]
+
+
+def test_human_trace_marks_failed_intake_analysis_after_retries():
+    trace = build_human_trace(
+        {
+            "supervisor": {
+                "enabled": True,
+                "intake": {
+                    "llm": {
+                        "attempts_total": 3,
+                        "final_status": "failed_after_retries",
                     }
                 },
-                "llm_draft": {
-                    "enabled": True,
-                    "used": True,
-                },
             }
         }
     )
 
     supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
-    assert "LLM goal analysis: success on attempt 2." in supervisor_section["items"]
-    assert "LLM goal extraction reason: generic_distress." in supervisor_section["items"]
-    assert "Clarification reason: generic_distress." in supervisor_section["items"]
-    assert "Response mode: hybrid_clarify." in supervisor_section["items"]
-    assert "LLM decided context is insufficient for support and insufficient for plan." in supervisor_section["items"]
-    assert "Clarification streak: 2/5." in supervisor_section["items"]
-    assert "LLM распознала generic distress -> context clarification." in supervisor_section["items"]
+    assert "Intake analysis failed after 3 attempts." in supervisor_section["items"]
 
 
-def test_human_trace_marks_failed_goal_analysis_after_retries():
+def test_human_trace_includes_retry_details_for_supervisor_steps():
     trace = build_human_trace(
         {
             "supervisor": {
                 "enabled": True,
-                "goal_analysis": {
-                    "used": True,
-                    "attempts_total": 3,
-                    "succeeded_on_attempt": None,
-                    "final_status": "failed_after_retries",
+                "intake": {
+                    "llm": {
+                        "attempts_total": 3,
+                        "succeeded_on_attempt": 2,
+                        "final_status": "success",
+                        "failures": [
+                            {
+                                "attempt": 1,
+                                "error_type": "ValueError",
+                                "error_message": "missing required fields",
+                                "raw_excerpt": "Проблема: тревога",
+                            }
+                        ],
+                    }
                 },
             }
         }
     )
 
     supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
-    assert "LLM goal analysis failed after 3 attempts." in supervisor_section["items"]
+    assert "Intake analysis: success on attempt 2." in supervisor_section["items"]
+    assert "Intake analysis: retries before success = 1." in supervisor_section["items"]
+    assert any("Intake analysis retry #1: ValueError - missing required fields | raw: Проблема: тревога." == item for item in supervisor_section["items"])

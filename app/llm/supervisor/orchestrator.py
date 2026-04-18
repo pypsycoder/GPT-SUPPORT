@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from app.llm.langgraph_supervisor.engine import run_first_module
+from app.llm.langgraph_supervisor.models import FirstModuleInput
 from app.llm.supervisor.classification import classify_message
 from app.llm.supervisor.experts import build_agent, select_agents
 from app.llm.supervisor.models import CurrentState, ExpertTask, PendingQuestion, SupervisorTurnResult
@@ -68,14 +70,30 @@ class SupervisorOrchestrator:
             base_delta = self._build_classification_delta(classification, state, goal_resolution)
             working_state = merge_state_delta(state, base_delta)
 
+        first_module_state = run_first_module(
+            FirstModuleInput(
+                user_message=user_message,
+                current_state=working_state,
+                analysis=dict(goal_resolution or {}),
+                message_type=message_type,
+                used_pending_answer=parsed_pending is not None,
+            )
+        )
+        diagnostics["policy_graph"] = dict(first_module_state.diagnostics)
+        diagnostics["graph_path"] = list((first_module_state.diagnostics.get("graph_path") or []))
+
         clarification, clarification_state_delta, clarification_reason = self._build_clarification_if_needed(
             state=working_state,
             previous_state=state,
             previous_attempts=(state.pending_question.attempts if state.pending_question else 0),
             goal_resolution=goal_resolution,
         )
-        if clarification is not None:
-            response_mode = self._decide_response_mode(working_state, goal_resolution, clarify_active=True)
+        if first_module_state.should_clarify and clarification is not None:
+            response_mode = first_module_state.response_mode or self._decide_response_mode(
+                working_state,
+                goal_resolution,
+                clarify_active=True,
+            )
             clarification_delta = {
                 "pending_question_set": clarification.to_dict(),
                 "needs_clarification": True,
@@ -102,16 +120,25 @@ class SupervisorOrchestrator:
                 diagnostics=diagnostics,
             )
 
-        response_mode = self._decide_response_mode(working_state, goal_resolution, clarify_active=False)
-        if goal_resolution and goal_resolution.get("needs_clarification") and state.clarification_streak >= self.MAX_CLARIFICATION_STREAK:
+        response_mode = first_module_state.response_mode or self._decide_response_mode(
+            working_state,
+            goal_resolution,
+            clarify_active=False,
+        )
+        if first_module_state.force_help:
             diagnostics["clarification_gate"] = {
                 "reason": goal_resolution.get("clarification_reason") or goal_resolution.get("reason"),
                 "forced_by_cap": True,
                 "cap": self.MAX_CLARIFICATION_STREAK,
             }
-            response_mode = self._decide_response_mode(working_state, goal_resolution, clarify_active=False, forced_help=True)
+            response_mode = first_module_state.response_mode or self._decide_response_mode(
+                working_state,
+                goal_resolution,
+                clarify_active=False,
+                forced_help=True,
+            )
 
-        selected_agents = select_agents(working_state)
+        selected_agents = list(first_module_state.selected_agents) or select_agents(working_state)
         content_blocks: list[dict[str, str]] = []
         combined_delta = deepcopy(base_delta)
 
@@ -175,6 +202,17 @@ class SupervisorOrchestrator:
                 slots["goal"] = resolved_goal or raw_value
                 delta["goal_set"] = resolved_goal
                 delta["last_goal_status"] = goal_resolution.get("goal_status") or goal_resolution.get("reason")
+                state_hints = dict(goal_resolution.get("state_hints") or {})
+                if state_hints.get("domain"):
+                    delta["domain"] = state_hints["domain"]
+                if state_hints.get("intent"):
+                    delta["intent"] = state_hints["intent"]
+                if state_hints.get("signals"):
+                    delta["signals_add"] = list(state_hints.get("signals") or [])
+                if state_hints.get("risk_flags"):
+                    delta["risk_flags_add"] = list(state_hints.get("risk_flags") or [])
+                if state_hints.get("facts"):
+                    delta["facts_add"] = list(state_hints.get("facts") or [])
             else:
                 slots["goal"] = raw_value
                 delta["goal_set"] = raw_value if isinstance(raw_value, str) else str(raw_value)
@@ -235,6 +273,10 @@ class SupervisorOrchestrator:
     ) -> str:
         analysis = goal_resolution or {}
         if clarify_active and not forced_help:
+            if (analysis.get("goal_status") == "no_problem_yet") or (
+                analysis.get("clarification_reason") == "no_problem_yet"
+            ):
+                return "open_intake"
             if (analysis.get("goal_status") == "generic_distress") or (
                 analysis.get("clarification_reason") == "generic_distress"
             ):
@@ -253,6 +295,8 @@ class SupervisorOrchestrator:
         }
 
     def _build_clarification_reply(self, response_mode: str, clarification: PendingQuestion) -> str:
+        if response_mode == "open_intake":
+            return f"Привет. {clarification.question_text}"
         if response_mode != "hybrid_clarify":
             return clarification.question_text
         return (
@@ -305,6 +349,9 @@ class SupervisorOrchestrator:
             pending = self._default_clarification_question(state, previous_attempts + 1)
             return pending, {}, pending.reason
 
+        if analysis.get("enough_context_for_support"):
+            return None, {}, clarification_reason
+
         if not needs_clarification:
             return None, {}, clarification_reason
 
@@ -336,3 +383,10 @@ class SupervisorOrchestrator:
                 continue
             combined[key] = value
         return combined
+
+    def _build_clarification_reply(self, response_mode: str, clarification: PendingQuestion) -> str:
+        if response_mode == "open_intake":
+            return f"Привет. {clarification.question_text}"
+        if response_mode != "hybrid_clarify":
+            return clarification.question_text
+        return f"Сочувствую. {clarification.question_text}"

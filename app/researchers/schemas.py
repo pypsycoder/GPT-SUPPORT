@@ -134,8 +134,6 @@ class ChatStatsResponse(BaseModel):
     activity_by_hour: dict = {}
     activity_by_weekday: dict = {}
     dialysis_vs_nondialysis: Optional[dict] = None
-<<<<<<< Updated upstream
-=======
 
 
 class HumanTraceSection(BaseModel):
@@ -185,4 +183,3 @@ class ResearcherDebugReportSaveResponse(BaseModel):
     ok: bool = True
     filename: str
     relative_path: str
->>>>>>> Stashed changes

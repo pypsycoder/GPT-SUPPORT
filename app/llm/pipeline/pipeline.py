@@ -214,7 +214,6 @@ class LLMPipeline:
                 request_type=context.classification.request_type.value if context.classification else "unknown",
                 success=True,
                 error_message=None,
-                diagnostics_json=response.diagnostics,
             )
             
             request.db.add(log)

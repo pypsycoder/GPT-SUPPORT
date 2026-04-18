@@ -1,0 +1,16 @@
+- generic [ref=e3]:
+  - generic [ref=e4]: 🏥
+  - generic [ref=e5]: GPT Health Support
+  - generic [ref=e6]: Вход для пациента
+  - generic [ref=e7]: Номер и PIN-код указаны на карточке, которую вам выдал исследователь.
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: Номер пациента
+      - textbox "Номер пациента" [ref=e11]:
+        - /placeholder: "1042"
+    - generic [ref=e12]:
+      - generic [ref=e13]: PIN-код
+      - textbox "PIN-код" [ref=e14]:
+        - /placeholder: ••••
+    - button "Войти" [ref=e15] [cursor=pointer]
+  - generic [ref=e16]: Если вы потеряли карточку — обратитесь к исследователю.

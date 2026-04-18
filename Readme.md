@@ -44,6 +44,16 @@ uvicorn app.main:app --reload
 python -m app.bots.tg_bot.main
 ```
 
+### Windows / UTF-8
+
+Если в PowerShell русский текст показывает кракозябрами, перед локальной разработкой включите UTF-8 режим для текущей сессии:
+
+```powershell
+. .\scripts\dev_utf8.ps1
+```
+
+Это помогает нормально читать вывод `uvicorn`, `pytest`, `Get-Content` и логи debug-чата.
+
 ---
 
 ## Архитектура

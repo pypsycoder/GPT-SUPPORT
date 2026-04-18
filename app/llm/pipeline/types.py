@@ -29,6 +29,7 @@ class LLMRequest:
     orchestration_mode: str = "llm_full"  # "llm_full" | "specialist_rag" | "disabled"
     supervisor_state: dict[str, Any] | None = None
     router_result: RouterResult | None = None
+    strict_model_tier: bool = False
 
     # Database session
     db: AsyncSession | None = None

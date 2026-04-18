@@ -13,7 +13,9 @@ Context Builder — сбор данных пациента из БД для пе
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,8 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger("gpt-support-llm.context_builder")
 
 
-<<<<<<< Updated upstream
-=======
 def _extract_first_int(text: str) -> int | None:
     match = re.search(r"(\d+)", text)
     if not match:
@@ -486,9 +486,6 @@ def select_patient_summary_for_prompt(
         return prompt_summary
 
     return [str(item["text"]) for item in items[:2]]
-
-
->>>>>>> Stashed changes
 # ---------------------------------------------------------------------------
 # Отдельные разделы
 # ---------------------------------------------------------------------------

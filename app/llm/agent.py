@@ -197,7 +197,7 @@ async def generate_response(
     ]
 
     # Получаем клиента из пула
-    client = await pool.get_available(router_result.model_tier.value)
+    client = await pool.get_available()
 
     success = False
     error_message: str | None = None
@@ -209,7 +209,9 @@ async def generate_response(
     start = time.monotonic()
     try:
         response_text, tokens_in, tokens_out, elapsed_ms = await client.call(
-            messages, system_prompt
+            messages,
+            system_prompt,
+            model_tier=router_result.model_tier.value,
         )
         success = True
         # Добавляем номера телефонов для кризисных ситуаций

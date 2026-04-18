@@ -160,6 +160,44 @@
       padding-top: 1rem;
       border-top: 1px solid #f1f5f9;
     }
+    .r-router-card {
+      margin-top: 0.7rem;
+      border: 1px solid #dbeafe;
+      border-radius: 0.9rem;
+      background: #eff6ff;
+      overflow: hidden;
+    }
+    .r-router-card summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 0.75rem 0.9rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #1d4ed8;
+      user-select: none;
+    }
+    .r-router-card summary::-webkit-details-marker {
+      display: none;
+    }
+    .r-router-card-body {
+      padding: 0 0.9rem 0.9rem;
+      display: grid;
+      gap: 0.45rem;
+      color: #1f2937;
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+    .r-router-experts {
+      display: grid;
+      gap: 0.45rem;
+      margin-top: 0.35rem;
+    }
+    .r-router-expert {
+      padding: 0.55rem 0.65rem;
+      border-radius: 0.75rem;
+      background: rgba(255, 255, 255, 0.65);
+      border: 1px solid rgba(59, 130, 246, 0.18);
+    }
     .r-turn-title,
     .r-trace-title {
       font-size: 0.92rem;
@@ -375,11 +413,7 @@
       </div>
     </div>
 
-    <div class="r-nav">
-      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
-      <a href="/researcher/chat-monitor" class="r-nav-btn">Мониторинг чатов</a>
-      <a href="/researcher/chat-debug" class="r-nav-btn active">Отладочный чат</a>
-    </div>
+    <div id="r-shared-nav" data-page="chat_debug"></div>
 
     <div class="r-debug-grid">
       <div class="r-debug-card">
@@ -402,7 +436,7 @@
               <label for="dbg-tier">Модель</label>
               <select id="dbg-tier">
                 <option value="">Авто</option>
-                <option value="lite">Lite</option>
+                <option value="lite" selected>Lite</option>
                 <option value="pro">Pro</option>
                 <option value="max">Max</option>
               </select>
@@ -460,6 +494,7 @@
   </div>
 
   <script src="/frontend/researcher/js/auth.js?v=20260409d"></script>
-  <script src="/frontend/researcher/js/chat_debug.js?v=20260409d"></script>
+  <script src="/frontend/researcher/js/layout.js?v=20260410b"></script>
+  <script src="/frontend/researcher/js/chat_debug.js?v=20260410e"></script>
 </body>
 </html>

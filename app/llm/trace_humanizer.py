@@ -3,20 +3,18 @@ from __future__ import annotations
 from typing import Any
 
 
-# _as_list
 def _as_list(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
     return []
 
 
-# _humanize_validation_status
 def _humanize_validation_status(status: str | None) -> str | None:
     mapping = {
         "passed": "Ответ прошел валидацию без переписывания.",
         "rewritten": "Ответ был переписан после валидации.",
         "rewrite_failed": "Валидация запросила rewrite, но переписывание завершилось ошибкой.",
-        "supervisor_draft_kept": "Supervisor-черновик оставили как есть, без отдельного rewrite после валидации.",
+        "supervisor_draft_kept": "Финальный ответ был взят напрямую из supervisor graph v2.",
         "skipped_safety": "Для safety-ответа дополнительная валидация не запускалась.",
         "skipped_early_response": "Пайплайн завершился ранним ответом до валидации.",
         "skipped_no_response": "Валидация была пропущена, потому что не было черновика ответа.",
@@ -24,7 +22,6 @@ def _humanize_validation_status(status: str | None) -> str | None:
     return mapping.get(str(status or "").strip())
 
 
-# _format_stage
 def _format_stage(stage: dict[str, Any]) -> str:
     name = str(stage.get("name") or "unknown")
     status = str(stage.get("status") or "unknown")
@@ -34,7 +31,40 @@ def _format_stage(stage: dict[str, Any]) -> str:
     return f"{name}: {status}, {int(latency_ms)} мс."
 
 
-# build_human_trace
+def _append_llm_attempts(items: list[str], label: str, llm: dict[str, Any] | None) -> None:
+    llm = dict(llm or {})
+    if not llm:
+        return
+
+    succeeded_on_attempt = llm.get("succeeded_on_attempt")
+    attempts_total = int(llm.get("attempts_total") or 0)
+    failures = _as_list(llm.get("failures"))
+    retry_count = len(failures)
+
+    if succeeded_on_attempt:
+        items.append(f"{label}: success on attempt {int(succeeded_on_attempt)}.")
+        if retry_count:
+            items.append(f"{label}: retries before success = {retry_count}.")
+    elif llm.get("final_status") == "failed_after_retries":
+        items.append(f"{label} failed after {attempts_total or 3} attempts.")
+
+    for failure in failures:
+        attempt = failure.get("attempt")
+        error_type = str(failure.get("error_type") or "Error").strip()
+        error_message = str(failure.get("error_message") or "").strip()
+        raw_excerpt = str(failure.get("raw_excerpt") or "").strip()
+        line = f"{label} retry"
+        if attempt:
+            line += f" #{attempt}"
+        line += f": {error_type}"
+        if error_message:
+            line += f" - {error_message}"
+        if raw_excerpt:
+            line += f" | raw: {raw_excerpt}"
+        line += "."
+        items.append(line)
+
+
 def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]]:
     diagnostics = diagnostics or {}
     sections: list[dict[str, Any]] = []
@@ -47,68 +77,37 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
             if message_type:
                 supervisor_items.append(f"Supervisor определил тип хода: {message_type}.")
 
-            goal_analysis = supervisor.get("goal_analysis") or supervisor.get("goal_extraction") or {}
-            attempts_total = goal_analysis.get("attempts_total")
-            succeeded_on_attempt = goal_analysis.get("succeeded_on_attempt")
-            final_status = goal_analysis.get("final_status")
-            if succeeded_on_attempt:
-                supervisor_items.append(f"LLM goal analysis: success on attempt {succeeded_on_attempt}.")
-            elif final_status == "failed_after_retries":
-                supervisor_items.append(f"LLM goal analysis failed after {attempts_total or 3} attempts.")
+            graph_path = _as_list(supervisor.get("graph_path"))
+            if graph_path:
+                supervisor_items.append("Graph path: " + " -> ".join(str(item) for item in graph_path) + ".")
 
-            if goal_analysis.get("used") and goal_analysis.get("goal_status"):
-                supervisor_items.append(f"LLM goal extraction reason: {goal_analysis['goal_status']}.")
-            elif goal_analysis.get("used") and goal_analysis.get("reason"):
-                supervisor_items.append(f"LLM goal extraction reason: {goal_analysis['reason']}.")
+            intake = supervisor.get("intake") or {}
+            intake_card = intake.get("card") or {}
+            _append_llm_attempts(supervisor_items, "Intake analysis", intake.get("llm"))
+            if intake_card.get("problem"):
+                supervisor_items.append(f"Проблема: {intake_card['problem']}.")
+            if intake_card.get("needs_clarification"):
+                supervisor_items.append(f"Нужно уточнение: {intake_card['needs_clarification']}.")
+            if intake_card.get("ready_to_delegate"):
+                supervisor_items.append(f"Готово к передаче: {intake_card['ready_to_delegate']}.")
 
-            if goal_analysis.get("used") and goal_analysis.get("goal"):
-                supervisor_items.append(f"Goal выделила LLM: {goal_analysis['goal']}.")
+            delegation = supervisor.get("delegation") or {}
+            delegation_card = delegation.get("card") or {}
+            _append_llm_attempts(supervisor_items, "Delegation analysis", delegation.get("llm"))
+            if delegation_card.get("expert"):
+                supervisor_items.append(f"Эксперт: {delegation_card['expert']}.")
+            if delegation_card.get("task"):
+                supervisor_items.append(f"Задача эксперта: {delegation_card['task']}.")
 
-            clarification_analysis = supervisor.get("clarification_analysis") or {}
-            clarification_reason = clarification_analysis.get("clarification_reason") or goal_analysis.get(
-                "clarification_reason"
-            )
-            if clarification_reason:
-                supervisor_items.append(f"Clarification reason: {clarification_reason}.")
-
-            response_mode = supervisor.get("response_mode")
-            if response_mode:
-                supervisor_items.append(f"Response mode: {response_mode}.")
-
-            context_sufficiency = supervisor.get("context_sufficiency") or {}
-            support_sufficient = context_sufficiency.get("support")
-            plan_sufficient = context_sufficiency.get("plan")
-            if support_sufficient is not None or plan_sufficient is not None:
-                support_text = "sufficient" if support_sufficient else "insufficient"
-                plan_text = "sufficient" if plan_sufficient else "insufficient"
-                supervisor_items.append(
-                    f"LLM decided context is {support_text} for support and {plan_text} for plan."
-                )
-
-            state_after = supervisor.get("state_after") or {}
-            clarification_streak = state_after.get("clarification_streak")
-            if clarification_streak:
-                supervisor_items.append(f"Clarification streak: {clarification_streak}/5.")
-
-            clarification_gate = (supervisor.get("turn_diagnostics") or {}).get("clarification_gate") or {}
-            if clarification_gate.get("reason") == "generic_distress":
-                supervisor_items.append("LLM распознала generic distress -> context clarification.")
-            if clarification_gate.get("forced_by_cap"):
-                supervisor_items.append("Clarification cap reached, so supervisor switched to best-effort help.")
+            expert = supervisor.get("expert") or {}
+            expert_card = expert.get("card") or {}
+            _append_llm_attempts(supervisor_items, "Emotional expert", expert.get("llm"))
+            if expert_card.get("step_now"):
+                supervisor_items.append(f"Шаг сейчас: {expert_card['step_now']}.")
 
             selected_agents = [str(item) for item in _as_list(supervisor.get("selected_agents")) if str(item).strip()]
             if selected_agents:
                 supervisor_items.append("Подключенные expert-агенты: " + ", ".join(selected_agents) + ".")
-
-            if supervisor.get("used_pending_answer"):
-                supervisor_items.append("Короткий ответ был использован для slot-fill без полной переклассификации.")
-
-            if supervisor.get("needs_clarification"):
-                supervisor_items.append("Supervisor остановился на одном уточняющем вопросе перед делегированием.")
-
-            llm_draft = supervisor.get("llm_draft") or {}
-            if llm_draft.get("used"):
-                supervisor_items.append("Финальную формулировку этого хода переписали через LLM.")
         else:
             reason = str(supervisor.get("reason") or "disabled")
             supervisor_items.append(f"Supervisor-path не использовался: {reason}.")
@@ -116,44 +115,28 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
     if supervisor_items:
         sections.append({"title": "Supervisor", "items": supervisor_items})
 
-    prompt = diagnostics.get("prompt") or {}
-    prompt_items: list[str] = []
-    selected_policy = prompt.get("selected_policy")
-    if selected_policy:
-        prompt_items.append(f"Выбран стиль ответа: {selected_policy}.")
-    policy_reasons = _as_list(prompt.get("policy_reasons"))
-    if policy_reasons:
-        prompt_items.append("Причины выбора: " + ", ".join(str(x) for x in policy_reasons[:4]) + ".")
-    if prompt_items:
-        sections.append({"title": "Политика ответа", "items": prompt_items})
-
     pipeline_items: list[str] = []
     stages = _as_list(diagnostics.get("stages"))
     if stages:
         errors = [stage for stage in stages if str(stage.get("status") or "") == "error"]
         if errors:
             pipeline_items.append("На этапе возникла ошибка: " + "; ".join(_format_stage(stage) for stage in errors[:2]))
+
     patient_context = diagnostics.get("patient_context") or {}
     if patient_context.get("skipped"):
         pipeline_items.append(f"Context stage пропущен: {patient_context.get('reason')}.")
-    intake = diagnostics.get("intake") or {}
-    if intake.get("skipped"):
-        pipeline_items.append(f"Intake stage пропущен: {intake.get('reason')}.")
+    intake_stage = diagnostics.get("intake") or {}
+    if intake_stage.get("skipped"):
+        pipeline_items.append(f"Intake stage пропущен: {intake_stage.get('reason')}.")
     orchestration = diagnostics.get("orchestration") or {}
     if orchestration.get("skipped"):
         pipeline_items.append(f"Legacy orchestration пропущена: {orchestration.get('reason')}.")
-    elif orchestration.get("enabled"):
-        mode = orchestration.get("mode")
-        if mode:
-            pipeline_items.append(f"Legacy orchestration mode: {mode}.")
-        route = orchestration.get("route") or {}
-        selected_agents = [str(item) for item in _as_list(route.get("selected_agents")) if str(item).strip()]
-        if selected_agents:
-            pipeline_items.append("Legacy-агенты: " + ", ".join(selected_agents) + ".")
+
     validation = diagnostics.get("validation") or {}
     validation_status = _humanize_validation_status(validation.get("status"))
     if validation_status:
         pipeline_items.append(validation_status)
+
     if pipeline_items:
         sections.append({"title": "Пайплайн", "items": pipeline_items})
 
@@ -164,24 +147,11 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
     lt_count = int(reads.get("lt_count") or 0)
     if st_count or lt_count:
         memory_items.append(f"Прочитано из памяти: ST {st_count}, LT {lt_count}.")
-    continuation = memory.get("continuation") or {}
-    if continuation.get("used"):
-        if continuation.get("session_constraint"):
-            memory_items.append(
-                f"Продолжили предыдущую ветку с учетом ограничения: {continuation['session_constraint']}."
-            )
-        else:
-            memory_items.append("Короткий follow-up был понят как продолжение предыдущей ветки.")
     for item in _as_list(memory.get("proposed_st_entries")):
         key = str(item.get("key") or "").strip()
         value = str(item.get("value") or "").strip()
         if key and value:
             memory_items.append(f"В ST-memory записали: {key} = {value}.")
-    for item in _as_list(memory.get("proposed_lt_entries")):
-        key = str(item.get("key") or "").strip()
-        value = str(item.get("value") or "").strip()
-        if key and value:
-            memory_items.append(f"В LT-memory предложили записать: {key} = {value}.")
     if memory_items:
         sections.append({"title": "Память", "items": memory_items})
 

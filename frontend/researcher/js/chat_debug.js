@@ -301,6 +301,109 @@
     return meta;
   }
 
+  function getRouterCard(diagnosticsJson) {
+    var diagnostics = diagnosticsJson || {};
+    var supervisor = diagnostics.supervisor || {};
+    var goalAnalysis = supervisor.goal_analysis || {};
+    return goalAnalysis.router_card || null;
+  }
+
+  function getGraphPath(diagnosticsJson) {
+    var diagnostics = diagnosticsJson || {};
+    var supervisor = diagnostics.supervisor || {};
+    var graphPath = supervisor.graph_path || [];
+    return Array.isArray(graphPath) ? graphPath : [];
+  }
+
+  function formatLlmDebugLines(title, payload) {
+    var block = payload || {};
+    var llm = block.llm || {};
+    var lines = [];
+    var failures = Array.isArray(llm.failures) ? llm.failures : [];
+
+    if (!Object.keys(llm).length) {
+      return lines;
+    }
+
+    lines.push('<div><strong>' + escHtml(title + ' attempts:') + '</strong> ' + escHtml(String(llm.attempts_total || '-')) + '</div>');
+    if (llm.succeeded_on_attempt) {
+      lines.push('<div><strong>' + escHtml(title + ' succeeded on:') + '</strong> ' + escHtml(String(llm.succeeded_on_attempt)) + '</div>');
+    }
+    if (failures.length) {
+      lines.push('<div><strong>' + escHtml(title + ' retries:') + '</strong> ' + escHtml(String(failures.length)) + '</div>');
+    }
+    failures.forEach(function (failure) {
+      var text = (failure.error_type || 'Error') + (failure.error_message ? ' - ' + failure.error_message : '');
+      if (failure.raw_excerpt) {
+        text += ' | raw: ' + failure.raw_excerpt;
+      }
+      lines.push(
+        '<div><strong>' + escHtml(title + ' error #' + (failure.attempt || '?') + ':') + '</strong> ' +
+        escHtml(text) +
+        '</div>'
+      );
+    });
+    return lines;
+  }
+
+  function renderRouterCard(turn) {
+    var diagnostics = turn.diagnosticsJson || {};
+    var routerCard = getRouterCard(diagnostics);
+    var graphPath = getGraphPath(diagnostics);
+    var supervisor = diagnostics.supervisor || {};
+    var selectedAgents = supervisor.selected_agents || [];
+    var summary = [];
+    var details = [];
+
+    if (!routerCard && !graphPath.length) {
+      return '';
+    }
+
+    if (routerCard && routerCard.phase) summary.push('фаза: ' + routerCard.phase);
+    if (routerCard && routerCard.status) summary.push('статус: ' + routerCard.status);
+    if (routerCard && routerCard.next_action) summary.push('действие: ' + routerCard.next_action);
+    if (selectedAgents.length) summary.push('агенты: ' + selectedAgents.join(', '));
+    if (!summary.length && graphPath.length) summary.push('graph path: ' + graphPath.join(' -> '));
+
+    if (routerCard) {
+      if (routerCard.problem) details.push('<div><strong>Проблема:</strong> ' + escHtml(routerCard.problem) + '</div>');
+      if (routerCard.context) details.push('<div><strong>Контекст:</strong> ' + escHtml(routerCard.context) + '</div>');
+      if (routerCard.intention) details.push('<div><strong>Намерение:</strong> ' + escHtml(routerCard.intention) + '</div>');
+      if (routerCard.phase) details.push('<div><strong>Фаза:</strong> ' + escHtml(routerCard.phase) + '</div>');
+      if (routerCard.status) details.push('<div><strong>Статус:</strong> ' + escHtml(routerCard.status) + '</div>');
+      if (routerCard.next_action) details.push('<div><strong>Следующее действие:</strong> ' + escHtml(routerCard.next_action) + '</div>');
+      if (routerCard.needs_clarification) details.push('<div><strong>Нужны уточнения:</strong> ' + escHtml(routerCard.needs_clarification) + '</div>');
+      if (routerCard.needs_another_cycle) details.push('<div><strong>Нужен еще цикл:</strong> ' + escHtml(routerCard.needs_another_cycle) + '</div>');
+      if (routerCard.rationale) details.push('<div><strong>Обоснование:</strong> ' + escHtml(routerCard.rationale) + '</div>');
+      if (Array.isArray(routerCard.experts) && routerCard.experts.length) {
+        details.push(
+          '<div><strong>Эксперты:</strong><div class="r-router-experts">' +
+          routerCard.experts.map(function (expert) {
+            return (
+              '<div class="r-router-expert">' +
+                '<div><strong>' + escHtml(expert.expert || '-') + '</strong></div>' +
+                '<div>задача: ' + escHtml(expert.task || '-') + '</div>' +
+                '<div>контекст: ' + escHtml(expert.context || '-') + '</div>' +
+              '</div>'
+            );
+          }).join('') +
+          '</div></div>'
+        );
+      }
+    }
+
+    if (graphPath.length) {
+      details.push('<div><strong>Graph path:</strong> ' + escHtml(graphPath.join(' -> ')) + '</div>');
+    }
+
+    return (
+      '<details class="r-router-card" open>' +
+        '<summary>Graph: ' + escHtml(summary.join(' | ')) + '</summary>' +
+        '<div class="r-router-card-body">' + details.join('') + '</div>' +
+      '</details>'
+    );
+  }
+
   function renderTranscript() {
     var root = byId('dbg-chat');
     var completedTurns = turnSnapshots.length;
@@ -315,11 +418,13 @@
       turnSnapshots.map(function (turn, index) {
         var traceHtml = renderTraceSections(turn.humanTrace || [], turn.diagnosticsJson || {});
         var meta = stringifyMeta(turn);
+        var routerCardHtml = renderRouterCard(turn);
 
         return (
           '<div class="r-turn-card">' +
             '<div class="r-turn-title">Ход ' + escHtml(String(index + 1)) + '</div>' +
             '<div class="r-debug-msg user">' + escHtml(turn.userMessage || '') + '</div>' +
+            routerCardHtml +
             '<div class="r-turn-details">' +
               '<details class="r-collapsible">' +
                 '<summary>State diff</summary>' +
@@ -572,6 +677,85 @@
         '</div>'
       );
     }).join('');
+  }
+
+  // Graph v2 overrides. These definitions intentionally shadow legacy helpers above.
+  function getRouterCard(diagnosticsJson) {
+    var diagnostics = diagnosticsJson || {};
+    var supervisor = diagnostics.supervisor || {};
+    return supervisor || null;
+  }
+
+  function getGraphPath(diagnosticsJson) {
+    var diagnostics = diagnosticsJson || {};
+    var supervisor = diagnostics.supervisor || {};
+    var graphPath = supervisor.graph_path || [];
+    return Array.isArray(graphPath) ? graphPath : [];
+  }
+
+  function renderRouterCard(turn) {
+    var diagnostics = turn.diagnosticsJson || {};
+    var supervisor = getRouterCard(diagnostics) || {};
+    var graphPath = getGraphPath(diagnostics);
+    var intake = supervisor.intake || {};
+    var delegation = supervisor.delegation || {};
+    var expert = supervisor.expert || {};
+    var intakeCard = intake.card || null;
+    var delegationCard = delegation.card || null;
+    var expertCard = expert.card || null;
+    var selectedAgents = supervisor.selected_agents || [];
+    var summary = [];
+    var details = [];
+
+    if (!intakeCard && !delegationCard && !expertCard && !graphPath.length) {
+      return '';
+    }
+
+    if (intakeCard && intakeCard.problem) summary.push('проблема: ' + intakeCard.problem);
+    if (intakeCard && intakeCard.needs_clarification) summary.push('уточнение: ' + intakeCard.needs_clarification);
+    if (intakeCard && intakeCard.ready_to_delegate) summary.push('передать: ' + intakeCard.ready_to_delegate);
+    if (delegationCard && delegationCard.expert) summary.push('эксперт: ' + delegationCard.expert);
+    if (selectedAgents.length) summary.push('агенты: ' + selectedAgents.join(', '));
+    if (!summary.length && graphPath.length) summary.push('graph path: ' + graphPath.join(' -> '));
+
+    if (intakeCard) {
+      if (intakeCard.problem) details.push('<div><strong>Проблема:</strong> ' + escHtml(intakeCard.problem) + '</div>');
+      if (intakeCard.context) details.push('<div><strong>Контекст:</strong> ' + escHtml(intakeCard.context) + '</div>');
+      if (intakeCard.needs_clarification) details.push('<div><strong>Нужно уточнение:</strong> ' + escHtml(intakeCard.needs_clarification) + '</div>');
+      if (intakeCard.question) details.push('<div><strong>Вопрос:</strong> ' + escHtml(intakeCard.question) + '</div>');
+      if (intakeCard.ready_to_delegate) details.push('<div><strong>Готово к передаче:</strong> ' + escHtml(intakeCard.ready_to_delegate) + '</div>');
+      if (intakeCard.rationale) details.push('<div><strong>Обоснование:</strong> ' + escHtml(intakeCard.rationale) + '</div>');
+      details = details.concat(formatLlmDebugLines('Intake', intake));
+    }
+
+    if (delegationCard) {
+      details.push('<hr>');
+      if (delegationCard.expert) details.push('<div><strong>Эксперт:</strong> ' + escHtml(delegationCard.expert) + '</div>');
+      if (delegationCard.task) details.push('<div><strong>Задача:</strong> ' + escHtml(delegationCard.task) + '</div>');
+      if (delegationCard.rationale) details.push('<div><strong>Обоснование делегации:</strong> ' + escHtml(delegationCard.rationale) + '</div>');
+      details = details.concat(formatLlmDebugLines('Delegation', delegation));
+    }
+
+    if (expertCard) {
+      details.push('<hr>');
+      if (expertCard.support) details.push('<div><strong>Поддержка:</strong> ' + escHtml(expertCard.support) + '</div>');
+      if (expertCard.step_now) details.push('<div><strong>Шаг сейчас:</strong> ' + escHtml(expertCard.step_now) + '</div>');
+      if (expertCard.follow_up) details.push('<div><strong>Уточнение после помощи:</strong> ' + escHtml(expertCard.follow_up) + '</div>');
+      if (expertCard.needs_more_info) details.push('<div><strong>Нужно ли уточнение:</strong> ' + escHtml(expertCard.needs_more_info) + '</div>');
+      if (expertCard.rationale) details.push('<div><strong>Обоснование эксперта:</strong> ' + escHtml(expertCard.rationale) + '</div>');
+      details = details.concat(formatLlmDebugLines('Expert', expert));
+    }
+
+    if (graphPath.length) {
+      details.push('<div><strong>Graph path:</strong> ' + escHtml(graphPath.join(' -> ')) + '</div>');
+    }
+
+    return (
+      '<details class="r-router-card" open>' +
+        '<summary>Graph: ' + escHtml(summary.join(' | ')) + '</summary>' +
+        '<div class="r-router-card-body">' + details.join('') + '</div>' +
+      '</details>'
+    );
   }
 
   function isPlainEnter(event) {

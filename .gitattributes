@@ -1,0 +1,20 @@
+* text=auto
+
+*.py text
+*.html text
+*.css text
+*.js text
+*.json text
+*.md text
+*.yml text
+*.yaml text
+*.txt text
+*.sql text
+*.csv text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

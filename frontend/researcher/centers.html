@@ -16,13 +16,7 @@
       </div>
     </div>
 
-    <div class="r-nav">
-      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
-      <a href="/researcher/dashboard" class="r-nav-btn" data-tab="patients">Пациенты</a>
-      <button class="r-nav-btn active">Центры</button>
-      <a href="/researcher/import/schedules" class="r-nav-btn">Импорт расписаний</a>
-      <a href="/researcher/chat-monitor" class="r-nav-btn">Мониторинг чатов</a>
-    </div>
+    <div id="r-shared-nav" data-page="centers"></div>
 
     <div class="r-table-wrapper">
       <div class="r-table-header">
@@ -77,6 +71,7 @@
   </div>
 
   <script src="/frontend/researcher/js/auth.js"></script>
+  <script src="/frontend/researcher/js/layout.js?v=20260410b"></script>
   <script src="/frontend/researcher/js/centers.js"></script>
 </body>
 </html>

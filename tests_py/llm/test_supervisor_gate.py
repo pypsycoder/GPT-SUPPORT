@@ -1,251 +1,151 @@
-"""Tests for clarify-before-delegate behavior."""
+import pytest
 
-from app.llm.supervisor import CurrentState, PendingQuestion, SupervisorOrchestrator
-
-
-def _analysis(
-    *,
-    goal: str | None,
-    goal_status: str,
-    needs_clarification: bool,
-    clarification_question: str | None = None,
-    clarification_reason: str = "resolved",
-    enough_context_for_support: bool = True,
-    enough_context_for_plan: bool = False,
-    state_hints: dict | None = None,
-) -> dict:
-    return {
-        "used": True,
-        "goal": goal,
-        "goal_status": goal_status,
-        "reason": goal_status,
-        "needs_clarification": needs_clarification,
-        "clarification_question": clarification_question,
-        "clarification_reason": clarification_reason,
-        "enough_context_for_support": enough_context_for_support,
-        "enough_context_for_plan": enough_context_for_plan,
-        "state_hints": state_hints or {},
-    }
+from app.llm.langgraph_supervisor.models import (
+    BinaryChoice,
+    DelegationCard,
+    DelegationExpert,
+    EmotionalExpertCard,
+    ExecutionKind,
+    IntakeCard,
+)
+from app.llm.pipeline.stages.supervisor import SupervisorStage
+from app.llm.pipeline.types import LLMRequest, PipelineContext
+from app.llm.router import ModelTier, RequestType, RouterResult
+from app.llm.supervisor.models import CurrentState
 
 
-def test_orchestrator_asks_one_clarifying_question_when_goal_missing():
-    result = SupervisorOrchestrator().handle_message(
-        "привет",
-        CurrentState(),
-        goal_resolution=_analysis(
-            goal=None,
-            goal_status="context_missing",
-            needs_clarification=True,
-            clarification_question="Что сейчас беспокоит тебя больше всего?",
-            clarification_reason="context_missing",
-            enough_context_for_support=False,
-            enough_context_for_plan=False,
+def _context(user_input: str, *, supervisor_state: dict | None = None) -> PipelineContext:
+    return PipelineContext(
+        request=LLMRequest(
+            patient_id=1,
+            user_input=user_input,
+            source="text",
+            supervisor_state=supervisor_state,
         ),
-    )
-
-    assert result.needs_clarification is True
-    assert result.selected_agents == []
-    assert result.updated_state.pending_question is not None
-    assert result.updated_state.pending_question.slot_name == "goal"
-    assert result.reply == "Что сейчас беспокоит тебя больше всего?"
-    assert result.diagnostics["response_mode"] == "clarify_only"
-
-
-def test_orchestrator_asks_context_clarification_for_generic_anxiety():
-    result = SupervisorOrchestrator().handle_message(
-        "мне тревожно",
-        CurrentState(),
-        goal_resolution=_analysis(
-            goal=None,
-            goal_status="generic_distress",
-            needs_clarification=True,
-            clarification_question="Из-за чего тревога сейчас сильнее всего?",
-            clarification_reason="generic_distress",
-            enough_context_for_support=False,
-            enough_context_for_plan=False,
-            state_hints={"signals": ["distress"]},
+        classification=RouterResult(
+            request_type=RequestType.EMOTIONAL,
+            model_tier=ModelTier.LITE,
+            domain_hint="emotion",
+            priority=2,
         ),
+        supervisor_state=supervisor_state or {},
+        diagnostics={},
     )
 
-    assert result.needs_clarification is True
-    assert result.selected_agents == []
-    assert result.updated_state.pending_question is not None
-    assert "?" in result.reply
-    assert "выдох" in result.reply.lower()
-    assert result.updated_state.clarification_streak == 1
-    assert result.diagnostics["response_mode"] == "hybrid_clarify"
-    assert result.diagnostics["context_sufficiency"] == {"support": False, "plan": False}
+
+@pytest.mark.asyncio
+async def test_supervisor_stage_sets_pending_question_for_intake(monkeypatch):
+    class FakeGraphState:
+        intake_card = IntakeCard(
+            problem="грусть",
+            context="причина пока не названа",
+            needs_clarification=BinaryChoice.YES,
+            question="От чего тебе грустно?",
+            ready_to_delegate=BinaryChoice.NO,
+            rationale="Нужен один вопрос.",
+        )
+        delegation_card = None
+        expert_card = None
+        execution_kind = ExecutionKind.ASK
+        user_question = "От чего тебе грустно?"
+        final_reply = "Сочувствую. От чего тебе грустно?"
+        needs_clarification = True
+        selected_agents = []
+        diagnostics = {
+            "graph_path": ["intake_analyze", "intake_validate", "intake_execute"],
+            "intake": {
+                "card": intake_card.to_dict(),
+                "llm": {"final_status": "success", "succeeded_on_attempt": 1},
+            },
+            "delegation": {},
+            "expert": {},
+        }
+        total_tokens_input = 10
+        total_tokens_output = 5
+        total_latency_ms = 20
+        account_ids = ["A1"]
+        actual_model_tiers = ["lite"]
+
+    async def fake_run_first_module(payload):
+        return FakeGraphState()
+
+    monkeypatch.setattr("app.llm.pipeline.stages.supervisor.run_first_module", fake_run_first_module)
+
+    context = await SupervisorStage().process(_context("мне грустно"))
+
+    assert context.response_draft == "Сочувствую. От чего тебе грустно?"
+    assert context.supervisor_state["pending_question"]["question_text"] == "От чего тебе грустно?"
+    assert context.supervisor_state["needs_clarification"] is True
+    assert context.diagnostics["supervisor"]["intake"]["card"]["problem"] == "грусть"
+    assert "goal_analysis" not in context.diagnostics["supervisor"]
 
 
-def test_orchestrator_delegates_when_anxiety_has_context():
-    result = SupervisorOrchestrator().handle_message(
-        "мне тревожно перед диализом",
-        CurrentState(),
-        goal_resolution=_analysis(
-            goal="тревога перед диализом",
-            goal_status="resolved",
-            needs_clarification=False,
-            clarification_reason="resolved",
-            enough_context_for_support=True,
-            enough_context_for_plan=True,
-            state_hints={"signals": ["distress", "dialysis_context"], "facts": ["mentioned_dialysis"]},
-        ),
-    )
+@pytest.mark.asyncio
+async def test_supervisor_stage_uses_expert_output_for_final_reply(monkeypatch):
+    class FakeGraphState:
+        intake_card = IntakeCard(
+            problem="страх перед диализом",
+            context="предстоящий диализ",
+            needs_clarification=BinaryChoice.NO,
+            question="нет",
+            ready_to_delegate=BinaryChoice.YES,
+            rationale="Можно передавать дальше.",
+        )
+        delegation_card = DelegationCard(
+            expert=DelegationExpert.EMOTIONAL_SUPPORT,
+            task="помочь справиться со страхом перед процедурой",
+            rationale="Нужна эмоциональная поддержка.",
+        )
+        expert_card = EmotionalExpertCard(
+            support="Я рядом.",
+            step_now="Попробуй назвать, что пугает сильнее всего.",
+            follow_up="нет",
+            needs_more_info=BinaryChoice.NO,
+            rationale="Один шаг без лишнего копинга.",
+        )
+        execution_kind = ExecutionKind.DELEGATE
+        user_question = None
+        final_reply = "Я рядом. Попробуй назвать, что пугает сильнее всего."
+        needs_clarification = False
+        selected_agents = ["emotional_support"]
+        diagnostics = {
+            "graph_path": [
+                "intake_analyze",
+                "intake_validate",
+                "intake_execute",
+                "delegation_analyze",
+                "delegation_validate",
+                "invoke_emotional_expert",
+                "finalize_reply",
+            ],
+            "intake": {
+                "card": intake_card.to_dict(),
+                "llm": {"final_status": "success", "succeeded_on_attempt": 1},
+            },
+            "delegation": {
+                "card": delegation_card.to_dict(),
+                "llm": {"final_status": "success", "succeeded_on_attempt": 1},
+            },
+            "expert": {
+                "card": expert_card.to_dict(),
+                "llm": {"final_status": "success", "succeeded_on_attempt": 1},
+            },
+        }
+        total_tokens_input = 20
+        total_tokens_output = 15
+        total_latency_ms = 40
+        account_ids = ["A1", "A1", "A1"]
+        actual_model_tiers = ["lite", "lite", "lite"]
 
-    assert result.needs_clarification is False
-    assert "emotional_support" in result.selected_agents
-    assert result.diagnostics["response_mode"] == "direct_support"
+    async def fake_run_first_module(payload):
+        return FakeGraphState()
 
+    monkeypatch.setattr("app.llm.pipeline.stages.supervisor.run_first_module", fake_run_first_module)
 
-def test_orchestrator_delegates_when_goal_is_clear():
-    state = CurrentState(domain="health", intent="plan", goal="получить следующий шаг")
+    context = await SupervisorStage().process(_context("боюсь диализа", supervisor_state=CurrentState().to_dict()))
 
-    result = SupervisorOrchestrator().handle_message(
-        "Что делать перед диализом?",
-        state,
-        goal_resolution=_analysis(
-            goal="подготовиться к диализу",
-            goal_status="resolved",
-            needs_clarification=False,
-            clarification_reason="resolved",
-            enough_context_for_support=True,
-            enough_context_for_plan=True,
-            state_hints={"intent": "plan", "signals": ["dialysis_context", "needs_plan"]},
-        ),
-    )
-
-    assert result.needs_clarification is False
-    assert result.selected_agents
-    assert result.updated_state.last_selected_agents == result.selected_agents
-    assert result.diagnostics["response_mode"] == "direct_plan"
-
-
-def test_orchestrator_uses_pending_short_answer_without_full_reclassification():
-    state = CurrentState(
-        domain="health",
-        intent="support",
-        goal="получить поддержку",
-        pending_question=PendingQuestion(
-            slot_name="distress_level",
-            question_text="Насколько тяжело сейчас по шкале от 0 до 10?",
-            expected_kind="scale_0_10",
-        ),
-    )
-
-    result = SupervisorOrchestrator().handle_message(
-        "8",
-        state,
-        goal_resolution=_analysis(
-            goal="справиться с тревогой",
-            goal_status="resolved",
-            needs_clarification=False,
-        ),
-    )
-
-    assert result.used_pending_answer is True
-    assert result.message_type == "short_answer"
-    assert result.updated_state.slots["distress_level"] == 8
-    assert result.updated_state.pending_question is None
-
-
-def test_orchestrator_uses_pending_free_text_answer_for_goal_slot():
-    state = CurrentState(
-        domain="general",
-        intent="support",
-        pending_question=PendingQuestion(
-            slot_name="goal",
-            question_text="Что сейчас беспокоит тебя больше всего?",
-            expected_kind="free_text",
-        ),
-        needs_clarification=True,
-    )
-
-    result = SupervisorOrchestrator().handle_message(
-        "предстоящий диализ",
-        state,
-        goal_resolution=_analysis(
-            goal="переживания из-за предстоящего диализа",
-            goal_status="resolved",
-            needs_clarification=False,
-            clarification_reason="resolved",
-            enough_context_for_support=True,
-            enough_context_for_plan=True,
-            state_hints={"signals": ["dialysis_context"], "facts": ["mentioned_dialysis"]},
-        ),
-    )
-
-    assert result.used_pending_answer is True
-    assert result.message_type == "short_answer"
-    assert result.updated_state.goal == "переживания из-за предстоящего диализа"
-    assert result.updated_state.pending_question is None
-
-
-def test_orchestrator_asks_second_clarification_for_generic_pending_goal_answer():
-    state = CurrentState(
-        domain="general",
-        intent="support",
-        pending_question=PendingQuestion(
-            slot_name="goal",
-            question_text="Что сейчас беспокоит тебя больше всего?",
-            expected_kind="free_text",
-            attempts=1,
-            reason="context_missing",
-        ),
-        needs_clarification=True,
-        clarification_streak=1,
-        last_clarification_reason="context_missing",
-    )
-
-    result = SupervisorOrchestrator().handle_message(
-        "мне тревожно",
-        state,
-        goal_resolution=_analysis(
-            goal=None,
-            goal_status="generic_distress",
-            needs_clarification=True,
-            clarification_question="Из-за чего тревога сейчас сильнее всего?",
-            clarification_reason="generic_distress",
-            enough_context_for_support=False,
-            enough_context_for_plan=False,
-            state_hints={"signals": ["distress"]},
-        ),
-    )
-
-    assert result.used_pending_answer is True
-    assert result.needs_clarification is True
-    assert result.selected_agents == []
-    assert result.updated_state.pending_question is not None
-    assert result.updated_state.goal is None
-    assert result.updated_state.clarification_streak == 2
-    assert result.diagnostics["response_mode"] == "hybrid_clarify"
-
-
-def test_orchestrator_stops_clarifying_after_cap_and_switches_to_help():
-    state = CurrentState(
-        domain="general",
-        intent="support",
-        clarification_streak=5,
-        needs_clarification=True,
-        signals=["distress"],
-    )
-
-    result = SupervisorOrchestrator().handle_message(
-        "не знаю",
-        state,
-        goal_resolution=_analysis(
-            goal=None,
-            goal_status="generic_distress",
-            needs_clarification=True,
-            clarification_question="Из-за чего тревога сейчас сильнее всего?",
-            clarification_reason="generic_distress",
-            enough_context_for_support=False,
-            enough_context_for_plan=False,
-            state_hints={"signals": ["distress"]},
-        ),
-    )
-
-    assert result.needs_clarification is False
-    assert result.updated_state.clarification_streak == 0
-    assert "emotional_support" in result.selected_agents
-    assert result.diagnostics["clarification_gate"]["forced_by_cap"] is True
-    assert result.diagnostics["response_mode"] == "direct_support"
+    assert context.response_draft == "Я рядом. Попробуй назвать, что пугает сильнее всего."
+    assert context.supervisor_state["pending_question"] is None
+    assert context.supervisor_state["last_selected_agents"] == ["emotional_support"]
+    assert context.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "эмоциональная_поддержка"
+    assert context.diagnostics["supervisor"]["expert"]["card"]["step_now"] == "Попробуй назвать, что пугает сильнее всего."

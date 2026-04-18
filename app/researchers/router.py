@@ -16,27 +16,20 @@ from pathlib import Path
 from typing import Any, List, Optional
 from uuid import UUID
 
-<<<<<<< Updated upstream
-from fastapi import APIRouter, Depends, HTTPException, status
-=======
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
->>>>>>> Stashed changes
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.session import get_async_session
 from app.auth.dependencies import get_current_researcher
-<<<<<<< Updated upstream
-=======
 from app.llm.agent_v2 import generate_response_v2
 from app.llm.errors import LLMConfigurationError, LLMError
 from app.llm.memory import st_memory_store
 from app.llm.router import ModelTier, RouterResult, classify_request
 from app.llm.trace_humanizer import build_human_trace
 from app.models.llm import ChatMessage
->>>>>>> Stashed changes
 from app.researchers.models import Researcher
 from app.researchers.schemas import (
     PatientCreateRequest,
@@ -51,14 +44,11 @@ from app.researchers.schemas import (
     ChatStatsResponse,
     TokensByDate,
     CohortItem,
-<<<<<<< Updated upstream
-=======
     HumanTraceSection,
     ResearcherChatDebugRequest,
     ResearcherChatDebugResponse,
     ResearcherDebugReportSaveRequest,
     ResearcherDebugReportSaveResponse,
->>>>>>> Stashed changes
 )
 from app.researchers import crud
 
@@ -68,8 +58,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEBUG_REPORTS_DIR = _PROJECT_ROOT / "LLM_test" / "reports"
 
 
-<<<<<<< Updated upstream
-=======
 def _normalize_debug_session_token(value: str | None, patient_id: int) -> str:
     token = str(value or "").strip()
     return token or f"researcher-debug-patient-{patient_id}"
@@ -120,17 +108,662 @@ def _apply_forced_model_tier(router_result: RouterResult, forced_tier: str | Non
 def _next_debug_report_path(now: datetime | None = None) -> Path:
     current = now or datetime.now()
     base_name = current.strftime("%Y.%m.%d_%H.%M")
-    candidate = _DEBUG_REPORTS_DIR / f"{base_name}.json"
+    candidate = _DEBUG_REPORTS_DIR / f"{base_name}.md"
     suffix = 1
 
     while candidate.exists():
-        candidate = _DEBUG_REPORTS_DIR / f"{base_name}_{suffix:02d}.json"
+        candidate = _DEBUG_REPORTS_DIR / f"{base_name}_{suffix:02d}.md"
         suffix += 1
 
     return candidate
 
 
->>>>>>> Stashed changes
+def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path: list[Any] | None) -> str:
+    card = dict(router_card or {})
+    lines: list[str] = []
+
+    if graph_path:
+        path_items = [str(item).strip() for item in graph_path if str(item).strip()]
+        if path_items:
+            lines.append(f"- Path: {' -> '.join(path_items)}")
+
+    if card.get("problem"):
+        lines.append(f"- Проблема: {card['problem']}")
+    if card.get("context"):
+        lines.append(f"- Контекст: {card['context']}")
+    if card.get("intention"):
+        lines.append(f"- Намерение: {card['intention']}")
+    if card.get("phase"):
+        lines.append(f"- Фаза: {card['phase']}")
+    if card.get("status"):
+        lines.append(f"- Статус: {card['status']}")
+    if card.get("next_action"):
+        lines.append(f"- Следующее действие: {card['next_action']}")
+    if card.get("needs_clarification"):
+        lines.append(f"- Нужны уточнения: {card['needs_clarification']}")
+    if card.get("needs_another_cycle"):
+        lines.append(f"- Нужен еще цикл: {card['needs_another_cycle']}")
+
+    experts = list(card.get("experts") or [])
+    if experts:
+        lines.append("- Подключаемые эксперты:")
+        for expert in experts:
+            expert_name = str(expert.get("expert") or "").strip() or "не указан"
+            task = str(expert.get("task") or "").strip() or "-"
+            context = str(expert.get("context") or "").strip() or "-"
+            lines.append(f"  - {expert_name}")
+            lines.append(f"    - задача: {task}")
+            lines.append(f"    - контекст: {context}")
+
+    if card.get("rationale"):
+        lines.append(f"- Обоснование: {card['rationale']}")
+
+    return "\n".join(lines) if lines else "_Нет данных graph/router card._"
+
+
+def _format_human_trace_markdown(human_trace: list[dict[str, Any]] | None) -> str:
+    sections = list(human_trace or [])
+    if not sections:
+        return "_Нет human trace._"
+
+    lines: list[str] = []
+    for section in sections:
+        title = str(section.get("title") or "Trace").strip() or "Trace"
+        lines.append(f"### {title}")
+        items = list(section.get("items") or [])
+        if not items:
+            lines.append("- _Пусто_")
+        else:
+            for item in items:
+                lines.append(f"- {str(item)}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def _format_json_block(value: Any) -> str:
+    return "```json\n" + json.dumps(value, ensure_ascii=False, indent=2) + "\n```"
+
+
+def _build_debug_report_markdown(payload: dict[str, Any]) -> str:
+    turns = list(payload.get("turns") or [])
+    lines: list[str] = [
+        "# Researcher Debug Report",
+        "",
+        f"- Сохранено: {payload.get('saved_at') or payload.get('exported_at') or datetime.now().isoformat()}",
+        f"- Session ID: {payload.get('session_id') or '-'}",
+        f"- Thread ID: {payload.get('thread_id') or '-'}",
+        f"- Patient ID: {payload.get('patient_id') or '-'}",
+        f"- Пациент: {payload.get('patient_label') or '-'}",
+        f"- Export scope: {payload.get('export_scope') or '-'}",
+        "",
+    ]
+
+    for turn in turns:
+        turn_number = turn.get("turn_number") or "?"
+        diagnostics_json = dict(turn.get("diagnostics_json") or {})
+        supervisor = dict(diagnostics_json.get("supervisor") or {})
+        goal_analysis = dict(supervisor.get("goal_analysis") or {})
+        router_card = goal_analysis.get("router_card") or {}
+        graph_path = supervisor.get("graph_path") or []
+
+        lines.extend(
+            [
+                f"# Ход {turn_number}",
+                "",
+                "## Пациент",
+                str(turn.get("user_message") or ""),
+                "",
+                "## Graph",
+                _format_router_card_markdown(router_card, graph_path),
+                "",
+                "## Бот",
+                str(turn.get("assistant_reply") or ""),
+                "",
+                "## Trace",
+                _format_human_trace_markdown(turn.get("human_trace") or []),
+                "",
+                "## Debug",
+                "### State before",
+                _format_json_block(turn.get("state_before") or {}),
+                "",
+                "### State after",
+                _format_json_block(turn.get("state_after") or {}),
+                "",
+                "### Diagnostics",
+                _format_json_block(diagnostics_json),
+                "",
+            ]
+        )
+
+    if payload.get("current_supervisor_state") is not None:
+        lines.extend(
+            [
+                "# Текущее состояние supervisor",
+                "",
+                _format_json_block(payload.get("current_supervisor_state") or {}),
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def _format_llm_block_markdown(title: str, payload: dict[str, Any] | None) -> list[str]:
+    payload = dict(payload or {})
+    llm = dict(payload.get("llm") or {})
+    if not llm:
+        return []
+
+    lines: list[str] = []
+    attempts_total = int(llm.get("attempts_total") or 0)
+    succeeded_on_attempt = llm.get("succeeded_on_attempt")
+    failures = list(llm.get("failures") or [])
+
+    lines.append(f"  - {title} attempts: {attempts_total or '-'}")
+    if succeeded_on_attempt:
+        lines.append(f"  - {title} succeeded on: {succeeded_on_attempt}")
+    if failures:
+        lines.append(f"  - {title} retries: {len(failures)}")
+    for failure in failures:
+        attempt = failure.get("attempt") or "?"
+        error_type = str(failure.get("error_type") or "Error").strip()
+        error_message = str(failure.get("error_message") or "").strip()
+        raw_excerpt = str(failure.get("raw_excerpt") or "").strip()
+        line = f"  - {title} error #{attempt}: {error_type}"
+        if error_message:
+            line += f" - {error_message}"
+        if raw_excerpt:
+            line += f" | raw: {raw_excerpt}"
+        lines.append(line)
+    return lines
+
+
+def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path: list[Any] | None) -> str:
+    supervisor = dict(router_card or {})
+    intake = dict(supervisor.get("intake") or {})
+    delegation = dict(supervisor.get("delegation") or {})
+    expert = dict(supervisor.get("expert") or {})
+    lines: list[str] = []
+
+    if graph_path:
+        path_items = [str(item).strip() for item in graph_path if str(item).strip()]
+        if path_items:
+            lines.append(f"- Path: {' -> '.join(path_items)}")
+
+    intake_card = dict(intake.get("card") or {})
+    if intake_card:
+        lines.append("- Intake:")
+        for key, label in [
+            ("problem", "Проблема"),
+            ("context", "Контекст"),
+            ("needs_clarification", "Нужно уточнение"),
+            ("question", "Вопрос"),
+            ("ready_to_delegate", "Готово к передаче"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = intake_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+        lines.extend(_format_llm_block_markdown("Intake", intake))
+
+    delegation_card = dict(delegation.get("card") or {})
+    if delegation_card:
+        lines.append("- Delegation:")
+        for key, label in [("expert", "Эксперт"), ("task", "Задача"), ("rationale", "Обоснование")]:
+            value = delegation_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+        lines.extend(_format_llm_block_markdown("Delegation", delegation))
+
+    expert_card = dict(expert.get("card") or {})
+    if expert_card:
+        lines.append("- Expert:")
+        for key, label in [
+            ("support", "Поддержка"),
+            ("step_now", "Шаг сейчас"),
+            ("follow_up", "Уточнение после помощи"),
+            ("needs_more_info", "Нужно ли уточнение"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = expert_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+        lines.extend(_format_llm_block_markdown("Expert", expert))
+
+    return "\n".join(lines) if lines else "_Нет данных graph v2._"
+
+
+def _build_debug_report_markdown(payload: dict[str, Any]) -> str:
+    turns = list(payload.get("turns") or [])
+    lines: list[str] = [
+        "# Researcher Debug Report",
+        "",
+        f"- Сохранено: {payload.get('saved_at') or payload.get('exported_at') or datetime.now().isoformat()}",
+        f"- Session ID: {payload.get('session_id') or '-'}",
+        f"- Thread ID: {payload.get('thread_id') or '-'}",
+        f"- Patient ID: {payload.get('patient_id') or '-'}",
+        f"- Пациент: {payload.get('patient_label') or '-'}",
+        f"- Export scope: {payload.get('export_scope') or '-'}",
+        "",
+    ]
+
+    for turn in turns:
+        turn_number = turn.get("turn_number") or "?"
+        diagnostics_json = dict(turn.get("diagnostics_json") or {})
+        supervisor = dict(diagnostics_json.get("supervisor") or {})
+        graph_path = supervisor.get("graph_path") or []
+        lines.extend(
+            [
+                f"# Ход {turn_number}",
+                "",
+                "## Пациент",
+                str(turn.get("user_message") or ""),
+                "",
+                "## Graph",
+                _format_router_card_markdown(supervisor, graph_path),
+                "",
+                "## Бот",
+                str(turn.get("assistant_reply") or ""),
+                "",
+                "## Trace",
+                _format_human_trace_markdown(turn.get("human_trace") or []),
+                "",
+                "## Debug",
+                "### State before",
+                _format_json_block(turn.get("state_before") or {}),
+                "",
+                "### State after",
+                _format_json_block(turn.get("state_after") or {}),
+                "",
+                "### Diagnostics",
+                _format_json_block(diagnostics_json),
+                "",
+            ]
+        )
+
+    if payload.get("current_supervisor_state") is not None:
+        lines.extend(
+            [
+                "# Текущее состояние supervisor",
+                "",
+                _format_json_block(payload.get("current_supervisor_state") or {}),
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip() + "\n"
+
+
+# Final Graph v2 overrides. These are placed after all legacy duplicates on purpose.
+def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path: list[Any] | None) -> str:
+    supervisor = dict(router_card or {})
+    intake = dict(supervisor.get("intake") or {})
+    delegation = dict(supervisor.get("delegation") or {})
+    expert = dict(supervisor.get("expert") or {})
+    lines: list[str] = []
+
+    if graph_path:
+        path_items = [str(item).strip() for item in graph_path if str(item).strip()]
+        if path_items:
+            lines.append(f"- Path: {' -> '.join(path_items)}")
+
+    intake_card = dict(intake.get("card") or {})
+    if intake_card:
+        lines.append("- Intake:")
+        for key, label in [
+            ("problem", "Проблема"),
+            ("context", "Контекст"),
+            ("needs_clarification", "Нужно уточнение"),
+            ("question", "Вопрос"),
+            ("ready_to_delegate", "Готово к передаче"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = intake_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    delegation_card = dict(delegation.get("card") or {})
+    if delegation_card:
+        lines.append("- Delegation:")
+        for key, label in [("expert", "Эксперт"), ("task", "Задача"), ("rationale", "Обоснование")]:
+            value = delegation_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    expert_card = dict(expert.get("card") or {})
+    if expert_card:
+        lines.append("- Expert:")
+        for key, label in [
+            ("support", "Поддержка"),
+            ("step_now", "Шаг сейчас"),
+            ("follow_up", "Уточнение после помощи"),
+            ("needs_more_info", "Нужно ли уточнение"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = expert_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    return "\n".join(lines) if lines else "_Нет данных graph v2._"
+
+
+def _build_debug_report_markdown(payload: dict[str, Any]) -> str:
+    turns = list(payload.get("turns") or [])
+    lines: list[str] = [
+        "# Researcher Debug Report",
+        "",
+        f"- Сохранено: {payload.get('saved_at') or payload.get('exported_at') or datetime.now().isoformat()}",
+        f"- Session ID: {payload.get('session_id') or '-'}",
+        f"- Thread ID: {payload.get('thread_id') or '-'}",
+        f"- Patient ID: {payload.get('patient_id') or '-'}",
+        f"- Пациент: {payload.get('patient_label') or '-'}",
+        f"- Export scope: {payload.get('export_scope') or '-'}",
+        "",
+    ]
+
+    for turn in turns:
+        turn_number = turn.get("turn_number") or "?"
+        diagnostics_json = dict(turn.get("diagnostics_json") or {})
+        supervisor = dict(diagnostics_json.get("supervisor") or {})
+        graph_path = supervisor.get("graph_path") or []
+        lines.extend(
+            [
+                f"# Ход {turn_number}",
+                "",
+                "## Пациент",
+                str(turn.get("user_message") or ""),
+                "",
+                "## Graph",
+                _format_router_card_markdown(supervisor, graph_path),
+                "",
+                "## Бот",
+                str(turn.get("assistant_reply") or ""),
+                "",
+                "## Trace",
+                _format_human_trace_markdown(turn.get("human_trace") or []),
+                "",
+                "## Debug",
+                "### State before",
+                _format_json_block(turn.get("state_before") or {}),
+                "",
+                "### State after",
+                _format_json_block(turn.get("state_after") or {}),
+                "",
+                "### Diagnostics",
+                _format_json_block(diagnostics_json),
+                "",
+            ]
+        )
+
+    if payload.get("current_supervisor_state") is not None:
+        lines.extend(
+            [
+                "# Текущее состояние supervisor",
+                "",
+                _format_json_block(payload.get("current_supervisor_state") or {}),
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip() + "\n"
+
+
+# Graph v2 overrides. These definitions intentionally shadow legacy helpers above.
+def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path: list[Any] | None) -> str:
+    supervisor = dict(router_card or {})
+    intake = dict(supervisor.get("intake") or {})
+    delegation = dict(supervisor.get("delegation") or {})
+    expert = dict(supervisor.get("expert") or {})
+    lines: list[str] = []
+
+    if graph_path:
+        path_items = [str(item).strip() for item in graph_path if str(item).strip()]
+        if path_items:
+            lines.append(f"- Path: {' -> '.join(path_items)}")
+
+    intake_card = dict(intake.get("card") or {})
+    if intake_card:
+        lines.append("- Intake:")
+        for key, label in [
+            ("problem", "Проблема"),
+            ("context", "Контекст"),
+            ("needs_clarification", "Нужно уточнение"),
+            ("question", "Вопрос"),
+            ("ready_to_delegate", "Готово к передаче"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = intake_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    delegation_card = dict(delegation.get("card") or {})
+    if delegation_card:
+        lines.append("- Delegation:")
+        for key, label in [("expert", "Эксперт"), ("task", "Задача"), ("rationale", "Обоснование")]:
+            value = delegation_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    expert_card = dict(expert.get("card") or {})
+    if expert_card:
+        lines.append("- Expert:")
+        for key, label in [
+            ("support", "Поддержка"),
+            ("step_now", "Шаг сейчас"),
+            ("follow_up", "Уточнение после помощи"),
+            ("needs_more_info", "Нужно ли уточнение"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = expert_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    return "\n".join(lines) if lines else "_Нет данных graph v2._"
+
+
+def _build_debug_report_markdown(payload: dict[str, Any]) -> str:
+    turns = list(payload.get("turns") or [])
+    lines: list[str] = [
+        "# Researcher Debug Report",
+        "",
+        f"- Сохранено: {payload.get('saved_at') or payload.get('exported_at') or datetime.now().isoformat()}",
+        f"- Session ID: {payload.get('session_id') or '-'}",
+        f"- Thread ID: {payload.get('thread_id') or '-'}",
+        f"- Patient ID: {payload.get('patient_id') or '-'}",
+        f"- Пациент: {payload.get('patient_label') or '-'}",
+        f"- Export scope: {payload.get('export_scope') or '-'}",
+        "",
+    ]
+
+    for turn in turns:
+        turn_number = turn.get("turn_number") or "?"
+        diagnostics_json = dict(turn.get("diagnostics_json") or {})
+        supervisor = dict(diagnostics_json.get("supervisor") or {})
+        graph_path = supervisor.get("graph_path") or []
+        lines.extend(
+            [
+                f"# Ход {turn_number}",
+                "",
+                "## Пациент",
+                str(turn.get("user_message") or ""),
+                "",
+                "## Graph",
+                _format_router_card_markdown(supervisor, graph_path),
+                "",
+                "## Бот",
+                str(turn.get("assistant_reply") or ""),
+                "",
+                "## Trace",
+                _format_human_trace_markdown(turn.get("human_trace") or []),
+                "",
+                "## Debug",
+                "### State before",
+                _format_json_block(turn.get("state_before") or {}),
+                "",
+                "### State after",
+                _format_json_block(turn.get("state_after") or {}),
+                "",
+                "### Diagnostics",
+                _format_json_block(diagnostics_json),
+                "",
+            ]
+        )
+
+    if payload.get("current_supervisor_state") is not None:
+        lines.extend(
+            [
+                "# Текущее состояние supervisor",
+                "",
+                _format_json_block(payload.get("current_supervisor_state") or {}),
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip() + "\n"
+
+
+# Clean UTF-8 overrides for debug/report helpers. These definitions intentionally
+# shadow older mojibake variants above so runtime/export uses readable Russian.
+def _apply_forced_model_tier(router_result: RouterResult, forced_tier: str | None) -> RouterResult:
+    value = str(forced_tier or "").strip().lower()
+    if not value:
+        return router_result
+    try:
+        tier = ModelTier(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректный model tier. Допустимо: lite, pro, max") from exc
+    return RouterResult(
+        request_type=router_result.request_type,
+        model_tier=tier,
+        domain_hint=router_result.domain_hint,
+        priority=router_result.priority,
+    )
+
+
+def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path: list[Any] | None) -> str:
+    card = dict(router_card or {})
+    lines: list[str] = []
+
+    if graph_path:
+        path_items = [str(item).strip() for item in graph_path if str(item).strip()]
+        if path_items:
+            lines.append(f"- Path: {' -> '.join(path_items)}")
+
+    labels = [
+        ("problem", "Проблема"),
+        ("context", "Контекст"),
+        ("intention", "Намерение"),
+        ("phase", "Фаза"),
+        ("status", "Статус"),
+        ("next_action", "Следующее действие"),
+        ("needs_clarification", "Нужны уточнения"),
+        ("needs_another_cycle", "Нужен еще цикл"),
+    ]
+    for key, label in labels:
+        value = card.get(key)
+        if value:
+            lines.append(f"- {label}: {value}")
+
+    experts = list(card.get("experts") or [])
+    if experts:
+        lines.append("- Подключаемые эксперты:")
+        for expert in experts:
+            expert_name = str(expert.get("expert") or "").strip() or "не указан"
+            task = str(expert.get("task") or "").strip() or "-"
+            context = str(expert.get("context") or "").strip() or "-"
+            lines.append(f"  - {expert_name}")
+            lines.append(f"    - задача: {task}")
+            lines.append(f"    - контекст: {context}")
+
+    if card.get("rationale"):
+        lines.append(f"- Обоснование: {card['rationale']}")
+
+    return "\n".join(lines) if lines else "_Нет данных graph/router card._"
+
+
+def _format_human_trace_markdown(human_trace: list[dict[str, Any]] | None) -> str:
+    sections = list(human_trace or [])
+    if not sections:
+        return "_Нет human trace._"
+
+    lines: list[str] = []
+    for section in sections:
+        title = str(section.get("title") or "Trace").strip() or "Trace"
+        lines.append(f"### {title}")
+        items = list(section.get("items") or [])
+        if not items:
+            lines.append("- _Пусто_")
+        else:
+            for item in items:
+                lines.append(f"- {str(item)}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def _build_debug_report_markdown(payload: dict[str, Any]) -> str:
+    turns = list(payload.get("turns") or [])
+    lines: list[str] = [
+        "# Researcher Debug Report",
+        "",
+        f"- Сохранено: {payload.get('saved_at') or payload.get('exported_at') or datetime.now().isoformat()}",
+        f"- Session ID: {payload.get('session_id') or '-'}",
+        f"- Thread ID: {payload.get('thread_id') or '-'}",
+        f"- Patient ID: {payload.get('patient_id') or '-'}",
+        f"- Пациент: {payload.get('patient_label') or '-'}",
+        f"- Export scope: {payload.get('export_scope') or '-'}",
+        "",
+    ]
+
+    for turn in turns:
+        turn_number = turn.get("turn_number") or "?"
+        diagnostics_json = dict(turn.get("diagnostics_json") or {})
+        supervisor = dict(diagnostics_json.get("supervisor") or {})
+        goal_analysis = dict(supervisor.get("goal_analysis") or {})
+        router_card = goal_analysis.get("router_card") or {}
+        graph_path = supervisor.get("graph_path") or []
+        lines.extend(
+            [
+                f"# Ход {turn_number}",
+                "",
+                "## Пациент",
+                str(turn.get("user_message") or ""),
+                "",
+                "## Graph",
+                _format_router_card_markdown(router_card, graph_path),
+                "",
+                "## Бот",
+                str(turn.get("assistant_reply") or ""),
+                "",
+                "## Trace",
+                _format_human_trace_markdown(turn.get("human_trace") or []),
+                "",
+                "## Debug",
+                "### State before",
+                _format_json_block(turn.get("state_before") or {}),
+                "",
+                "### State after",
+                _format_json_block(turn.get("state_after") or {}),
+                "",
+                "### Diagnostics",
+                _format_json_block(diagnostics_json),
+                "",
+            ]
+        )
+
+    if payload.get("current_supervisor_state") is not None:
+        lines.extend(
+            [
+                "# Текущее состояние supervisor",
+                "",
+                _format_json_block(payload.get("current_supervisor_state") or {}),
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip() + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
@@ -466,8 +1099,6 @@ async def get_chat_logs(
     )
 
 
-<<<<<<< Updated upstream
-=======
 @router.post("/chat-debug/message", response_model=ResearcherChatDebugResponse)
 async def researcher_chat_debug_message(
     body: ResearcherChatDebugRequest,
@@ -484,7 +1115,7 @@ async def researcher_chat_debug_message(
     session_id = _normalize_debug_session_token(body.session_id, body.patient_id)
     thread_id = _normalize_debug_thread_token(body.thread_id)
     router_result = classify_request(body.message, body.source)
-    router_result = _apply_forced_model_tier(router_result, body.forced_model_tier)
+    router_result = _apply_forced_model_tier(router_result, body.forced_model_tier or "lite")
     supervisor_state = body.supervisor_state or _read_debug_supervisor_state(
         patient_id=body.patient_id,
         session_id=session_id,
@@ -510,6 +1141,7 @@ async def researcher_chat_debug_message(
                 "thread_id": thread_id,
                 "st_memory": memory_before,
                 "supervisor_state": supervisor_state,
+                "strict_model_tier": bool(body.forced_model_tier),
             },
             db=session,
         )
@@ -638,18 +1270,12 @@ async def researcher_chat_debug_save_report(
     payload = dict(body.report_data or {})
     payload.setdefault("saved_at", datetime.now().isoformat())
     payload.setdefault("saved_from", "researcher_chat_debug")
-    target_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    target_path.write_text(_build_debug_report_markdown(payload), encoding="utf-8")
     return ResearcherDebugReportSaveResponse(
         ok=True,
         filename=target_path.name,
         relative_path=str(target_path.relative_to(_PROJECT_ROOT)).replace("\\", "/"),
     )
-
-
->>>>>>> Stashed changes
 # ---------------------------------------------------------------------------
 # Cohorts
 # ---------------------------------------------------------------------------
@@ -1075,3 +1701,117 @@ async def export_chat_logs(
             "Content-Disposition": f'attachment; filename="chat_logs_{timestamp}.csv"'
         },
     )
+
+
+# Final Graph v2 debug/report overrides. Kept at EOF so they win over older duplicates above.
+def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path: list[Any] | None) -> str:
+    supervisor = dict(router_card or {})
+    intake = dict(supervisor.get("intake") or {})
+    delegation = dict(supervisor.get("delegation") or {})
+    expert = dict(supervisor.get("expert") or {})
+    lines: list[str] = []
+
+    if graph_path:
+        path_items = [str(item).strip() for item in graph_path if str(item).strip()]
+        if path_items:
+            lines.append(f"- Path: {' -> '.join(path_items)}")
+
+    intake_card = dict(intake.get("card") or {})
+    if intake_card:
+        lines.append("- Intake:")
+        for key, label in [
+            ("problem", "Проблема"),
+            ("context", "Контекст"),
+            ("needs_clarification", "Нужно уточнение"),
+            ("question", "Вопрос"),
+            ("ready_to_delegate", "Готово к передаче"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = intake_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    delegation_card = dict(delegation.get("card") or {})
+    if delegation_card:
+        lines.append("- Delegation:")
+        for key, label in [("expert", "Эксперт"), ("task", "Задача"), ("rationale", "Обоснование")]:
+            value = delegation_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    expert_card = dict(expert.get("card") or {})
+    if expert_card:
+        lines.append("- Expert:")
+        for key, label in [
+            ("support", "Поддержка"),
+            ("step_now", "Шаг сейчас"),
+            ("follow_up", "Уточнение после помощи"),
+            ("needs_more_info", "Нужно ли уточнение"),
+            ("rationale", "Обоснование"),
+        ]:
+            value = expert_card.get(key)
+            if value:
+                lines.append(f"  - {label}: {value}")
+
+    return "\n".join(lines) if lines else "_Нет данных graph v2._"
+
+
+def _build_debug_report_markdown(payload: dict[str, Any]) -> str:
+    turns = list(payload.get("turns") or [])
+    lines: list[str] = [
+        "# Researcher Debug Report",
+        "",
+        f"- Сохранено: {payload.get('saved_at') or payload.get('exported_at') or datetime.now().isoformat()}",
+        f"- Session ID: {payload.get('session_id') or '-'}",
+        f"- Thread ID: {payload.get('thread_id') or '-'}",
+        f"- Patient ID: {payload.get('patient_id') or '-'}",
+        f"- Пациент: {payload.get('patient_label') or '-'}",
+        f"- Export scope: {payload.get('export_scope') or '-'}",
+        "",
+    ]
+
+    for turn in turns:
+        turn_number = turn.get("turn_number") or "?"
+        diagnostics_json = dict(turn.get("diagnostics_json") or {})
+        supervisor = dict(diagnostics_json.get("supervisor") or {})
+        graph_path = supervisor.get("graph_path") or []
+        lines.extend(
+            [
+                f"# Ход {turn_number}",
+                "",
+                "## Пациент",
+                str(turn.get("user_message") or ""),
+                "",
+                "## Graph",
+                _format_router_card_markdown(supervisor, graph_path),
+                "",
+                "## Бот",
+                str(turn.get("assistant_reply") or ""),
+                "",
+                "## Trace",
+                _format_human_trace_markdown(turn.get("human_trace") or []),
+                "",
+                "## Debug",
+                "### State before",
+                _format_json_block(turn.get("state_before") or {}),
+                "",
+                "### State after",
+                _format_json_block(turn.get("state_after") or {}),
+                "",
+                "### Diagnostics",
+                _format_json_block(diagnostics_json),
+                "",
+            ]
+        )
+
+    if payload.get("current_supervisor_state") is not None:
+        lines.extend(
+            [
+                "# Текущее состояние supervisor",
+                "",
+                _format_json_block(payload.get("current_supervisor_state") or {}),
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip() + "\n"

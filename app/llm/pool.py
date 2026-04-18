@@ -4,6 +4,10 @@ GigaChat Account Pool — управление пулом аккаунтов Gig
 Каждый аккаунт имеет один поток (asyncio.Lock), ротация по пулу.
 Аккаунты читаются из переменных окружения: GIGACHAT_KEY_A1, GIGACHAT_KEY_A2, ...
 
+Важно:
+- пул выбирает только аккаунт / контур;
+- модель (`lite` / `pro` / `max`) выбирается в самом запросе через поле `model`.
+
 GigaChat API:
   1. OAuth: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth
      Authorization: Basic <api_key>, body: scope=GIGACHAT_API_PERS
@@ -39,8 +43,8 @@ MODEL_NAMES: dict[str, str] = {
     "max":  "GigaChat-2-Max",
 }
 
-# Порядок tier для fallback (lite → pro → max)
-_TIER_PRIORITY: dict[str, int] = {"lite": 0, "pro": 1, "max": 2}
+DEFAULT_ACCOUNT_GROUP = "freemium_test"
+DEFAULT_SCOPE = "GIGACHAT_API_PERS"
 
 
 # ---------------------------------------------------------------------------
@@ -55,10 +59,18 @@ class GigaChatClient:
     Автоматически обновляет OAuth-токен при истечении.
     """
 
-    def __init__(self, account_id: str, api_key: str, model_tier: str) -> None:
+    def __init__(
+        self,
+        account_id: str,
+        api_key: str,
+        *,
+        account_group: str = DEFAULT_ACCOUNT_GROUP,
+        scope: str = DEFAULT_SCOPE,
+    ) -> None:
         self.account_id = account_id
         self.api_key = api_key
-        self.model_tier = model_tier  # "lite" | "pro" | "max"
+        self.account_group = account_group
+        self.scope = scope
         self.tokens_used: int = 0
 
         self._lock = asyncio.Lock()
@@ -89,7 +101,7 @@ class GigaChatClient:
                     "RqUID": str(uuid.uuid4()),
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
-                data={"scope": "GIGACHAT_API_PERS"},
+                data={"scope": self.scope},
             )
             logger.debug("[pool] OAuth response status=%s body=%s", resp.status_code, resp.text)
             resp.raise_for_status()
@@ -105,7 +117,14 @@ class GigaChatClient:
     # API call
     # ------------------------------------------------------------------
 
-    async def call(self, messages: list[dict], system_prompt: str) -> tuple[str, int, int, int]:
+    async def call(
+        self,
+        messages: list[dict],
+        system_prompt: str,
+        *,
+        model_tier: str = "pro",
+        temperature: float = 0.7,
+    ) -> tuple[str, int, int, int]:
         """
         Отправляет запрос к GigaChat API.
 
@@ -122,13 +141,14 @@ class GigaChatClient:
         async with self._lock:
             start = time.monotonic()
             token = await self._get_access_token()
-            model_name = MODEL_NAMES.get(self.model_tier, "GigaChat-2-Pro")
+            requested_tier = str(model_tier or "pro").lower()
+            model_name = MODEL_NAMES.get(requested_tier, MODEL_NAMES["pro"])
 
             all_messages = [{"role": "system", "content": system_prompt}, *messages]
             payload = {
                 "model": model_name,
                 "messages": all_messages,
-                "temperature": 0.7,
+                "temperature": temperature,
                 "max_tokens": 512,
             }
 
@@ -158,8 +178,8 @@ class GigaChatClient:
 
                     self.tokens_used += tokens_in + tokens_out
                     logger.info(
-                        "[pool] account=%s model=%s in=%d out=%d time=%dms",
-                        self.account_id, model_name, tokens_in, tokens_out, elapsed_ms,
+                        "[pool] account=%s group=%s model=%s in=%d out=%d time=%dms",
+                        self.account_id, self.account_group, model_name, tokens_in, tokens_out, elapsed_ms,
                     )
                     return text, tokens_in, tokens_out, elapsed_ms
 
@@ -189,10 +209,9 @@ class AccountPool:
     Пул аккаунтов GigaChat.
 
     Читает GIGACHAT_KEY_A1, GIGACHAT_KEY_A2, ... из переменных окружения.
-    A1 → lite, A2 → pro; остальные: GIGACHAT_MODEL_A3 (или "pro" по умолчанию).
+    Модель не закрепляется за аккаунтом: она передаётся в `client.call(...)`.
+    Аккаунт может принадлежать к группе, например `freemium_test` или `business`.
     """
-
-    _FIXED_TIERS: dict[str, str] = {"A1": "lite", "A2": "pro"}
 
     def __init__(self) -> None:
         self.clients: list[GigaChatClient] = []
@@ -204,26 +223,33 @@ class AccountPool:
             key = os.getenv(f"GIGACHAT_KEY_{account_id}")
             if not key:
                 continue  # пропускаем пустые, не прерываем
-            tier = self._FIXED_TIERS.get(account_id) or os.getenv(
-                f"GIGACHAT_MODEL_{account_id}", "pro"
-            )
-            if tier not in MODEL_NAMES:
-                tier = "pro"
+            account_group = os.getenv(f"GIGACHAT_GROUP_{account_id}", DEFAULT_ACCOUNT_GROUP).strip() or DEFAULT_ACCOUNT_GROUP
+            scope = os.getenv(f"GIGACHAT_SCOPE_{account_id}", DEFAULT_SCOPE).strip() or DEFAULT_SCOPE
 
-            client = GigaChatClient(account_id=account_id, api_key=key, model_tier=tier)
+            client = GigaChatClient(
+                account_id=account_id,
+                api_key=key,
+                account_group=account_group,
+                scope=scope,
+            )
             self.clients.append(client)
-            logger.info("[pool] Добавлен аккаунт %s tier=%s", account_id, tier)
+            logger.info("[pool] Добавлен аккаунт %s group=%s scope=%s", account_id, account_group, scope)
 
         if not self.clients:
             logger.warning("[pool] Нет аккаунтов GigaChat! Задайте GIGACHAT_KEY_A1 в .env")
 
-    async def get_available(self, model_tier: str) -> GigaChatClient:
+    async def get_available(
+        self,
+        account_group: str | None = None,
+        *,
+        strict: bool = False,
+    ) -> GigaChatClient:
         """
-        Возвращает незанятый клиент нужного tier (или выше).
+        Возвращает незанятый клиент из нужной группы аккаунтов.
         Ждёт до 10 секунд, затем возвращает первый доступный клиент.
 
         Args:
-            model_tier: "lite" | "pro" | "max"
+            account_group: группа аккаунтов, например `freemium_test` или `business`
 
         Raises:
             RuntimeError: если пул пуст
@@ -231,19 +257,20 @@ class AccountPool:
         if not self.clients:
             raise RuntimeError("AccountPool пуст — нет настроенных аккаунтов GigaChat")
 
-        tier = model_tier.lower()
-        min_priority = _TIER_PRIORITY.get(tier, 1)
-
-        # Кандидаты: клиенты с tier >= запрошенного
+        normalized_group = (account_group or "").strip() or None
         candidates = [
             c for c in self.clients
-            if _TIER_PRIORITY.get(c.model_tier, 1) >= min_priority
+            if normalized_group is None or c.account_group == normalized_group
         ]
+        if not candidates and strict:
+            raise RuntimeError(
+                f"Нет доступного аккаунта GigaChat для требуемой группы: {normalized_group or DEFAULT_ACCOUNT_GROUP}"
+            )
         if not candidates:
-            candidates = self.clients  # fallback на любой
+            candidates = self.clients  # fallback на любой доступный аккаунт
 
-        # Сортируем: сначала незанятые, потом по приоритету tier
-        candidates.sort(key=lambda c: (c.is_busy, _TIER_PRIORITY.get(c.model_tier, 1)))
+        # Сортируем: сначала незанятые, потом по account_id для стабильности
+        candidates.sort(key=lambda c: (c.is_busy, c.account_id))
 
         # Первый проход: ищем свободный
         for client in candidates:
@@ -257,7 +284,10 @@ class AccountPool:
                 timeout=10.0,
             )
         except asyncio.TimeoutError:
-            logger.warning("[pool] Таймаут ожидания клиента tier=%s, возвращаем первый", tier)
+            logger.warning(
+                "[pool] Таймаут ожидания клиента group=%s, возвращаем первый",
+                normalized_group or "*",
+            )
             return candidates[0]
 
     @staticmethod
@@ -270,11 +300,11 @@ class AccountPool:
             await asyncio.sleep(0.2)
 
     def get_stats(self) -> dict:
-        """Статус каждого аккаунта: tier, занятость, суммарные токены."""
+        """Статус каждого аккаунта: группа, scope, занятость, суммарные токены."""
         return {
             c.account_id: {
-                "tier": c.model_tier,
-                "model": MODEL_NAMES.get(c.model_tier, "unknown"),
+                "account_group": c.account_group,
+                "scope": c.scope,
                 "is_busy": c.is_busy,
                 "tokens_used": c.tokens_used,
             }

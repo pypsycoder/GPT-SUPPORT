@@ -16,13 +16,7 @@
       </div>
     </div>
 
-    <div class="r-nav">
-      <a href="/researcher/dashboard" class="r-nav-btn">Обзор</a>
-      <a href="/researcher/dashboard" class="r-nav-btn">Пациенты</a>
-      <a href="/researcher/centers" class="r-nav-btn">Центры</a>
-      <button class="r-nav-btn active">Импорт расписаний</button>
-      <a href="/researcher/chat-monitor" class="r-nav-btn">Мониторинг чатов</a>
-    </div>
+    <div id="r-shared-nav" data-page="import_schedules"></div>
 
     <div id="step1" class="r-import-step">
       <div class="r-table-wrapper">
@@ -68,6 +62,7 @@
   </div>
 
   <script src="/frontend/researcher/js/auth.js"></script>
+  <script src="/frontend/researcher/js/layout.js?v=20260410b"></script>
   <script src="/frontend/researcher/js/import_schedules.js"></script>
 </body>
 </html>

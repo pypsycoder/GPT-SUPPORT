@@ -29,7 +29,7 @@ async def _get_query_embedding(query: str) -> list[float]:
     """
     from app.llm.pool import pool, _get_ssl_verify
 
-    gc_client = await pool.get_available("lite")
+    gc_client = await pool.get_available()
     token = await gc_client._get_access_token()
     verify = _get_ssl_verify()
 
@@ -147,3 +147,20 @@ async def retrieve_relevant_modules(
         })
 
     return result
+
+
+async def retrieve_relevant_modules_with_meta(
+    query: str,
+    patient_id: int,
+    db: AsyncSession,
+    top_k: int = 2,
+) -> dict:
+    modules = await retrieve_relevant_modules(query, patient_id, db, top_k=top_k)
+    return {
+        "modules": modules,
+        "meta": {
+            "query": query,
+            "top_k": top_k,
+            "hits": len(modules),
+        },
+    }

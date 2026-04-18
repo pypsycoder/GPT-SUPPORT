@@ -20,17 +20,24 @@
 
   function switchTab(tab) {
     currentTab = tab;
-    document.querySelectorAll('.r-nav-btn').forEach(function (btn) {
+    document.querySelectorAll('.r-nav-btn[data-tab]').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.tab === tab);
     });
+    var navRoot = document.getElementById('r-shared-nav');
+    if (navRoot) {
+      navRoot.dataset.activeTab = tab;
+    }
     tabDashboard.style.display = tab === 'dashboard' ? '' : 'none';
     tabPatients.style.display = tab === 'patients' ? '' : 'none';
     if (tab === 'patients') loadPatients();
   }
 
-  document.querySelectorAll('.r-nav-btn').forEach(function (btn) {
+  document.querySelectorAll('.r-nav-btn[data-tab]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       switchTab(this.dataset.tab);
+      if (window.location.hash !== '#' + this.dataset.tab) {
+        history.replaceState(null, '', '#' + this.dataset.tab);
+      }
     });
   });
 
@@ -730,6 +737,8 @@
       nameEl.textContent = researcher.full_name || researcher.username;
     }
 
+    var initialTab = window.location.hash === '#patients' ? 'patients' : 'dashboard';
+    switchTab(initialTab);
     loadStats();
   });
 })();

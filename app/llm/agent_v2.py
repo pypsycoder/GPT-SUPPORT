@@ -56,6 +56,7 @@ async def generate_response_v2(
         orchestration_mode=context.get("orchestration_mode", "llm_full"),
         supervisor_state=context.get("supervisor_state"),
         router_result=router_result,
+        strict_model_tier=bool(context.get("strict_model_tier", False)),
         db=db,
     )
     
