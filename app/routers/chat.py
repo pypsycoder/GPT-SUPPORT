@@ -15,12 +15,13 @@ from app.auth.dependencies import get_current_user
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import pool
 from app.llm.router import classify_request
-from app.models.llm import ChatMessage
+from app.models.llm import ChatMessage, ChatSupervisorState
 from app.users.models import User
 from core.db.session import get_async_session
 
 router = APIRouter()
 _llm_pipeline = LLMPipeline()
+_DEFAULT_THREAD_ID = "default"
 
 
 class MessageRequest(BaseModel):
@@ -51,6 +52,45 @@ class ChatMessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
 
+async def _read_supervisor_state(db: AsyncSession, patient_id: int) -> dict | None:
+    result = await db.execute(
+        select(ChatSupervisorState.state_json).where(
+            ChatSupervisorState.patient_id == patient_id,
+            ChatSupervisorState.thread_id == _DEFAULT_THREAD_ID,
+        )
+    )
+    state = result.scalar_one_or_none()
+    return dict(state) if isinstance(state, dict) else None
+
+
+async def _write_supervisor_state(
+    db: AsyncSession,
+    *,
+    patient_id: int,
+    supervisor_state: dict | None,
+) -> None:
+    if not supervisor_state:
+        return
+
+    result = await db.execute(
+        select(ChatSupervisorState).where(
+            ChatSupervisorState.patient_id == patient_id,
+            ChatSupervisorState.thread_id == _DEFAULT_THREAD_ID,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        db.add(
+            ChatSupervisorState(
+                patient_id=patient_id,
+                thread_id=_DEFAULT_THREAD_ID,
+                state_json=dict(supervisor_state),
+            )
+        )
+    else:
+        row.state_json = dict(supervisor_state)
+
+
 @router.post("/message", response_model=MessageResponse)
 async def send_message(
     body: MessageRequest,
@@ -64,11 +104,13 @@ async def send_message(
         )
 
     router_result = classify_request(body.message, body.source)
+    supervisor_state = await _read_supervisor_state(db, body.patient_id)
     llm_response = await _llm_pipeline.process(
         LLMRequest(
             patient_id=body.patient_id,
             user_input=body.message,
             source=body.source,
+            supervisor_state=supervisor_state,
             router_result=router_result,
             db=db,
         )
@@ -96,6 +138,11 @@ async def send_message(
             domain=llm_response.domain,
             request_type=router_result.request_type.value,
         )
+    )
+    await _write_supervisor_state(
+        db,
+        patient_id=body.patient_id,
+        supervisor_state=llm_response.supervisor_state,
     )
     await db.commit()
 

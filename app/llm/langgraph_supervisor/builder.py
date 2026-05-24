@@ -10,6 +10,7 @@ from app.llm.langgraph_supervisor.nodes import (
     intake_analyze_node,
     intake_execute_node,
     intake_validate_node,
+    invoke_education_expert_node,
     invoke_emotional_expert_node,
 )
 
@@ -42,6 +43,7 @@ def build_langgraph():
     graph.add_node("delegation_analyze", wrap(delegation_analyze_node))
     graph.add_node("delegation_validate", wrap(delegation_validate_node))
     graph.add_node("invoke_emotional_expert", wrap(invoke_emotional_expert_node))
+    graph.add_node("invoke_education_expert", wrap(invoke_education_expert_node))
     graph.add_node("finalize_reply", wrap(finalize_reply_node))
 
     graph.set_entry_point("intake_analyze")
@@ -50,6 +52,7 @@ def build_langgraph():
     graph.add_edge("intake_execute", "delegation_analyze")
     graph.add_edge("delegation_analyze", "delegation_validate")
     graph.add_edge("delegation_validate", "invoke_emotional_expert")
-    graph.add_edge("invoke_emotional_expert", "finalize_reply")
+    graph.add_edge("invoke_emotional_expert", "invoke_education_expert")
+    graph.add_edge("invoke_education_expert", "finalize_reply")
     graph.add_edge("finalize_reply", END)
     return graph.compile()

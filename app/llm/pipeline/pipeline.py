@@ -48,50 +48,60 @@ class LLMPipeline:
             request.source,
         )
 
-        for stage in self.stages:
-            stage_started = time.monotonic()
-            try:
-                context = await stage.process(context)
-                stage_latency = int((time.monotonic() - stage_started) * 1000)
-                context.diagnostics["stages"].append(
-                    {
-                        "name": stage.stage_name,
-                        "status": "ok",
-                        "latency_ms": stage_latency,
-                    }
-                )
-                logger.debug(
-                    "[pipeline] stage=%s completed latency_ms=%d",
-                    stage.stage_name,
-                    stage_latency,
-                )
-                if context.early_response:
-                    logger.info(
-                        "[pipeline] early response from %s, skipping remaining stages",
-                        context.early_response_source,
+        try:
+            for stage in self.stages:
+                stage_started = time.monotonic()
+                try:
+                    context = await stage.process(context)
+                    stage_latency = int((time.monotonic() - stage_started) * 1000)
+                    context.diagnostics["stages"].append(
+                        {
+                            "name": stage.stage_name,
+                            "status": "ok",
+                            "latency_ms": stage_latency,
+                        }
                     )
-                    break
-            except Exception as exc:
-                stage_latency = int((time.monotonic() - stage_started) * 1000)
-                context.diagnostics["stages"].append(
-                    {
-                        "name": stage.stage_name,
-                        "status": "error",
-                        "error": str(exc),
-                        "error_type": exc.__class__.__name__,
-                        "latency_ms": stage_latency,
-                    }
-                )
-                logger.error(
-                    "[pipeline] stage=%s failed patient=%d: %s",
-                    stage.stage_name,
-                    request.patient_id,
-                    exc,
-                )
-                raise
+                    logger.debug(
+                        "[pipeline] stage=%s completed latency_ms=%d",
+                        stage.stage_name,
+                        stage_latency,
+                    )
+                    if context.early_response:
+                        logger.info(
+                            "[pipeline] early response from %s, skipping remaining stages",
+                            context.early_response_source,
+                        )
+                        break
+                except Exception as exc:
+                    stage_latency = int((time.monotonic() - stage_started) * 1000)
+                    context.diagnostics["stages"].append(
+                        {
+                            "name": stage.stage_name,
+                            "status": "error",
+                            "error": str(exc),
+                            "error_type": exc.__class__.__name__,
+                            "latency_ms": stage_latency,
+                        }
+                    )
+                    logger.error(
+                        "[pipeline] stage=%s failed patient=%d: %s",
+                        stage.stage_name,
+                        request.patient_id,
+                        exc,
+                    )
+                    raise
 
-        response = self._build_response(context, pipeline_started)
-        await self._log_to_database(request, response, context)
+            response = self._build_response(context, pipeline_started)
+        except Exception as exc:
+            await self._log_to_database(
+                request,
+                context,
+                error=exc,
+                response_time_ms=int((time.monotonic() - pipeline_started) * 1000),
+            )
+            raise
+
+        await self._log_to_database(request, context, response=response)
 
         logger.info(
             "[pipeline] completed patient=%d total_latency_ms=%d response_length=%d",
@@ -162,23 +172,50 @@ class LLMPipeline:
             diagnostics=context.diagnostics,
         )
 
-    async def _log_to_database(self, request: LLMRequest, response: LLMResponse, context: PipelineContext):
+    async def _log_to_database(
+        self,
+        request: LLMRequest,
+        context: PipelineContext,
+        *,
+        response: LLMResponse | None = None,
+        error: Exception | None = None,
+        response_time_ms: int | None = None,
+    ):
         if not request.db:
             return
 
         try:
             from app.models.llm import LLMRequestLog
 
+            router_result = context.classification or request.router_result
+            request_type = router_result.request_type.value if router_result else "unknown"
+            model_tier = (
+                (response.actual_model_tier or response.requested_model_tier)
+                if response is not None
+                else (context.response_actual_model_tier or (router_result.model_tier.value if router_result else "unknown"))
+            )
+            account_id = (
+                response.account_id
+                if response is not None
+                else (
+                    context.response_account_id
+                    or ((context.early_response_source or "UNKNOWN").upper() if context.early_response else "UNKNOWN")
+                )
+            )
             log = LLMRequestLog(
                 patient_id=request.patient_id,
-                account_id=response.account_id or "UNKNOWN",
-                model_tier=response.actual_model_tier or response.requested_model_tier,
-                tokens_input=response.tokens_input,
-                tokens_output=response.tokens_output,
-                response_time_ms=response.response_time_ms,
-                request_type=context.classification.request_type.value if context.classification else "unknown",
-                success=True,
-                error_message=None,
+                account_id=account_id or "UNKNOWN",
+                model_tier=model_tier or "unknown",
+                tokens_input=response.tokens_input if response is not None else int(context.response_tokens_input or 0),
+                tokens_output=response.tokens_output if response is not None else int(context.response_tokens_output or 0),
+                response_time_ms=(
+                    response.response_time_ms
+                    if response is not None
+                    else int(response_time_ms or 0)
+                ),
+                request_type=request_type,
+                success=error is None,
+                error_message=None if error is None else f"{error.__class__.__name__}: {error}",
             )
 
             request.db.add(log)

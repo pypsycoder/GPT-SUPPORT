@@ -5,6 +5,7 @@ from app.llm.langgraph_supervisor.models import (
     BinaryChoice,
     DelegationCard,
     DelegationExpert,
+    EducationExpertCard,
     EmotionalExpertCard,
     IntakeCard,
 )
@@ -142,6 +143,66 @@ async def test_pipeline_uses_emotional_expert_after_delegation(monkeypatch):
     assert response.supervisor_state["last_selected_agents"] == ["emotional_support"]
     assert response.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "эмоциональная_поддержка"
     assert response.diagnostics["supervisor"]["expert"]["card"]["support"] == "Я рядом."
+
+
+@pytest.mark.asyncio
+async def test_pipeline_uses_education_expert_after_delegation(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            IntakeCard(
+                problem="не понимаю, почему после диализа такая слабость",
+                context="после диализа бывает слабость, пользователь хочет понять, что это может значить",
+                needs_clarification=BinaryChoice.NO,
+                question="нет",
+                ready_to_delegate=BinaryChoice.YES,
+                rationale="Контекста достаточно для передачи дальше.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    async def fake_extract_delegation_card(state):
+        return (
+            DelegationCard(
+                expert=DelegationExpert.EDUCATION,
+                task="коротко объяснить тему простыми словами и предложить релевантный урок",
+                rationale="Есть локальный educational grounding и явный запрос на объяснение.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    async def fake_extract_education_card(state):
+        return (
+            EducationExpertCard(
+                explanation="После диализа слабость может ощущаться сильнее из-за самой нагрузки процедуры и восстановления после нее.",
+                cta_type="lesson",
+                cta_label="Слабость после диализа",
+                cta_target={"lesson_id": 7, "lesson_code": "07_post_dialysis_fatigue"},
+                rationale="Есть прямой lesson match в локальном контенте.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_delegation_card", fake_extract_delegation_card)
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_education_expert_card", fake_extract_education_card)
+
+    response = await LLMPipeline().process(
+        LLMRequest(
+            patient_id=1,
+            user_input="объясни, почему после диализа такая слабость",
+            source="text",
+            supervisor_state=CurrentState().to_dict(),
+        )
+    )
+
+    assert response.response == (
+        "После диализа слабость может ощущаться сильнее из-за самой нагрузки процедуры и восстановления после нее. "
+        "Если хочешь, можно посмотреть урок «Слабость после диализа»."
+    )
+    assert response.supervisor_state["pending_question"] is None
+    assert response.supervisor_state["last_selected_agents"] == ["education"]
+    assert response.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "education"
+    assert response.diagnostics["supervisor"]["expert"]["card"]["cta_target"]["lesson_code"] == "07_post_dialysis_fatigue"
 
 
 @pytest.mark.asyncio

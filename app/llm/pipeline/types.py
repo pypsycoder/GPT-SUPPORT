@@ -60,6 +60,8 @@ class PipelineContext:
     response_tokens_output: int = 0
     response_account_id: str | None = None
     response_actual_model_tier: str | None = None
+    education_rag_context: list[str] = field(default_factory=list)
+    education_rag_grounding_items: list[dict[str, Any]] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     early_response: str | None = None
     early_response_source: str | None = None

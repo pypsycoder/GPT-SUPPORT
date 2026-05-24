@@ -2,6 +2,7 @@
 
 import json
 
+from app.llm.langgraph_supervisor.models import EducationExpertCard
 from app.llm.supervisor import CurrentState, ExpertResult, ExpertTask, PendingQuestion, SupervisorTurnResult
 
 
@@ -64,3 +65,15 @@ def test_expert_models_roundtrip():
     assert ExpertTask.from_dict(task.to_dict()).to_dict() == task.to_dict()
     assert ExpertResult.from_dict(result.to_dict()).to_dict() == result.to_dict()
     assert SupervisorTurnResult.from_dict(turn.to_dict()).to_dict() == turn.to_dict()
+
+
+def test_education_expert_card_roundtrip():
+    card = EducationExpertCard(
+        explanation="Короткое объяснение.",
+        cta_type="lesson",
+        cta_label="Понятный урок",
+        cta_target={"lesson_id": 5, "lesson_code": "05_simple_lesson"},
+        rationale="Есть прямой локальный материал.",
+    )
+
+    assert EducationExpertCard.from_dict(card.to_dict()).to_dict() == card.to_dict()

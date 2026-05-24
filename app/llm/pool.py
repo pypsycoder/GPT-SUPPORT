@@ -23,10 +23,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 import uuid
 
 import httpx
+
+from app.llm.errors import LLMConfigurationError, LLMTransportError
 
 logger = logging.getLogger("gpt-support-llm.pool")
 
@@ -45,6 +48,45 @@ MODEL_NAMES: dict[str, str] = {
 
 DEFAULT_ACCOUNT_GROUP = "freemium_test"
 DEFAULT_SCOPE = "GIGACHAT_API_PERS"
+_INSECURE_SSL_ENV = "GIGACHAT_ALLOW_INSECURE_SSL"
+_REDACTED_TOKEN_PATTERNS = (
+    re.compile(r'("access_token"\s*:\s*")[^"]+(")', flags=re.IGNORECASE),
+    re.compile(r'("refresh_token"\s*:\s*")[^"]+(")', flags=re.IGNORECASE),
+    re.compile(r'("token"\s*:\s*")[^"]+(")', flags=re.IGNORECASE),
+)
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _safe_response_excerpt(body: str, *, limit: int = 200) -> str:
+    excerpt = " ".join(str(body or "").split())
+    if not excerpt:
+        return ""
+
+    for pattern in _REDACTED_TOKEN_PATTERNS:
+        excerpt = pattern.sub(r"\1<redacted>\2", excerpt)
+
+    if len(excerpt) <= limit:
+        return excerpt
+    return excerpt[: limit - 3] + "..."
+
+
+def _normalize_httpx_error(exc: httpx.HTTPError) -> LLMConfigurationError | LLMTransportError:
+    message = str(exc)
+    lowered = message.lower()
+    if "certificate verify failed" in lowered or "self-signed certificate" in lowered:
+        return LLMConfigurationError(
+            "SSL verification failed for GigaChat. "
+            "Set GIGACHAT_CERT_PATH to the provider CA bundle or, for local dev only, "
+            "set GIGACHAT_ALLOW_INSECURE_SSL=true."
+        )
+
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+        return LLMTransportError(f"GigaChat HTTP {exc.response.status_code}: {exc}")
+
+    return LLMTransportError(f"GigaChat transport error: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -93,19 +135,31 @@ class GigaChatClient:
             return self._access_token
 
         verify = _get_ssl_verify()
-        async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
-            resp = await client.post(
-                GIGACHAT_AUTH_URL,
-                headers={
-                    "Authorization": f"Basic {self.api_key}",
-                    "RqUID": str(uuid.uuid4()),
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-                data={"scope": self.scope},
-            )
-            logger.debug("[pool] OAuth response status=%s body=%s", resp.status_code, resp.text)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
+                resp = await client.post(
+                    GIGACHAT_AUTH_URL,
+                    headers={
+                        "Authorization": f"Basic {self.api_key}",
+                        "RqUID": str(uuid.uuid4()),
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    data={"scope": self.scope},
+                )
+                logger.debug("[pool] OAuth response status=%s account=%s", resp.status_code, self.account_id)
+                try:
+                    resp.raise_for_status()
+                except httpx.HTTPStatusError:
+                    logger.warning(
+                        "[pool] OAuth failed account=%s status=%s body=%s",
+                        self.account_id,
+                        resp.status_code,
+                        _safe_response_excerpt(resp.text),
+                    )
+                    raise
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise _normalize_httpx_error(exc) from exc
 
         self._access_token = data["access_token"]
         # expires_at приходит в миллисекундах
@@ -165,8 +219,6 @@ class GigaChatClient:
                             },
                             json=payload,
                         )
-
-                        print(f"[DEBUG] status={resp.status_code} body={resp.text[:500]}")
                         resp.raise_for_status()
                         data = resp.json()
 
@@ -185,10 +237,28 @@ class GigaChatClient:
 
                 except Exception as exc:
                     last_exc = exc
-                    logger.warning(
-                        "[pool] attempt %d failed (account=%s): %s",
-                        attempt + 1, self.account_id, exc,
-                    )
+                    if isinstance(exc, httpx.HTTPError):
+                        normalized_exc = _normalize_httpx_error(exc)
+                    else:
+                        normalized_exc = exc
+
+                    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                        logger.warning(
+                            "[pool] attempt %d failed (account=%s status=%s): %s | body=%s",
+                            attempt + 1,
+                            self.account_id,
+                            exc.response.status_code,
+                            exc,
+                            _safe_response_excerpt(exc.response.text),
+                        )
+                    else:
+                        logger.warning(
+                            "[pool] attempt %d failed (account=%s): %s",
+                            attempt + 1,
+                            self.account_id,
+                            normalized_exc,
+                        )
+                    last_exc = normalized_exc
                     if attempt == 0:
                         # На второй попытке — сбросить токен и получить новый
                         self._access_token = None
@@ -323,9 +393,15 @@ def _get_ssl_verify() -> bool | str:
     Можно переопределить через GIGACHAT_CERT_PATH=/path/to/ca.pem.
     """
     cert_path = os.getenv("GIGACHAT_CERT_PATH", "").strip()
-    if cert_path and os.path.isfile(cert_path):
-        return cert_path
-    return False
+    if cert_path:
+        if os.path.isfile(cert_path):
+            return cert_path
+        logger.warning("[pool] GIGACHAT_CERT_PATH is set but file not found: %s", cert_path)
+
+    if _env_flag(_INSECURE_SSL_ENV):
+        return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------

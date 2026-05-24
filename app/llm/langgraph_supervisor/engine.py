@@ -13,6 +13,7 @@ from app.llm.langgraph_supervisor.nodes import (
     intake_analyze_node,
     intake_execute_node,
     intake_validate_node,
+    invoke_education_expert_node,
     invoke_emotional_expert_node,
 )
 
@@ -25,6 +26,7 @@ GRAPH_ORDER: tuple[tuple[str, NodeFn], ...] = (
     ("delegation_analyze", delegation_analyze_node),
     ("delegation_validate", delegation_validate_node),
     ("invoke_emotional_expert", invoke_emotional_expert_node),
+    ("invoke_education_expert", invoke_education_expert_node),
     ("finalize_reply", finalize_reply_node),
 )
 

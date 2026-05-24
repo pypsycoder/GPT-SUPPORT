@@ -62,6 +62,49 @@ class ChatMessage(Base):
         )
 
 
+class ChatSupervisorState(Base):
+    """Current supervisor state for the single patient chat."""
+
+    __tablename__ = "chat_supervisor_states"
+    __table_args__ = (
+        sa.UniqueConstraint("patient_id", "thread_id", name="uq_css_patient_thread"),
+        {"schema": "llm"},
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+
+    patient_id: Mapped[int] = mapped_column(
+        sa.Integer,
+        sa.ForeignKey("users.users.id", ondelete="CASCADE", name="fk_css_patient_id"),
+        nullable=False,
+        index=True,
+    )
+
+    thread_id: Mapped[str] = mapped_column(
+        sa.String(80),
+        nullable=False,
+        server_default="default",
+    )
+
+    state_json: Mapped[dict] = mapped_column(sa.JSON, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime,
+        nullable=False,
+        server_default=sa.text("NOW()"),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime,
+        nullable=False,
+        server_default=sa.text("NOW()"),
+        onupdate=datetime.utcnow,
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChatSupervisorState id={self.id} patient={self.patient_id} thread={self.thread_id}>"
+
+
 class LLMRequestLog(Base):
     """Технический лог каждого запроса к GigaChat API."""
 

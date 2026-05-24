@@ -2,28 +2,39 @@
 
 from __future__ import annotations
 
+import re
+
 from app.llm.langgraph_supervisor.models import (
     BinaryChoice,
+    DelegationCard,
+    DelegationExpert,
+    EducationExpertCard,
+    EmotionalExpertCard,
     ExecutionKind,
     FirstModuleState,
+    IntakeCard,
     ValidationDecision,
 )
-
-# Максимальное число ходов с уточняющими вопросами до принудительной делегации.
-# При достижении лимита (и обозначенной проблеме) код форсирует DELEGATE
-# независимо от того, что вернула модель — двойная защита от петель.
-_MAX_CLARIFICATION_STREAK = 2
 from app.llm.langgraph_supervisor.policy import (
+    build_education_reply,
     build_emotional_reply,
     build_finish_reply,
     build_intake_reply,
     extract_delegation_card,
+    extract_education_expert_card,
     extract_emotional_expert_card,
     extract_intake_card,
     validate_delegation_card,
+    validate_education_expert_card,
     validate_emotional_expert_card,
     validate_intake_card,
 )
+from app.llm.supervisor.short_answers import is_unknown_reason_answer
+
+_MAX_CLARIFICATION_STREAK = 2
+_UNDEFINED_PROBLEM = "не обозначена"
+_NO_CONTEXT_VALUES = {"", "нет", "контекст пока не раскрыт"}
+_UNKNOWN_REASON_CONTEXT = "причина пользователю не известна"
 
 
 def _mark_node(state: FirstModuleState, node_name: str) -> None:
@@ -34,13 +45,112 @@ def _mark_node(state: FirstModuleState, node_name: str) -> None:
     graph_path.append(node_name)
 
 
+def _normalize_question_text(value: str | None) -> str:
+    text = str(value or "").strip().lower()
+    return re.sub(r"\s+", " ", text)
+
+
+def _merge_unknown_reason_context(*values: str | None) -> str:
+    parts: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text.lower() in _NO_CONTEXT_VALUES:
+            continue
+        if text not in parts:
+            parts.append(text)
+    if _UNKNOWN_REASON_CONTEXT not in parts:
+        parts.append(_UNKNOWN_REASON_CONTEXT)
+    return ". ".join(parts)
+
+
+def _is_emotional_expert_follow_up_turn(state: FirstModuleState) -> bool:
+    pending = state.current_state.pending_question
+    if pending is None or pending.reason != "expert":
+        return False
+    return "emotional_support" in state.current_state.last_selected_agents
+
+
+def _delegation_targets(state: FirstModuleState, expert: DelegationExpert) -> bool:
+    return (
+        state.execution_kind is ExecutionKind.DELEGATE
+        and state.delegation_validation is ValidationDecision.ACCEPT
+        and state.delegation_card is not None
+        and state.delegation_card.expert is expert
+    )
+
+
+def _merge_expert_follow_up_context(previous: str | None, answer: str | None) -> str:
+    previous_text = str(previous or "").strip()
+    answer_text = str(answer or "").strip()
+    addition = f"ответ на уточнение эксперта: {answer_text}" if answer_text else ""
+    if not previous_text:
+        return addition
+    if not addition:
+        return previous_text
+    return f"{previous_text}. {addition}"
+
+
+def _normalize_unknown_reason_intake_card(state: FirstModuleState, card: IntakeCard | None) -> tuple[IntakeCard | None, bool]:
+    if card is None:
+        return None, False
+
+    pending = state.current_state.pending_question
+    if pending is None or pending.reason != "intake":
+        return card, False
+    if not is_unknown_reason_answer(state.user_message):
+        return card, False
+
+    problem = str(card.problem or "").strip()
+    if not problem or problem == _UNDEFINED_PROBLEM:
+        problem = str(state.current_state.goal or "").strip()
+    if not problem or problem == _UNDEFINED_PROBLEM:
+        return card, False
+
+    return (
+        IntakeCard(
+            problem=problem,
+            context=_merge_unknown_reason_context(
+                state.current_state.slots.get("intake_context"),
+            ),
+            needs_clarification=BinaryChoice.NO,
+            question="нет",
+            ready_to_delegate=BinaryChoice.YES,
+            rationale="пользователь не может назвать причину, поэтому запрос передается эксперту без новых уточнений",
+        ),
+        True,
+    )
+
+
 async def intake_analyze_node(state: FirstModuleState) -> FirstModuleState:
     _mark_node(state, "intake_analyze")
+    if _is_emotional_expert_follow_up_turn(state):
+        problem = str(state.current_state.goal or "").strip() or _UNDEFINED_PROBLEM
+        state.intake_card = IntakeCard(
+            problem=problem,
+            context=_merge_expert_follow_up_context(
+                state.current_state.slots.get("intake_context"),
+                state.user_message,
+            ),
+            needs_clarification=BinaryChoice.NO,
+            question="нет",
+            ready_to_delegate=BinaryChoice.YES,
+            rationale="ответ пользователя относится к уточнению эксперта, поэтому запрос сразу возвращается эксперту",
+        )
+        state.diagnostics["intake"] = {
+            "card": state.intake_card.to_dict(),
+            "llm": {"synthetic_expert_follow_up": True},
+        }
+        return state
+
     card, step_diagnostics = await extract_intake_card(state)
+    card, normalized = _normalize_unknown_reason_intake_card(state, card)
+    diagnostics = dict(step_diagnostics or {})
+    if normalized:
+        diagnostics["normalized_unknown_reason"] = True
     state.intake_card = card
     state.diagnostics["intake"] = {
         "card": card.to_dict() if card else None,
-        "llm": step_diagnostics,
+        "llm": diagnostics,
     }
     return state
 
@@ -78,17 +188,28 @@ def intake_execute_node(state: FirstModuleState) -> FirstModuleState:
 
     card = state.intake_card
     streak = state.current_state.clarification_streak
+    previous_question = _normalize_question_text(
+        getattr(state.current_state.pending_question, "question_text", None)
+    )
+    current_question = _normalize_question_text(card.question)
     state.needs_clarification = card.needs_clarification is BinaryChoice.YES
 
-    # Fix 4: кодовый предохранитель от петли уточнений.
-    # Если модель всё равно вернула needs_clarification=да, но:
-    #   - streak достиг лимита, И
-    #   - проблема уже обозначена —
-    # принудительно переходим к делегации, не спрашивая пациента ещё раз.
     if (
         card.needs_clarification is BinaryChoice.YES
         and streak >= _MAX_CLARIFICATION_STREAK
-        and card.problem not in {"", "не обозначена"}
+        and card.problem not in {"", _UNDEFINED_PROBLEM}
+    ):
+        state.execution_kind = ExecutionKind.DELEGATE
+        state.needs_clarification = False
+        return state
+
+    if (
+        card.needs_clarification is BinaryChoice.YES
+        and streak >= 1
+        and previous_question
+        and current_question
+        and previous_question == current_question
+        and card.problem not in {"", _UNDEFINED_PROBLEM}
     ):
         state.execution_kind = ExecutionKind.DELEGATE
         state.needs_clarification = False
@@ -113,6 +234,18 @@ async def delegation_analyze_node(state: FirstModuleState) -> FirstModuleState:
     if state.execution_kind is not ExecutionKind.DELEGATE:
         return state
     _mark_node(state, "delegation_analyze")
+
+    if _is_emotional_expert_follow_up_turn(state):
+        state.delegation_card = DelegationCard(
+            expert=DelegationExpert.EMOTIONAL_SUPPORT,
+            task="продолжить эмоциональную поддержку с учетом ответа пользователя на уточнение эксперта",
+            rationale="это продолжение уже начатого диалога с emotional_support",
+        )
+        state.diagnostics["delegation"] = {
+            "card": state.delegation_card.to_dict(),
+            "llm": {"synthetic_expert_follow_up": True},
+        }
+        return state
 
     card, step_diagnostics = await extract_delegation_card(state)
     state.delegation_card = card
@@ -153,11 +286,13 @@ def delegation_validate_node(state: FirstModuleState) -> FirstModuleState:
 async def invoke_emotional_expert_node(state: FirstModuleState) -> FirstModuleState:
     if state.execution_kind is not ExecutionKind.DELEGATE:
         return state
-    _mark_node(state, "invoke_emotional_expert")
-
     if state.delegation_validation is not ValidationDecision.ACCEPT:
         state.final_reply = "Извини, я не смог корректно передать запрос дальше."
         return state
+    if not _delegation_targets(state, DelegationExpert.EMOTIONAL_SUPPORT):
+        return state
+
+    _mark_node(state, "invoke_emotional_expert")
 
     state.selected_agents = ["emotional_support"]
     card, step_diagnostics = await extract_emotional_expert_card(state)
@@ -185,11 +320,53 @@ async def invoke_emotional_expert_node(state: FirstModuleState) -> FirstModuleSt
     return state
 
 
+async def invoke_education_expert_node(state: FirstModuleState) -> FirstModuleState:
+    if state.execution_kind is not ExecutionKind.DELEGATE:
+        return state
+    if state.delegation_validation is not ValidationDecision.ACCEPT:
+        state.final_reply = "Извини, я не смог корректно передать запрос дальше."
+        return state
+    if not _delegation_targets(state, DelegationExpert.EDUCATION):
+        return state
+
+    _mark_node(state, "invoke_education_expert")
+
+    state.selected_agents = ["education"]
+    card, step_diagnostics = await extract_education_expert_card(state)
+    state.expert_card = card
+    state.diagnostics["expert"] = {
+        "card": card.to_dict() if card else None,
+        "llm": step_diagnostics,
+    }
+    if card is None:
+        state.final_reply = "Извини, я не смог получить ответ эксперта."
+        return state
+
+    try:
+        validate_education_expert_card(card)
+    except ValueError as exc:
+        state.final_reply = "Извини, я не смог корректно собрать объяснение."
+        diagnostics = dict(state.diagnostics.get("expert") or {})
+        diagnostics["validation"] = {"decision": ValidationDecision.RETRY.value, "error": str(exc)}
+        state.diagnostics["expert"] = diagnostics
+        return state
+
+    diagnostics = dict(state.diagnostics.get("expert") or {})
+    diagnostics["validation"] = {"decision": ValidationDecision.ACCEPT.value, "error": None}
+    state.diagnostics["expert"] = diagnostics
+    state.needs_clarification = False
+    return state
+
+
 def finalize_reply_node(state: FirstModuleState) -> FirstModuleState:
     _mark_node(state, "finalize_reply")
     if state.execution_kind is ExecutionKind.DELEGATE and state.expert_card is not None:
-        state.final_reply = build_emotional_reply(state.expert_card)
-        state.needs_clarification = state.expert_card.needs_more_info is BinaryChoice.YES
+        if isinstance(state.expert_card, EmotionalExpertCard):
+            state.final_reply = build_emotional_reply(state.expert_card)
+            state.needs_clarification = state.expert_card.needs_more_info is BinaryChoice.YES
+        elif isinstance(state.expert_card, EducationExpertCard):
+            state.final_reply = build_education_reply(state.expert_card)
+            state.needs_clarification = False
     if not state.final_reply:
         state.final_reply = build_finish_reply(state.user_message)
     return state

@@ -25,6 +25,7 @@ class BinaryChoice(StrEnum):
 
 class DelegationExpert(StrEnum):
     EMOTIONAL_SUPPORT = "эмоциональная_поддержка"
+    EDUCATION = "education"
 
     @classmethod
     def parse(cls, value: str) -> "DelegationExpert":
@@ -140,12 +141,45 @@ class EmotionalExpertCard:
 
 
 @dataclass(slots=True)
+class EducationExpertCard:
+    explanation: str
+    cta_type: str
+    cta_label: str | None
+    cta_target: dict[str, Any] | None
+    rationale: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "explanation": self.explanation,
+            "cta_type": self.cta_type,
+            "cta_label": self.cta_label,
+            "cta_target": dict(self.cta_target) if self.cta_target else None,
+            "rationale": self.rationale,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "EducationExpertCard | None":
+        if not payload:
+            return None
+        cta_target = payload.get("cta_target")
+        return cls(
+            explanation=str(payload.get("explanation") or "").strip(),
+            cta_type=str(payload.get("cta_type") or "").strip(),
+            cta_label=str(payload.get("cta_label")).strip() if payload.get("cta_label") is not None else None,
+            cta_target=dict(cta_target) if isinstance(cta_target, dict) else None,
+            rationale=str(payload.get("rationale") or "").strip(),
+        )
+
+
+@dataclass(slots=True)
 class FirstModuleInput:
     user_message: str
     current_state: CurrentState
     message_type: str
     model_tier: str
     strict_model_tier: bool = False
+    education_rag_context: list[str] = field(default_factory=list)
+    education_rag_grounding_items: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -155,9 +189,11 @@ class FirstModuleState:
     message_type: str
     model_tier: str
     strict_model_tier: bool = False
+    education_rag_context: list[str] = field(default_factory=list)
+    education_rag_grounding_items: list[dict[str, Any]] = field(default_factory=list)
     intake_card: IntakeCard | None = None
     delegation_card: DelegationCard | None = None
-    expert_card: EmotionalExpertCard | None = None
+    expert_card: EmotionalExpertCard | EducationExpertCard | None = None
     intake_validation: ValidationDecision | None = None
     delegation_validation: ValidationDecision | None = None
     intake_error: str | None = None
@@ -182,6 +218,8 @@ class FirstModuleState:
             message_type=payload.message_type,
             model_tier=payload.model_tier,
             strict_model_tier=payload.strict_model_tier,
+            education_rag_context=[str(item) for item in payload.education_rag_context if str(item).strip()],
+            education_rag_grounding_items=[dict(item) for item in payload.education_rag_grounding_items],
         )
 
     def register_llm_call(
@@ -208,6 +246,8 @@ class FirstModuleState:
             "message_type": self.message_type,
             "model_tier": self.model_tier,
             "strict_model_tier": self.strict_model_tier,
+            "education_rag_context": list(self.education_rag_context),
+            "education_rag_grounding_items": [dict(item) for item in self.education_rag_grounding_items],
             "intake_card": self.intake_card.to_dict() if self.intake_card else None,
             "delegation_card": self.delegation_card.to_dict() if self.delegation_card else None,
             "expert_card": self.expert_card.to_dict() if self.expert_card else None,
@@ -233,15 +273,26 @@ class FirstModuleState:
         intake_validation_raw = payload.get("intake_validation")
         delegation_validation_raw = payload.get("delegation_validation")
         execution_kind_raw = payload.get("execution_kind")
+        expert_payload = payload.get("expert_card")
+        if isinstance(expert_payload, dict) and ("support" in expert_payload or "step_now" in expert_payload):
+            expert_card = EmotionalExpertCard.from_dict(expert_payload)
+        else:
+            expert_card = EducationExpertCard.from_dict(expert_payload)
         return cls(
             user_message=str(payload.get("user_message") or ""),
             current_state=CurrentState.from_dict(payload.get("current_state")),
             message_type=str(payload.get("message_type") or "full_message"),
             model_tier=str(payload.get("model_tier") or "lite"),
             strict_model_tier=bool(payload.get("strict_model_tier")),
+            education_rag_context=[
+                str(item) for item in (payload.get("education_rag_context") or []) if str(item).strip()
+            ],
+            education_rag_grounding_items=[
+                dict(item) for item in (payload.get("education_rag_grounding_items") or []) if isinstance(item, dict)
+            ],
             intake_card=IntakeCard.from_dict(payload.get("intake_card")),
             delegation_card=DelegationCard.from_dict(payload.get("delegation_card")),
-            expert_card=EmotionalExpertCard.from_dict(payload.get("expert_card")),
+            expert_card=expert_card,
             intake_validation=ValidationDecision(intake_validation_raw) if intake_validation_raw else None,
             delegation_validation=ValidationDecision(delegation_validation_raw) if delegation_validation_raw else None,
             intake_error=str(payload.get("intake_error")).strip() if payload.get("intake_error") is not None else None,

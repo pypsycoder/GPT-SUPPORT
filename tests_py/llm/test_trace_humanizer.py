@@ -104,3 +104,40 @@ def test_human_trace_includes_retry_details_for_supervisor_steps():
     assert "Intake analysis: success on attempt 2." in supervisor_section["items"]
     assert "Intake analysis: retries before success = 1." in supervisor_section["items"]
     assert any("Intake analysis retry #1: ValueError - missing required fields | raw: Проблема: тревога." == item for item in supervisor_section["items"])
+
+
+def test_human_trace_shows_education_expert_details():
+    trace = build_human_trace(
+        {
+            "supervisor": {
+                "enabled": True,
+                "graph_path": [
+                    "intake_analyze",
+                    "intake_validate",
+                    "intake_execute",
+                    "delegation_analyze",
+                    "delegation_validate",
+                    "invoke_education_expert",
+                    "finalize_reply",
+                ],
+                "selected_agents": ["education"],
+                "delegation": {
+                    "card": {"expert": "education", "task": "коротко объяснить тему"},
+                    "llm": {"succeeded_on_attempt": 1},
+                },
+                "expert": {
+                    "card": {
+                        "explanation": "Слабость после диализа может ощущаться заметнее в день процедуры.",
+                        "cta_label": "Слабость после диализа",
+                    },
+                    "llm": {"succeeded_on_attempt": 1},
+                },
+            }
+        }
+    )
+
+    supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
+    assert "Graph path: intake_analyze -> intake_validate -> intake_execute -> delegation_analyze -> delegation_validate -> invoke_education_expert -> finalize_reply." in supervisor_section["items"]
+    assert "Эксперт: education." in supervisor_section["items"]
+    assert "Объяснение: Слабость после диализа может ощущаться заметнее в день процедуры.." in supervisor_section["items"]
+    assert "CTA: Слабость после диализа." in supervisor_section["items"]

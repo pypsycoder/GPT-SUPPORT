@@ -4,6 +4,7 @@ from app.llm.langgraph_supervisor.models import (
     BinaryChoice,
     DelegationCard,
     DelegationExpert,
+    EducationExpertCard,
     EmotionalExpertCard,
     ExecutionKind,
     IntakeCard,
@@ -149,3 +150,68 @@ async def test_supervisor_stage_uses_expert_output_for_final_reply(monkeypatch):
     assert context.supervisor_state["last_selected_agents"] == ["emotional_support"]
     assert context.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "эмоциональная_поддержка"
     assert context.diagnostics["supervisor"]["expert"]["card"]["step_now"] == "Попробуй назвать, что пугает сильнее всего."
+
+
+@pytest.mark.asyncio
+async def test_supervisor_stage_uses_education_output_for_final_reply(monkeypatch):
+    class FakeGraphState:
+        intake_card = IntakeCard(
+            problem="не понимаю, что значит слабость после диализа",
+            context="пользователь просит объяснение, есть релевантный educational контент",
+            needs_clarification=BinaryChoice.NO,
+            question="нет",
+            ready_to_delegate=BinaryChoice.YES,
+            rationale="Можно передавать дальше.",
+        )
+        delegation_card = DelegationCard(
+            expert=DelegationExpert.EDUCATION,
+            task="коротко объяснить тему и предложить урок",
+            rationale="Нужен education-эксперт.",
+        )
+        expert_card = EducationExpertCard(
+            explanation="Слабость после диализа может ощущаться заметнее в день процедуры, потому что организму нужно восстановиться после нагрузки.",
+            cta_type="lesson",
+            cta_label="Слабость после диализа",
+            cta_target={"lesson_id": 7, "lesson_code": "07_post_dialysis_fatigue"},
+            rationale="Есть lesson-first CTA.",
+        )
+        execution_kind = ExecutionKind.DELEGATE
+        user_question = None
+        final_reply = (
+            "Слабость после диализа может ощущаться заметнее в день процедуры, потому что организму нужно восстановиться после нагрузки. "
+            "Если хочешь, можно посмотреть урок «Слабость после диализа»."
+        )
+        needs_clarification = False
+        selected_agents = ["education"]
+        diagnostics = {
+            "graph_path": [
+                "intake_analyze",
+                "intake_validate",
+                "intake_execute",
+                "delegation_analyze",
+                "delegation_validate",
+                "invoke_education_expert",
+                "finalize_reply",
+            ],
+            "intake": {"card": intake_card.to_dict(), "llm": {"final_status": "success", "succeeded_on_attempt": 1}},
+            "delegation": {"card": delegation_card.to_dict(), "llm": {"final_status": "success", "succeeded_on_attempt": 1}},
+            "expert": {"card": expert_card.to_dict(), "llm": {"final_status": "success", "succeeded_on_attempt": 1}},
+        }
+        total_tokens_input = 18
+        total_tokens_output = 12
+        total_latency_ms = 25
+        account_ids = ["A1", "A1", "A1"]
+        actual_model_tiers = ["lite", "lite", "lite"]
+
+    async def fake_run_first_module(payload):
+        return FakeGraphState()
+
+    monkeypatch.setattr("app.llm.pipeline.stages.supervisor.run_first_module", fake_run_first_module)
+
+    context = await SupervisorStage().process(_context("объясни слабость после диализа", supervisor_state=CurrentState().to_dict()))
+
+    assert context.response_draft.endswith("Если хочешь, можно посмотреть урок «Слабость после диализа».")
+    assert context.supervisor_state["pending_question"] is None
+    assert context.supervisor_state["last_selected_agents"] == ["education"]
+    assert context.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "education"
+    assert context.diagnostics["supervisor"]["expert"]["card"]["cta_label"] == "Слабость после диализа"

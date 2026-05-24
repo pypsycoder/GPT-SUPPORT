@@ -13,6 +13,7 @@ from app.auth.dependencies import get_current_researcher
 from app.llm.errors import LLMResponseError
 from app.llm.memory import st_memory_store
 from app.llm.pipeline import LLMResponse
+from app.llm.router import ModelTier, RequestType, RouterResult
 from app.researchers.models import Researcher
 from app.researchers.router import router as researcher_router
 from app.users.models import User
@@ -259,6 +260,83 @@ def test_researcher_chat_debug_can_save_graph_v2_report(monkeypatch, tmp_path: P
             assert "## Graph" in contents
             assert "Intake:" in contents
             assert "Path: intake_analyze -> intake_validate -> intake_execute" in contents
+
+    asyncio.run(runner())
+
+
+def test_researcher_chat_debug_keeps_router_tier_when_not_forced(monkeypatch):
+    async def runner():
+        async with researcher_chat_session_ctx() as seed_session:
+            patient = User(full_name="Patient Debug", patient_number=1004)
+            researcher = Researcher(username="researcher4", password_hash="x", full_name="Researcher Debug")
+            seed_session.add(patient)
+            seed_session.add(researcher)
+            await seed_session.commit()
+            await seed_session.refresh(patient)
+            await seed_session.refresh(researcher)
+
+            session_factory = async_sessionmaker(seed_session.bind, expire_on_commit=False)
+            app = FastAPI()
+            register_api_exception_handlers(app)
+            app.include_router(researcher_router, prefix="/api/v1")
+
+            async def override_session() -> AsyncSession:
+                async with session_factory() as session:
+                    yield session
+
+            async def override_researcher() -> Researcher:
+                return researcher
+
+            class FakePipeline:
+                async def process(self, request):
+                    assert request.router_result is not None
+                    assert request.router_result.model_tier == ModelTier.PRO
+                    assert request.strict_model_tier is False
+                    return LLMResponse(
+                        response="Ответ без принудительного tier.",
+                        tokens_input=3,
+                        tokens_output=4,
+                        domain="emotion",
+                        model="mock-pro",
+                        response_time_ms=20,
+                        requested_model_tier=request.router_result.model_tier.value,
+                        actual_model_tier=request.router_result.model_tier.value,
+                        account_id="SUPERVISOR",
+                        pending_st_memory=[],
+                        pending_lt_memory=[],
+                        supervisor_state=None,
+                        supervisor_state_delta={},
+                        diagnostics={},
+                    )
+
+            app.dependency_overrides[get_async_session] = override_session
+            app.dependency_overrides[get_current_researcher] = override_researcher
+            monkeypatch.setattr("app.researchers.router._llm_pipeline", FakePipeline())
+            monkeypatch.setattr(
+                "app.researchers.router.classify_request",
+                lambda _message, _source: RouterResult(
+                    request_type=RequestType.EMOTIONAL,
+                    model_tier=ModelTier.PRO,
+                    domain_hint="emotion",
+                    priority=2,
+                ),
+            )
+
+            client = TestClient(app)
+            response = client.post(
+                "/api/v1/researcher/chat-debug/message",
+                json={
+                    "patient_id": patient.id,
+                    "message": "мне тревожно",
+                    "session_id": "dbg-no-force",
+                    "thread_id": "main",
+                },
+            )
+
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["requested_model_tier"] == ModelTier.PRO.value
+            assert payload["actual_model_tier"] == ModelTier.PRO.value
 
     asyncio.run(runner())
 

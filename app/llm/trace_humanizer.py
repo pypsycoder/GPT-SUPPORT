@@ -88,9 +88,13 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
 
             expert = supervisor.get("expert") or {}
             expert_card = expert.get("card") or {}
-            _append_llm_attempts(supervisor_items, "Emotional expert", expert.get("llm"))
+            _append_llm_attempts(supervisor_items, "Expert", expert.get("llm"))
+            if expert_card.get("explanation"):
+                supervisor_items.append(f"Объяснение: {expert_card['explanation']}.")
             if expert_card.get("step_now"):
                 supervisor_items.append(f"Шаг сейчас: {expert_card['step_now']}.")
+            if expert_card.get("cta_label"):
+                supervisor_items.append(f"CTA: {expert_card['cta_label']}.")
 
             selected_agents = [str(item) for item in _as_list(supervisor.get("selected_agents")) if str(item).strip()]
             if selected_agents:
