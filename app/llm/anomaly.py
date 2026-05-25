@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("gpt-support-llm.anomaly")
@@ -47,7 +48,7 @@ async def check_anomalies(patient_id: int, db: AsyncSession) -> list[AnomalyAler
     ]:
         try:
             alerts.extend(await check_fn(patient_id, db))
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.warning(
                 "[anomaly] %s check failed patient=%d: %s", name, patient_id, exc
             )
@@ -136,6 +137,13 @@ async def _check_weight(patient_id: int, db: AsyncSession) -> list[AnomalyAlert]
     if hasattr(latest_dt, "tzinfo") and latest_dt.tzinfo is not None:
         latest_dt = latest_dt.replace(tzinfo=None)
     if latest_dt < since:
+        return []
+
+    # Предыдущая запись должна быть не старше 7 дней — иначе разница нерепрезентативна
+    prev_dt = previous.measured_at
+    if hasattr(prev_dt, "tzinfo") and prev_dt.tzinfo is not None:
+        prev_dt = prev_dt.replace(tzinfo=None)
+    if prev_dt < datetime.utcnow() - timedelta(days=7):
         return []
 
     gain = float(latest.weight) - float(previous.weight)

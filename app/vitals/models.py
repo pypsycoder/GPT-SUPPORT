@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declared_attr
 

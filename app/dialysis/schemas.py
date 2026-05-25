@@ -8,7 +8,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # --- Centers ---
@@ -26,8 +26,7 @@ class CenterRead(BaseModel):
     timezone: str
     created_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Schedules ---
@@ -59,8 +58,7 @@ class DialysisScheduleRead(BaseModel):
     closed_by: int | None
     change_reason: str | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScheduleCloseAndReplaceResponse(BaseModel):

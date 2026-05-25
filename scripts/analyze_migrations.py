@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Analyze Alembic revision chain"""
 
-import os
 import sys
 from pathlib import Path
 

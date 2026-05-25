@@ -11,8 +11,23 @@
     </div>
 
     <div class="gh-right">
+        <button class="gh-report-link" onclick="openReportModal()">🐛 Bug report</button>
         <button class="gh-action-btn">
             ⚙️
         </button>
     </div>
 </header>
+
+<!-- Модальное окно "Сообщить о проблеме" -->
+<div id="reportModal" class="gh-modal-overlay">
+    <div class="gh-modal-box">
+        <button class="gh-modal-close" onclick="closeReportModal()">✕</button>
+        <iframe
+            src="https://docs.google.com/forms/d/e/1FAIpQLScHMsdoA5mzBUi9dIXoAomdslAHEocFYzgPPkjLGCaAZ5vgdg/viewform?embedded=true"
+            width="100%"
+            height="100%"
+            frameborder="0"
+            style="border: none;"
+        ></iframe>
+    </div>
+</div>

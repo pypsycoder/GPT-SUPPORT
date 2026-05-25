@@ -10,6 +10,7 @@ from __future__ import annotations
 """
 
 import datetime as dt
+import logging
 from datetime import date
 from typing import Optional
 
@@ -21,6 +22,8 @@ from app.dialysis.service import is_dialysis_day
 from app.routine import crud, schemas, service
 from app.users.models import User
 from core.db.session import get_async_session
+
+logger = logging.getLogger("gpt-support-routine")
 
 
 router = APIRouter(prefix="/routine", tags=["routine"])
@@ -106,11 +109,11 @@ async def get_plan_by_date_me(
                     merged.custom_activities = [None, None, None, None, None]
                 merged.edit_count = getattr(plan, "edit_count", 0)
                 merged.retrospective_days = getattr(plan, "retrospective_days", None)
-                # #region agent log
-                import json as _json
-                with open(r"d:\PROJECT\GPT-SUPPORT\.cursor\debug.log", "a", encoding="utf-8") as _f:
-                    _f.write(_json.dumps({"location": "routine/router.py:get_plan_by_date_me", "message": "returning hydrated plan", "data": {"template_keys": list(merged.template_activities.keys()), "added_keys": list(merged.added_from_pool.keys())}, "hypothesisId": "post-fix", "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)}, ensure_ascii=False) + "\n")
-                # #endregion
+                logger.debug(
+                    "[routine] returning hydrated plan: template=%s added=%s",
+                    list(merged.template_activities.keys()),
+                    list(merged.added_from_pool.keys()),
+                )
                 return merged  # type: ignore[return-value]
         return plan
 
@@ -130,13 +133,11 @@ async def get_plan_by_date_me(
     fake.custom_activities = template_data.get("custom_activities")
     fake.edit_count = 0
     fake.retrospective_days = 0
-    # #region agent log
-    import json as _json
-    _ta = template_data.get("template_activities") or {}
-    _ap = template_data.get("added_from_pool") or {}
-    with open(r"d:\PROJECT\GPT-SUPPORT\.cursor\debug.log", "a", encoding="utf-8") as _f:
-        _f.write(_json.dumps({"location": "routine/router.py:get_plan_by_date_me", "message": "returning draft", "data": {"template_keys": list(_ta.keys()), "added_keys": list(_ap.keys())}, "hypothesisId": "H1,H5", "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)}, ensure_ascii=False) + "\n")
-    # #endregion
+    logger.debug(
+        "[routine] returning draft plan: template=%s added=%s",
+        list((template_data.get("template_activities") or {}).keys()),
+        list((template_data.get("added_from_pool") or {}).keys()),
+    )
     return fake  # type: ignore[return-value]
 
 
@@ -150,13 +151,11 @@ async def save_plan_me(
 
     Ограничение: один план на (patient_id, plan_date). При повторном сохранении edit_count увеличивается.
     """
-    # #region agent log
-    import json as _json
-    _ta = (payload.template_activities or {}).keys()
-    _ap = (payload.added_from_pool or {}).keys()
-    with open(r"d:\PROJECT\GPT-SUPPORT\.cursor\debug.log", "a", encoding="utf-8") as _f:
-        _f.write(_json.dumps({"location": "routine/router.py:save_plan_me", "message": "payload received", "data": {"template_keys": list(_ta), "added_keys": list(_ap)}, "hypothesisId": "H3,H4", "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)}, ensure_ascii=False) + "\n")
-    # #endregion
+    logger.debug(
+        "[routine] save plan request: template=%s added=%s",
+        list((payload.template_activities or {}).keys()),
+        list((payload.added_from_pool or {}).keys()),
+    )
     today = dt.datetime.now(dt.timezone.utc).date()
     if (today - payload.plan_date).days > 3:
         raise HTTPException(status_code=400, detail="Нельзя вносить план более чем за 3 дня назад")

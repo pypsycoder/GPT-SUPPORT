@@ -316,6 +316,489 @@
 }
 
 /* ====================================== */
+/* ========== ДОСТИЖЕНИЯ ================ */
+/* ====================================== */
+
+/* Сетка бейджей */
+.badges-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+/* Карточка бейджа */
+.badge-card {
+    width: 88px;
+    background: #ffffff;
+    border: 2px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 0.65rem 0.5rem 0.6rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    user-select: none;
+}
+
+.badge-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+}
+
+.badge-card[data-color="gray"]  { border-color: #cccccc; }
+.badge-card[data-color="blue"]  { border-color: #5B9BD5; }
+.badge-card[data-color="green"] { border-color: #4AADAD; }
+.badge-card[data-color="gold"]  { border-color: #E8A020; }
+
+.badge-card.locked {
+    opacity: 0.38;
+    filter: grayscale(100%);
+    border-color: #e0e0e0 !important;
+}
+
+.badge-icon {
+    font-size: 1.8rem;
+    line-height: 1;
+}
+
+.badge-name {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #374151;
+    text-align: center;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+/* Точки прогресса */
+.badge-dots {
+    display: flex;
+    justify-content: center;
+    gap: 3px;
+    margin-top: 2px;
+}
+
+.badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    flex-shrink: 0;
+}
+
+.badge-dot.filled-gray  { background: #aaaaaa; }
+.badge-dot.filled-blue  { background: #5B9BD5; }
+.badge-dot.filled-green { background: #4AADAD; }
+.badge-dot.filled-gold  { background: #E8A020; }
+
+/* Серии */
+.streaks-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.streak-item {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 0.55rem 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.streak-line1 {
+    font-size: 0.82rem;
+    color: #374151;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.streak-line1 b {
+    font-weight: 700;
+    color: #111827;
+}
+
+.streak-line2 {
+    font-size: 0.72rem;
+    color: #9ca3af;
+}
+
+/* keep old classes for backward compat */
+.streak-tracker { font-size: 0.8rem; color: #6b7280; }
+.streak-current  { font-size: 1.4rem; font-weight: 700; color: #111827; line-height: 1; }
+.streak-best     { font-size: 0.75rem; color: #9ca3af; }
+
+/* Подзаголовок группы бейджей */
+.badges-section-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0.9rem 0 0.4rem;
+}
+
+/* ====================================== */
+/* ============= МОДАЛКА ================ */
+/* ====================================== */
+
+.badge-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.badge-modal {
+    background: #ffffff;
+    border-radius: 1.2rem;
+    padding: 1.5rem;
+    width: 300px;
+    max-width: calc(100vw - 2rem);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    animation: slideUp 0.18s ease;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(12px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+
+.badge-modal-icon   { font-size: 2.8rem; text-align: center; margin-bottom: 0.4rem; }
+.badge-modal-name   { font-size: 1.15rem; font-weight: 700; text-align: center; color: #111827; }
+.badge-modal-desc   { font-size: 0.85rem; color: #6b7280; text-align: center; margin: 0.3rem 0 1rem; }
+
+.badge-modal-steps  { list-style: none; padding: 0; margin: 0; }
+.badge-modal-step   {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 0.875rem;
+}
+
+.badge-modal-step:last-child { border-bottom: none; }
+
+.step-icon { font-size: 1rem; flex-shrink: 0; width: 20px; text-align: center; }
+
+.badge-modal-step.done        { color: #374151; }
+.badge-modal-step.next        { color: #4AADAD; font-weight: 600; }
+.badge-modal-step.locked-step { color: #c0c0c0; }
+
+.badge-modal-close {
+    width: 100%;
+    margin-top: 1rem;
+    padding: 0.65rem;
+    border: none;
+    background: #f5f5f5;
+    border-radius: 0.6rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.12s ease;
+}
+
+.badge-modal-close:hover { background: #ebebeb; }
+
+/* ====================================== */
+/* ======= СТОПКИ ТРЕКЕРОВ ============== */
+/* ====================================== */
+
+/* Ряд стопок */
+.stacks-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 1rem;
+    align-items: flex-end;
+}
+
+.stacks-row-single {
+    align-items: flex-start;
+}
+
+/* Колонка: стопка + бонусные бейджи */
+.stack-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.stacks-row-single .stack-col {
+    flex: 0 0 auto;
+    max-width: 110px;
+}
+
+/* Обёртка стопки */
+.stack-wrapper {
+    position: relative;
+    cursor: pointer;
+    padding-top: 20px;
+    padding-bottom: 20px;
+}
+
+/* Будущие карточки (серые, сверху) */
+.stack-future {
+    position: absolute;
+    left: 5px; right: 5px;
+    border-radius: 12px;
+    background: #e8ebed;
+    border: 1.5px solid #cdd2d8;
+}
+
+.stack-future.sf-1 { top: 10px; height: 12px; opacity: 0.85; z-index: 3; }
+.stack-future.sf-2 { top: 5px;  height: 12px; opacity: 0.65; z-index: 2; }
+.stack-future.sf-3 { top: 0px;  height: 12px; opacity: 0.45; z-index: 1; }
+.stack-future.sf-4 { top: -5px; height: 12px; opacity: 0.25; z-index: 0; }
+
+/* Прошлые карточки (цветные, снизу) */
+.stack-past {
+    position: absolute;
+    left: 5px; right: 5px;
+    border-radius: 12px;
+    height: 12px;
+}
+
+.stack-past.sp-1 { bottom: 10px; opacity: 0.85; z-index: 3; }
+.stack-past.sp-2 { bottom: 5px;  opacity: 0.65; z-index: 2; }
+.stack-past.sp-3 { bottom: 0px;  opacity: 0.45; z-index: 1; }
+.stack-past.sp-4 { bottom: -5px; opacity: 0.25; z-index: 0; }
+
+.stack-past[data-color="gray"]  { background: #e8ebed;  border: 1.5px solid #b0bac4; }
+.stack-past[data-color="blue"]  { background: #deeaf8;  border: 1.5px solid #5B9BD5; }
+.stack-past[data-color="green"] { background: #daf0e6;  border: 1.5px solid #4A9D6F; }
+.stack-past[data-color="gold"]  { background: #fce9c0;  border: 1.5px solid #D4920A; }
+
+/* Активная карточка */
+.stack-card {
+    position: relative;
+    z-index: 4;
+    background: white;
+    border-radius: 12px;
+    padding: 12px 8px 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.11);
+    border: 2px solid transparent;
+    text-align: center;
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.stack-wrapper:hover .stack-card {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+}
+
+.stack-card[data-color="gray"]  { border-color: #b0bac4; }
+.stack-card[data-color="blue"]  { border-color: #5B9BD5; }
+.stack-card[data-color="green"] { border-color: #4A9D6F; }
+.stack-card[data-color="gold"]  {
+    border-color: #D4920A;
+    background: linear-gradient(160deg, #fffdf7, #fff8e8);
+}
+
+.card-icon  { font-size: 22px; margin-bottom: 4px; display: block; }
+.card-name  { font-size: 11px; font-weight: 600; line-height: 1.25; }
+.card-desc  { font-size: 10px; color: #8a96a3; margin-top: 2px; }
+
+/* Точки прогресса внутри карточки */
+.card-dots { display: flex; justify-content: center; gap: 3px; margin-top: 8px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #dde2e8; }
+.dot.dot-gray  { background: #b0bac4; }
+.dot.dot-blue  { background: #5B9BD5; }
+.dot.dot-green { background: #4A9D6F; }
+.dot.dot-gold  { background: #D4920A; }
+
+/* ====================================== */
+/* ======= БОНУСНЫЕ БЕЙДЖИ ============== */
+/* ====================================== */
+
+.bonus-badges-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.badge-bonus {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: white;
+    border: 2px solid #e8ecf0;
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+    white-space: nowrap;
+}
+
+.badge-bonus:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+}
+
+.badge-bonus.earned {
+    border-color: #4AADAD;
+    background: #f0fafa;
+}
+
+.badge-bonus.locked {
+    opacity: 0.45;
+    filter: grayscale(1);
+    cursor: default;
+}
+
+.badge-bonus.locked:hover { transform: none; box-shadow: none; }
+.badge-bonus-icon { font-size: 14px; }
+
+/* ====================================== */
+/* === ОДИНОЧНЫЕ БЕЙДЖИ (ОБУЧЕНИЕ) ====== */
+/* ====================================== */
+
+.badge-single {
+    position: relative;
+    overflow: hidden;
+    width: 88px;
+    background: #ffffff;
+    border: 2px solid #e5e7eb;
+    border-radius: 1rem;
+    padding: 0.65rem 0.5rem 0.6rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    user-select: none;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.badge-single.earned {
+    cursor: pointer;
+    border-color: #5B9BD5;
+}
+
+.badge-single.earned[data-color="gray"]  { border-color: #b0bac4; }
+.badge-single.earned[data-color="blue"]  { border-color: #5B9BD5; }
+.badge-single.earned[data-color="green"] { border-color: #4A9D6F; }
+.badge-single.earned[data-color="gold"]  {
+    border-color: #D4920A;
+    background: linear-gradient(160deg, #fffdf7, #fff8e8);
+}
+
+.badge-single.earned:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.10);
+}
+
+.badge-single.locked {
+    opacity: 0.55;
+    filter: grayscale(100%);
+}
+
+.badge-single-icon { font-size: 1.8rem; line-height: 1; }
+
+.badge-single-name {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #374151;
+    text-align: center;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+/* Оверлей при hover на locked */
+.badge-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(240,242,245,0.95);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    opacity: 0;
+    transition: opacity 0.18s;
+    pointer-events: none;
+}
+
+.badge-single.locked:hover .badge-overlay { opacity: 1; }
+
+.badge-overlay-icon { font-size: 16px; margin-bottom: 4px; }
+.badge-overlay-text {
+    font-size: 10px;
+    color: #1a2332;
+    line-height: 1.35;
+    text-align: center;
+    font-weight: 500;
+}
+
+/* ====================================== */
+/* ======== СЕРИИ — ССЫЛКИ ============== */
+/* ====================================== */
+
+.streak-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.streak-link:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.10);
+    border-radius: 0.75rem;
+}
+
+/* ====================================== */
+/* ======== ПРОГРЕСС-БАРЫ =============== */
+/* ====================================== */
+
+.progress-bar-item { margin-bottom: 0.75rem; }
+
+.progress-bar-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: #374151;
+    margin-bottom: 0.35rem;
+}
+
+.progress-bar-track {
+    background: #e5e7eb;
+    border-radius: 999px;
+    height: 8px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    background: linear-gradient(90deg, #5B9BD5, #4A9D6F);
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.4s ease;
+    min-width: 0;
+}
+
+/* ====================================== */
 /* ============ RESPONSIVE ============== */
 /* ====================================== */
 
@@ -350,5 +833,9 @@
 
     .copy-button {
         width: 100%;
+    }
+
+    .streaks-grid {
+        grid-template-columns: repeat(2, 1fr);
     }
 }

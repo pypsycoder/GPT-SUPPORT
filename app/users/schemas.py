@@ -13,7 +13,7 @@ class UserPublic(BaseModel):
     full_name: str | None = None
     age: int | None = None
     gender: str | None = None
-    telegram_id: str
+    telegram_id: str | None = None
     consent_personal_data: bool = False
     consent_bot_use: bool = False
 

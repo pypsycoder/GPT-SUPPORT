@@ -10,6 +10,7 @@ from __future__ import annotations
 """
 
 import datetime as dt
+import logging
 from collections.abc import Mapping
 from typing import Dict, Optional, Tuple
 
@@ -27,6 +28,8 @@ from app.routine.schemas import (
     DailyVerificationCreate,
     DailyRoutineMetrics,
 )
+
+logger = logging.getLogger("gpt-support-routine")
 
 
 class RoutineService:
@@ -115,11 +118,12 @@ class RoutineService:
             },
             "custom_activities": custom_activities,
         }
-        # #region agent log
-        import json as _json
-        with open(r"d:\PROJECT\GPT-SUPPORT\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(_json.dumps({"location": "routine/service.py:get_or_build_plan", "message": "template_data built", "data": {"template_categories": template_categories, "template_keys": list(template_activities.keys()), "added_keys": list(added_from_pool.keys()), "activity_pool_len": len(baseline.activity_pool)}, "hypothesisId": "H1", "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)}, ensure_ascii=False) + "\n")
-        # #endregion
+        logger.debug(
+            "[routine] built template data: template=%s added=%s pool=%d",
+            list(template_activities.keys()),
+            list(added_from_pool.keys()),
+            len(baseline.activity_pool),
+        )
         return None, template_data
 
     @classmethod
@@ -174,13 +178,11 @@ class RoutineService:
             "custom_activities": cls._dump_custom_activities(payload.custom_activities),
             "retrospective_days": retrospective_days,
         }
-        # #region agent log
-        import json as _json
-        _dta = data.get("template_activities") or {}
-        _dap = data.get("added_from_pool") or {}
-        with open(r"d:\PROJECT\GPT-SUPPORT\.cursor\debug.log", "a", encoding="utf-8") as _f:
-            _f.write(_json.dumps({"location": "routine/service.py:save_plan", "message": "data for crud", "data": {"template_keys": list(_dta.keys()), "added_keys": list(_dap.keys())}, "hypothesisId": "H4", "timestamp": int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)}, ensure_ascii=False) + "\n")
-        # #endregion
+        logger.debug(
+            "[routine] saving plan payload: template=%s added=%s",
+            list((data.get("template_activities") or {}).keys()),
+            list((data.get("added_from_pool") or {}).keys()),
+        )
         return await crud.upsert_plan(
             session,
             patient_id=patient_id,

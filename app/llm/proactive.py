@@ -18,8 +18,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.llm.errors import LLMError
 from app.llm.anomaly import AnomalyAlert, check_anomalies
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.router import ModelTier, RequestType, RouterResult
@@ -97,7 +99,7 @@ async def generate_daily_queue(
     if len(messages) < 3:
         try:
             scores = await calculate_domain_scores(patient_id, db)
-            logger.warning(
+            logger.info(
                 "[proactive] domain scores patient=%d: %s", patient_id, scores
             )
             priority_domains = get_priority_domains(scores)
@@ -110,7 +112,7 @@ async def generate_daily_queue(
                 score = scores[domain]
                 if score is not None and score < 0.5:
                     messages.append(_make_domain_message(patient_id, domain, score))
-        except Exception as exc:
+        except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
             logger.warning(
                 "[proactive] domain scoring failed patient=%d: %s", patient_id, exc
             )
@@ -262,7 +264,7 @@ async def deliver_proactive_messages(patient_id: int, db: AsyncSession) -> None:
                 msg.domain_hint,
                 msg.trigger_reason,
             )
-        except Exception as exc:
+        except (LLMError, SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
             logger.error(
                 "[proactive] Ошибка генерации patient=%d domain=%s: %s",
                 patient_id,

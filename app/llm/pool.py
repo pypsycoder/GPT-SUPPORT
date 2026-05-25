@@ -1,6 +1,7 @@
 """
-GigaChat Account Pool — управление пулом аккаунтов GigaChat API.
+GigaChat Account Pool - account selection, token refresh, and provider calls.
 
+<<<<<<< HEAD
 Каждый аккаунт имеет один поток (asyncio.Lock), ротация по пулу.
 Аккаунты читаются из переменных окружения: GIGACHAT_KEY_A1, GIGACHAT_KEY_A2, ...
 
@@ -16,6 +17,10 @@ GigaChat API:
 
 NOTE: GigaChat использует российские сертификаты. На dev-сервере `verify=False`.
       В продакшне передайте путь к CA-сертификату через GIGACHAT_CERT_PATH.
+=======
+Each account handles one concurrent request via asyncio.Lock.
+Accounts are read from environment variables: GIGACHAT_KEY_A1, GIGACHAT_KEY_A2, ...
+>>>>>>> master
 """
 
 from __future__ import annotations
@@ -26,26 +31,26 @@ import os
 import re
 import time
 import uuid
+from dataclasses import dataclass
 
-import httpx
+from app.llm.errors import LLMConfigurationError, LLMResponseError, LLMTransportError
+from app.llm.http import request_json_with_policy
+
 
 from app.llm.errors import LLMConfigurationError, LLMTransportError
 
 logger = logging.getLogger("gpt-support-llm.pool")
-
-# ---------------------------------------------------------------------------
-# Константы
-# ---------------------------------------------------------------------------
 
 GIGACHAT_AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 GIGACHAT_API_URL = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
 
 MODEL_NAMES: dict[str, str] = {
     "lite": "GigaChat-2",
-    "pro":  "GigaChat-2-Pro",
-    "max":  "GigaChat-2-Max",
+    "pro": "GigaChat-2-Pro",
+    "max": "GigaChat-2-Max",
 }
 
+<<<<<<< HEAD
 DEFAULT_ACCOUNT_GROUP = "freemium_test"
 DEFAULT_SCOPE = "GIGACHAT_API_PERS"
 _INSECURE_SSL_ENV = "GIGACHAT_ALLOW_INSECURE_SSL"
@@ -87,13 +92,28 @@ def _normalize_httpx_error(exc: httpx.HTTPError) -> LLMConfigurationError | LLMT
         return LLMTransportError(f"GigaChat HTTP {exc.response.status_code}: {exc}")
 
     return LLMTransportError(f"GigaChat transport error: {exc}")
+=======
+_TIER_PRIORITY: dict[str, int] = {"lite": 0, "pro": 1, "max": 2}
+>>>>>>> master
 
 
-# ---------------------------------------------------------------------------
-# GigaChatClient
-# ---------------------------------------------------------------------------
+@dataclass
+class _SharedAccountState:
+    api_key: str
+    access_token: str | None = None
+    token_expires_at: float = 0.0
+    lock: asyncio.Lock | None = None
+    token_lock: asyncio.Lock | None = None
+
+    def __post_init__(self) -> None:
+        if self.lock is None:
+            self.lock = asyncio.Lock()
+        if self.token_lock is None:
+            self.token_lock = asyncio.Lock()
+
 
 class GigaChatClient:
+<<<<<<< HEAD
     """
     Клиент для одного аккаунта GigaChat.
 
@@ -101,10 +121,13 @@ class GigaChatClient:
     Автоматически обновляет OAuth-токен при истечении.
     """
 
+=======
+>>>>>>> master
     def __init__(
         self,
         account_id: str,
         api_key: str,
+<<<<<<< HEAD
         *,
         account_group: str = DEFAULT_ACCOUNT_GROUP,
         scope: str = DEFAULT_SCOPE,
@@ -113,27 +136,26 @@ class GigaChatClient:
         self.api_key = api_key
         self.account_group = account_group
         self.scope = scope
+=======
+        model_tier: str,
+        *,
+        shared_state: _SharedAccountState | None = None,
+    ) -> None:
+        self.account_id = account_id
+        self.model_tier = model_tier
+>>>>>>> master
         self.tokens_used: int = 0
-
-        self._lock = asyncio.Lock()
-        self._access_token: str | None = None
-        self._token_expires_at: float = 0.0
+        self._state = shared_state or _SharedAccountState(api_key=api_key)
 
     @property
     def is_busy(self) -> bool:
-        """True если клиент сейчас обрабатывает запрос."""
-        return self._lock.locked()
-
-    # ------------------------------------------------------------------
-    # OAuth
-    # ------------------------------------------------------------------
+        return self._state.lock.locked()
 
     async def _get_access_token(self) -> str:
-        """Возвращает действующий access_token, при необходимости обновляет."""
-        # Если токен ещё не истёк (с запасом 60 сек), используем кэшированный
-        if self._access_token and time.time() < self._token_expires_at - 60:
-            return self._access_token
+        if self._state.access_token and time.time() < self._state.token_expires_at - 60:
+            return self._state.access_token
 
+<<<<<<< HEAD
         verify = _get_ssl_verify()
         try:
             async with httpx.AsyncClient(verify=verify, timeout=15.0) as client:
@@ -160,17 +182,38 @@ class GigaChatClient:
                 data = resp.json()
         except httpx.HTTPError as exc:
             raise _normalize_httpx_error(exc) from exc
+=======
+        async with self._state.token_lock:
+            if self._state.access_token and time.time() < self._state.token_expires_at - 60:
+                return self._state.access_token
+>>>>>>> master
 
-        self._access_token = data["access_token"]
-        # expires_at приходит в миллисекундах
-        self._token_expires_at = data.get("expires_at", 0) / 1000.0
-        logger.debug("[pool] Токен обновлён, аккаунт=%s", self.account_id)
-        return self._access_token
+            try:
+                data = await request_json_with_policy(
+                    "oauth",
+                    method="POST",
+                    url=GIGACHAT_AUTH_URL,
+                    operation=f"oauth for account {self.account_id}",
+                    headers={
+                        "Authorization": f"Basic {self._state.api_key}",
+                        "RqUID": str(uuid.uuid4()),
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    data={"scope": "GIGACHAT_API_PERS"},
+                )
+                access_token = _ascii_only(data["access_token"])
+                expires_at = data.get("expires_at", 0) / 1000.0
+            except (KeyError, TypeError, ValueError) as exc:
+                raise LLMResponseError(
+                    f"oauth returned invalid payload for account {self.account_id}"
+                ) from exc
 
-    # ------------------------------------------------------------------
-    # API call
-    # ------------------------------------------------------------------
+            self._state.access_token = access_token
+            self._state.token_expires_at = expires_at
+            logger.debug("[pool] token refreshed account=%s", self.account_id)
+            return self._state.access_token
 
+<<<<<<< HEAD
     async def call(
         self,
         messages: list[dict],
@@ -193,22 +236,31 @@ class GigaChatClient:
             httpx.HTTPError | RuntimeError: при ошибке после retry
         """
         async with self._lock:
+=======
+    async def call(self, messages: list[dict], system_prompt: str) -> tuple[str, int, int, int]:
+        async with self._state.lock:
+>>>>>>> master
             start = time.monotonic()
             token = await self._get_access_token()
             requested_tier = str(model_tier or "pro").lower()
             model_name = MODEL_NAMES.get(requested_tier, MODEL_NAMES["pro"])
 
-            all_messages = [{"role": "system", "content": system_prompt}, *messages]
             payload = {
                 "model": model_name,
+<<<<<<< HEAD
                 "messages": all_messages,
                 "temperature": temperature,
+=======
+                "messages": [{"role": "system", "content": system_prompt}, *messages],
+                "temperature": 0.7,
+>>>>>>> master
                 "max_tokens": 512,
             }
 
-            last_exc: Exception | None = None
+            last_exc: LLMTransportError | LLMResponseError | None = None
             for attempt in range(2):
                 try:
+<<<<<<< HEAD
                     verify = _get_ssl_verify()
                     async with httpx.AsyncClient(verify=verify, timeout=30.0) as http_client:
                         resp = await http_client.post(
@@ -221,6 +273,19 @@ class GigaChatClient:
                         )
                         resp.raise_for_status()
                         data = resp.json()
+=======
+                    data = await request_json_with_policy(
+                        "chat",
+                        method="POST",
+                        url=GIGACHAT_API_URL,
+                        operation=f"chat completion for account {self.account_id}",
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/json",
+                        },
+                        json_body=payload,
+                    )
+>>>>>>> master
 
                     text = data["choices"][0]["message"]["content"]
                     usage = data.get("usage", {})
@@ -230,13 +295,23 @@ class GigaChatClient:
 
                     self.tokens_used += tokens_in + tokens_out
                     logger.info(
+<<<<<<< HEAD
                         "[pool] account=%s group=%s model=%s in=%d out=%d time=%dms",
                         self.account_id, self.account_group, model_name, tokens_in, tokens_out, elapsed_ms,
+=======
+                        "[pool] account=%s model=%s in=%d out=%d time=%dms",
+                        self.account_id,
+                        model_name,
+                        tokens_in,
+                        tokens_out,
+                        elapsed_ms,
+>>>>>>> master
                     )
                     return text, tokens_in, tokens_out, elapsed_ms
 
-                except Exception as exc:
+                except (LLMTransportError, LLMResponseError) as exc:
                     last_exc = exc
+<<<<<<< HEAD
                     if isinstance(exc, httpx.HTTPError):
                         normalized_exc = _normalize_httpx_error(exc)
                     else:
@@ -266,15 +341,45 @@ class GigaChatClient:
                             token = await self._get_access_token()
                         except Exception:
                             pass
+=======
+                    logger.warning(
+                        "[pool] attempt %d provider error (account=%s): %s",
+                        attempt + 1,
+                        self.account_id,
+                        exc,
+                    )
+                except (KeyError, IndexError, TypeError, ValueError) as exc:
+                    last_exc = LLMResponseError(
+                        f"chat returned invalid payload for account {self.account_id}"
+                    )
+                    logger.warning(
+                        "[pool] attempt %d invalid payload (account=%s): %s",
+                        attempt + 1,
+                        self.account_id,
+                        exc,
+                    )
+>>>>>>> master
 
-            raise last_exc  # type: ignore[misc]
+                if attempt == 0:
+                    self._state.access_token = None
+                    try:
+                        token = await self._get_access_token()
+                    except (LLMTransportError, LLMResponseError):
+                        logger.warning(
+                            "[pool] token refresh failed after attempt %d (account=%s)",
+                            attempt + 1,
+                            self.account_id,
+                        )
 
+            if last_exc is None:
+                raise LLMResponseError(
+                    f"chat failed for account {self.account_id} without a classified error"
+                )
+            raise last_exc
 
-# ---------------------------------------------------------------------------
-# AccountPool
-# ---------------------------------------------------------------------------
 
 class AccountPool:
+<<<<<<< HEAD
     """
     Пул аккаунтов GigaChat.
 
@@ -282,16 +387,23 @@ class AccountPool:
     Модель не закрепляется за аккаунтом: она передаётся в `client.call(...)`.
     Аккаунт может принадлежать к группе, например `freemium_test` или `business`.
     """
+=======
+    _FIXED_TIERS: dict[str, str] = {"A1": "lite", "A2": "pro"}
+>>>>>>> master
 
     def __init__(self) -> None:
         self.clients: list[GigaChatClient] = []
         self._build_pool()
 
     def _build_pool(self) -> None:
+        configured_accounts: list[tuple[str, str, str]] = []
+        available_tiers: set[str] = set()
+
         for i in range(1, 20):
             account_id = f"A{i}"
             key = os.getenv(f"GIGACHAT_KEY_{account_id}")
             if not key:
+<<<<<<< HEAD
                 continue  # пропускаем пустые, не прерываем
             account_group = os.getenv(f"GIGACHAT_GROUP_{account_id}", DEFAULT_ACCOUNT_GROUP).strip() or DEFAULT_ACCOUNT_GROUP
             scope = os.getenv(f"GIGACHAT_SCOPE_{account_id}", DEFAULT_SCOPE).strip() or DEFAULT_SCOPE
@@ -304,10 +416,48 @@ class AccountPool:
             )
             self.clients.append(client)
             logger.info("[pool] Добавлен аккаунт %s group=%s scope=%s", account_id, account_group, scope)
+=======
+                continue
+            key = _ascii_only(key).strip()
+            tier = self._FIXED_TIERS.get(account_id) or os.getenv(
+                f"GIGACHAT_MODEL_{account_id}", "pro"
+            )
+            if tier not in MODEL_NAMES:
+                tier = "pro"
+
+            configured_accounts.append((account_id, key, tier))
+            self._add_client(account_id=account_id, api_key=key, tier=tier)
+            available_tiers.add(tier)
+
+        unique_keys = {key for _, key, _ in configured_accounts}
+        if configured_accounts and len(unique_keys) == 1:
+            base_account_id, shared_key, _ = configured_accounts[0]
+            shared_state = next(
+                client._state for client in self.clients
+                if client.account_id == base_account_id
+            )
+            for tier in MODEL_NAMES:
+                if tier in available_tiers:
+                    continue
+                alias_account_id = f"{base_account_id}-{tier}"
+                self._add_client(
+                    account_id=alias_account_id,
+                    api_key=shared_key,
+                    tier=tier,
+                    shared_state=shared_state,
+                )
+                logger.info(
+                    "[pool] added shared-tier alias %s tier=%s using key from %s",
+                    alias_account_id,
+                    tier,
+                    base_account_id,
+                )
+>>>>>>> master
 
         if not self.clients:
-            logger.warning("[pool] Нет аккаунтов GigaChat! Задайте GIGACHAT_KEY_A1 в .env")
+            logger.warning("[pool] no GigaChat accounts configured")
 
+<<<<<<< HEAD
     async def get_available(
         self,
         account_group: str | None = None,
@@ -324,14 +474,40 @@ class AccountPool:
         Raises:
             RuntimeError: если пул пуст
         """
-        if not self.clients:
-            raise RuntimeError("AccountPool пуст — нет настроенных аккаунтов GigaChat")
+=======
+    def _add_client(
+        self,
+        *,
+        account_id: str,
+        api_key: str,
+        tier: str,
+        shared_state: _SharedAccountState | None = None,
+    ) -> None:
+        client = GigaChatClient(
+            account_id=account_id,
+            api_key=api_key,
+            model_tier=tier,
+            shared_state=shared_state,
+        )
+        self.clients.append(client)
+        logger.info("[pool] added account %s tier=%s", account_id, tier)
 
+    async def get_available(self, model_tier: str, *, allow_fallback: bool = False) -> GigaChatClient:
+>>>>>>> master
+        if not self.clients:
+            raise LLMConfigurationError("No GigaChat accounts configured")
+
+<<<<<<< HEAD
         normalized_group = (account_group or "").strip() or None
+=======
+        tier = model_tier.lower()
+        min_priority = _TIER_PRIORITY.get(tier, 1)
+>>>>>>> master
         candidates = [
             c for c in self.clients
             if normalized_group is None or c.account_group == normalized_group
         ]
+<<<<<<< HEAD
         if not candidates and strict:
             raise RuntimeError(
                 f"Нет доступного аккаунта GigaChat для требуемой группы: {normalized_group or DEFAULT_ACCOUNT_GROUP}"
@@ -341,28 +517,36 @@ class AccountPool:
 
         # Сортируем: сначала незанятые, потом по account_id для стабильности
         candidates.sort(key=lambda c: (c.is_busy, c.account_id))
+=======
+        if not candidates and not allow_fallback:
+            raise LLMConfigurationError(
+                f"No GigaChat account configured for requested tier '{tier}'"
+            )
+        if not candidates:
+            candidates = self.clients
 
-        # Первый проход: ищем свободный
+        candidates.sort(key=lambda c: (c.is_busy, _TIER_PRIORITY.get(c.model_tier, 1)))
+>>>>>>> master
+
         for client in candidates:
             if not client.is_busy:
                 return client
 
-        # Все заняты — ждём освобождения (таймаут 10 сек)
         try:
-            return await asyncio.wait_for(
-                self._wait_for_any(candidates),
-                timeout=10.0,
-            )
+            return await asyncio.wait_for(self._wait_for_any(candidates), timeout=10.0)
         except asyncio.TimeoutError:
+<<<<<<< HEAD
             logger.warning(
                 "[pool] Таймаут ожидания клиента group=%s, возвращаем первый",
                 normalized_group or "*",
             )
+=======
+            logger.warning("[pool] wait timeout for tier=%s, returning first candidate", tier)
+>>>>>>> master
             return candidates[0]
 
     @staticmethod
     async def _wait_for_any(clients: list[GigaChatClient]) -> GigaChatClient:
-        """Опрашивает список клиентов каждые 200 мс до освобождения."""
         while True:
             for client in clients:
                 if not client.is_busy:
@@ -370,7 +554,10 @@ class AccountPool:
             await asyncio.sleep(0.2)
 
     def get_stats(self) -> dict:
+<<<<<<< HEAD
         """Статус каждого аккаунта: группа, scope, занятость, суммарные токены."""
+=======
+>>>>>>> master
         return {
             c.account_id: {
                 "account_group": c.account_group,
@@ -382,10 +569,10 @@ class AccountPool:
         }
 
 
-# ---------------------------------------------------------------------------
-# SSL helper
-# ---------------------------------------------------------------------------
+def _ascii_only(s: str) -> str:
+    return s.encode("ascii", errors="ignore").decode("ascii")
 
+<<<<<<< HEAD
 def _get_ssl_verify() -> bool | str:
     """
     Возвращает параметр verify для httpx.
@@ -407,5 +594,7 @@ def _get_ssl_verify() -> bool | str:
 # ---------------------------------------------------------------------------
 # Синглтон — импортируется во всех модулях
 # ---------------------------------------------------------------------------
+=======
+>>>>>>> master
 
 pool = AccountPool()

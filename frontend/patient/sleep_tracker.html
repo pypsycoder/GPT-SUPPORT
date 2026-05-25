@@ -57,6 +57,7 @@
                         <span class="sleep-time-sep">:</span>
                         <input type="number" id="sleep_onset_m" class="sleep-time-part" min="0" max="59" placeholder="М" aria-label="Минуты отхода ко сну" inputmode="numeric">
                     </div>
+                    <span class="sleep-time-error sleep-hidden" id="sleep_onset_error" role="alert"></span>
                 </div>
 
                 <!-- Q2: 24-часовой формат (ЧЧ:ММ), точность до минуты -->
@@ -68,6 +69,7 @@
                         <span class="sleep-time-sep">:</span>
                         <input type="number" id="wake_time_m" class="sleep-time-part" min="0" max="59" placeholder="М" aria-label="Минуты пробуждения" inputmode="numeric">
                     </div>
+                    <span class="sleep-time-error sleep-hidden" id="wake_time_error" role="alert"></span>
                 </div>
 
                 <div id="tib-warning" class="sleep-warning sleep-warning-hidden" role="alert">
@@ -77,8 +79,13 @@
 
                 <!-- Q2b -->
                 <div class="sleep-q">
-                    <label class="sleep-q-label" for="tst_hours">Сколько часов вы фактически спали?</label>
-                    <input type="number" id="tst_hours" class="sleep-number" min="0" max="12" step="0.5" placeholder="ч" inputmode="decimal">
+                    <label class="sleep-q-label">Сколько часов вы фактически спали?</label>
+                    <span class="sleep-q-hint">Рассчитано автоматически — можно скорректировать</span>
+                    <div class="sleep-tst-stepper">
+                        <button type="button" id="tst-minus" class="sleep-tst-btn" aria-label="Уменьшить на 5 минут" disabled>−</button>
+                        <span id="tst-display" class="sleep-tst-display sleep-tst-display--placeholder" aria-live="polite">—</span>
+                        <button type="button" id="tst-plus" class="sleep-tst-btn" aria-label="Увеличить на 5 минут" disabled>+</button>
+                    </div>
                     <span id="se-display" class="sleep-se-display"></span>
                 </div>
                 <div id="se-warning" class="sleep-warning sleep-warning-hidden" role="alert">

@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union
 
 from app.scales.config.pss10 import PSS10_CONFIG
+from app.scales.schemas import ScaleAnswerIn
 
 
 def calculate_pss10(answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]):

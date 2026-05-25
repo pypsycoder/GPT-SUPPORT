@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union
 
 from app.scales.config.kop_25a1 import KOP25A_CONFIG, KOP25A_GROUPS
+from app.scales.schemas import ScaleAnswerIn
 
 
 def calculate_kop_25a1(answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]):

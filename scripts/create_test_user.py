@@ -29,7 +29,7 @@ async def main(full_name: str, age: int | None, gender: str | None) -> None:
             gender=gender,
         )
         print(f"\n{'='*60}")
-        print(f"Patient created successfully!")
+        print("Patient created successfully!")
         print(f"{'='*60}")
         print(f"Patient ID:       {user.id}")
         print(f"Full Name:        {user.full_name}")

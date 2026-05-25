@@ -91,6 +91,48 @@
     }
   }
 
+  // # обновление одного бейджа по data-section
+  function sidebarUpdateBadge(rootContainer, section, count) {
+    var item = rootContainer.querySelector('.sidebar-item[data-section="' + section + '"]');
+    if (!item) return;
+    var icon = item.querySelector('.sidebar-item-icon');
+    if (!icon) return;
+
+    var badge = icon.querySelector('.nav-badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-badge';
+        icon.appendChild(badge);
+      }
+      badge.textContent = count > 9 ? '9+' : String(count);
+    } else {
+      if (badge) badge.remove();
+    }
+  }
+
+  // # загрузка бейджей с сервера
+  function sidebarLoadBadges(rootContainer) {
+    fetch('/api/notifications/badges')
+      .then(function (res) {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        sidebarUpdateBadge(rootContainer, 'vitals', data.vitals);
+        sidebarUpdateBadge(rootContainer, 'medications', data.medications);
+        sidebarUpdateBadge(rootContainer, 'sleep_tracker', data.sleep);
+        sidebarUpdateBadge(rootContainer, 'scales_overview', data.scales);
+        sidebarUpdateBadge(rootContainer, 'education', data.education);
+        sidebarUpdateBadge(rootContainer, 'routine', data.routine);
+        sidebarUpdateBadge(rootContainer, 'assistant', data.assistant);
+      })
+      .catch(function () {
+        // бейджи опциональны — ошибки не показываем
+      });
+  }
+
   // # загрузка sidebar.html в контейнер
   function sidebarInit() {
     const rootContainer = document.getElementById('sidebar-container');
@@ -115,11 +157,20 @@
         sidebarApplyInitialState();
         sidebarInitNav(rootContainer);
         sidebarInitCollapse(sidebarRoot);
+        sidebarLoadBadges(rootContainer);
       })
       .catch((err) => {
         console.error('Не удалось инициализировать сайдбар:', err);
       });
   }
+
+  // # публичный API: перезагрузить бейджи (вызывается страницами после действий)
+  window.SidebarBadges = {
+    reload: function () {
+      var rootContainer = document.getElementById('sidebar-container');
+      if (rootContainer) sidebarLoadBadges(rootContainer);
+    },
+  };
 
   document.addEventListener('DOMContentLoaded', sidebarInit);
 })();

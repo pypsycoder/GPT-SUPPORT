@@ -7,7 +7,7 @@
 
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
 
@@ -30,7 +30,8 @@ class PatientCreateResponse(BaseModel):
 
 
 class KdqolPointStatus(BaseModel):
-    point_type: str  # T0 | T1 | T2
+    scale_code: str = "KDQOL_SF"  # KDQOL_SF | WCQ_LAZARUS | KOP_25A
+    point_type: str               # T0 | T1 | T2
     is_completed: bool
     activated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -78,12 +79,19 @@ class PatientCenterAssign(BaseModel):
     center_id: Optional[UUID] = None  # None = clear assignment
 
 
+class BulkPatientActionRequest(BaseModel):
+    """Request body for bulk delete or block actions on patients."""
+    patient_ids: List[int]
+
+
 # ---------------------------------------------------------------------------
 # Chat log monitoring schemas
 # ---------------------------------------------------------------------------
 
 class ChatLogItem(BaseModel):
     """One row in the chat monitoring table — one LLM API call = one turn."""
+    model_config = ConfigDict(protected_namespaces=())
+
     log_id: int
     patient_id: int
     created_at: datetime
@@ -97,6 +105,7 @@ class ChatLogItem(BaseModel):
     response_time_ms: int = 0
     success: bool = True
     error_message: Optional[str] = None
+    diagnostics_json: Optional[dict] = None
 
 
 class ChatLogsResponse(BaseModel):
@@ -149,7 +158,6 @@ class ResearcherChatDebugRequest(BaseModel):
     session_id: Optional[str] = None
     thread_id: Optional[str] = None
     persist_messages: bool = False
-    supervisor_state: Optional[dict[str, Any]] = None
 
 
 class ResearcherChatDebugResponse(BaseModel):
@@ -171,15 +179,3 @@ class ResearcherChatDebugResponse(BaseModel):
     memory_after: List[dict] = []
     pending_st_memory: List[dict] = []
     pending_lt_memory: List[dict] = []
-    supervisor_state: Optional[dict[str, Any]] = None
-    supervisor_state_delta: dict[str, Any] = {}
-
-
-class ResearcherDebugReportSaveRequest(BaseModel):
-    report_data: dict[str, Any]
-
-
-class ResearcherDebugReportSaveResponse(BaseModel):
-    ok: bool = True
-    filename: str
-    relative_path: str

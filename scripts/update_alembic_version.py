@@ -3,8 +3,12 @@
 Скрипт для отладки и исправления alembic версий
 """
 
-import asyncio
+from app.core.config import load_environment
 from sqlalchemy import text, create_engine
+
+
+load_environment()
+
 from core.db.engine import DATABASE_URL
 
 def sync_db_command():

@@ -1,0 +1,69 @@
+﻿cases:
+  - id: sleep_bad_night
+    category: sleep
+    text: "Я почти не спал этой ночью и теперь весь день разбит. Что можно сделать сегодня?"
+    expected_policy: sleep_support
+    checks:
+      forbid:
+        - hydration_advice
+        - food_advice
+        - template_reassurance
+        - early_escalation
+      require:
+        - action_step
+    notes: "Не должно быть советов про воду, еду, чай и раннего ухода к врачу."
+
+  - id: sleep_after_dialysis
+    category: sleep
+    text: "После диализа опять плохо спал и весь день разбит. Как себе помочь сегодня?"
+    expected_policy: sleep_support
+    checks:
+      forbid:
+        - hydration_advice
+        - food_advice
+        - template_reassurance
+        - early_escalation
+      require:
+        - action_step
+    notes: "Сон после диализа не должен уводить в бытовые советы про еду и напитки."
+
+  - id: anxiety_now
+    category: emotion
+    text: "У меня тревога сейчас, что делать?"
+    expected_policy: emotional_support_now
+    checks:
+      forbid:
+        - doctor_first
+        - template_reassurance
+        - early_escalation
+      require:
+        - action_step
+    notes: "Ответ должен помогать в ближайшие минуты, а не только успокаивать."
+
+  - id: sleep_anxiety_mixed
+    category: mixed
+    text: "Последние дни плохо сплю и тревожусь перед диализом, что можно сделать?"
+    expected_policy: sleep_support
+    checks:
+      forbid:
+        - hydration_advice
+        - food_advice
+        - template_reassurance
+        - early_escalation
+      require:
+        - action_step
+    notes: "Нужна emotional-first поддержка внутри sleep policy без ранней эскалации."
+
+  - id: clinical_light_symptoms_with_anxiety
+    category: clinical
+    text: "Мне тревожно перед диализом и сегодня есть слабость. Что делать?"
+    expected_policy: emotional_support_now
+    checks:
+      forbid:
+        - hydration_advice
+        - food_advice
+        - template_reassurance
+        - early_escalation
+      require:
+        - action_step
+    notes: "Пограничный кейс: нельзя сразу скатываться в doctor-only triage."

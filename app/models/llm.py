@@ -50,6 +50,19 @@ class ChatMessage(Base):
 
     request_type: Mapped[str | None] = mapped_column(sa.String(40), nullable=True)
 
+    is_read: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        server_default="true",
+        comment="False для непрочитанных сообщений ассистента",
+    )
+
+    buttons_json: Mapped[list | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        comment="Inline-кнопки для morning-сообщений [{label, action}]",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime,
         nullable=False,
@@ -151,6 +164,12 @@ class LLMRequestLog(Base):
     )
 
     error_message: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    diagnostics_json: Mapped[dict | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        comment="Pipeline diagnostics: stage status, fallbacks, context sizes, and RAG/provider signals.",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime,

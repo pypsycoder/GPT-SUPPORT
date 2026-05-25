@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Check migration heads and status"""
 
-import os
 import sys
 from pathlib import Path
 

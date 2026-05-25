@@ -42,9 +42,28 @@
 .badge-self       { display: inline-block; padding: 0.2rem 0.5rem; background: #f3e5f5;
                     color: #7b1fa2; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
 
-.slots-row        { display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: flex-end; }
-.slot-tag         { background: #e3f2fd; color: #1565c0; padding: 0.15rem 0.4rem;
-                    border-radius: 4px; font-size: 0.8rem; }
+.slots-row        {
+  display: flex;
+  flex-wrap: nowrap;           /* все слоты в одну строку */
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+.slot-tag         {
+  background: #e3f2fd;
+  color: #1565c0;
+  padding: 0.1rem 0.25rem;     /* компактнее, чтобы влезали */
+  border-radius: 4px;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.slot-tag-today   { background: #e8f5e9; color: #2e7d32; }
+.slot-tag .slot-check {
+  margin-left: 0.25rem;
+  color: #2e7d32;
+  font-size: 0.85em;
+}
 
 /* ── Frequency Picker ─────────────────────────────────────── */
 .frequency-picker { display: flex; gap: 0.5rem; flex-wrap: wrap; }

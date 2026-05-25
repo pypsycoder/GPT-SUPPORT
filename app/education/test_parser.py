@@ -11,7 +11,7 @@ from pathlib import Path
 # Добавляем путь если запускаем отдельно
 sys.path.insert(0, str(Path(__file__).parent))
 
-from education_parser import parse_lesson_markdown, validate_lesson_md
+from education_parser import parse_lesson_markdown
 
 # =========================
 #  ТЕСТОВЫЙ MD
@@ -106,7 +106,7 @@ def test_titles():
     cards = parse_lesson_markdown(TEST_MD)
     assert cards[0].title == "После диализа хочется чтобы все отстали"
     assert cards[5].title == "Попробуйте одно из этого"
-    print(f"✅ Заголовки карточек корректны")
+    print("✅ Заголовки карточек корректны")
 
 def test_no_type_fallback():
     """Карточка без [type] получает card_type='text'"""
@@ -118,7 +118,7 @@ def test_no_type_fallback():
     cards = parse_lesson_markdown(md)
     assert cards[0].card_type == "text"
     assert cards[0].title == "Просто заголовок без типа"
-    print(f"✅ Fallback на 'text' работает")
+    print("✅ Fallback на 'text' работает")
 
 def test_unknown_type_fallback():
     """Неизвестный тип не ломает парсер"""
@@ -129,7 +129,7 @@ def test_unknown_type_fallback():
 """
     cards = parse_lesson_markdown(md)
     assert cards[0].card_type == "text"
-    print(f"✅ Неизвестный тип → fallback на 'text'")
+    print("✅ Неизвестный тип → fallback на 'text'")
 
 # =========================
 #  ЗАПУСК

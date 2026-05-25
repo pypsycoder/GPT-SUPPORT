@@ -14,11 +14,19 @@ from __future__ import annotations
 
 import logging
 import re
+<<<<<<< HEAD
+=======
+import time
+from decimal import Decimal
+>>>>>>> master
 from datetime import datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select, func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.llm.errors import RetrievalError
 
 logger = logging.getLogger("gpt-support-llm.context_builder")
 
@@ -325,6 +333,7 @@ async def _build_rag_grounding_items(
 
     from app.education.models import LessonProgress, LessonTest, LessonTestResult, Practice
 
+<<<<<<< HEAD
     valid_modules: list[dict[str, object]] = []
     for module in modules:
         try:
@@ -337,6 +346,9 @@ async def _build_rag_grounding_items(
         return []
 
     lesson_ids = sorted({int(module["lesson_id"]) for module in valid_modules})
+=======
+    lesson_ids = sorted({int(module["lesson_id"]) for module in modules})
+>>>>>>> master
 
     progress_result = await db.execute(
         select(LessonProgress).where(
@@ -399,7 +411,11 @@ async def _build_rag_grounding_items(
         }
 
     grounding_items: list[dict[str, object]] = []
+<<<<<<< HEAD
     for index, module in enumerate(valid_modules):
+=======
+    for index, module in enumerate(modules):
+>>>>>>> master
         lesson_id = int(module["lesson_id"])
         progress = progress_by_lesson_id.get(lesson_id)
         practice = practice_by_lesson_id.get(lesson_id)
@@ -486,6 +502,11 @@ def select_patient_summary_for_prompt(
         return prompt_summary
 
     return [str(item["text"]) for item in items[:2]]
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> master
 # ---------------------------------------------------------------------------
 # Отдельные разделы
 # ---------------------------------------------------------------------------
@@ -641,7 +662,6 @@ async def _get_recent_water(patient_id: int, db: AsyncSession) -> list[str]:
 
 async def _get_routine_summary(patient_id: int, db: AsyncSession) -> list[str]:
     """Верификации рутины за 7 дней из routine.daily_verifications."""
-    from datetime import date as date_type
 
     from app.routine.models import DailyVerification
 
@@ -664,28 +684,30 @@ async def _get_routine_summary(patient_id: int, db: AsyncSession) -> list[str]:
 
 async def _get_rag_context(
     patient_id: int, query: str, db: AsyncSession
-) -> list[str]:
+) -> tuple[list[str], dict, list[dict[str, object]]]:
     """
     RAG: найти образовательные модули, релевантные запросу пациента.
 
     Для прочитанных уроков — добавляет релевантный фрагмент.
     Для непрочитанных — предлагает ознакомиться.
     """
-    from app.rag.retriever import retrieve_relevant_modules
+    from app.rag.retriever import retrieve_relevant_modules_with_meta
 
-    modules = await retrieve_relevant_modules(query, patient_id, db, top_k=2)
+    retrieval_started = time.monotonic()
+    retrieval_result = await retrieve_relevant_modules_with_meta(query, patient_id, db, top_k=5)
+    modules = retrieval_result["modules"]
     lines = []
     for m in modules:
-        if m["is_read"]:
-            lines.append(
-                f"Пациент читал урок «{m['title']}». "
-                f"Релевантный фрагмент: {m['chunk'][:200]}"
-            )
-        else:
-            lines.append(
-                f"По теме «{m['title']}» есть урок — можешь предложить пациенту."
-            )
-    return lines
+        fragment = _clip_rag_fragment(str(m.get("chunk", "")))
+        lines.append(
+            f"Урок «{m['title']}». Релевантный фрагмент: {fragment}"
+        )
+    progress_started = time.monotonic()
+    grounding_items = await _build_rag_grounding_items(patient_id, modules, db)
+    meta = dict(retrieval_result["meta"])
+    meta["progress_lookup_ms"] = meta.get("progress_lookup_ms", 0) + int((time.monotonic() - progress_started) * 1000)
+    meta["retrieval_total_ms"] = int((time.monotonic() - retrieval_started) * 1000)
+    return lines, meta, grounding_items
 
 
 async def _get_practices_summary(patient_id: int, db: AsyncSession) -> list[str]:
@@ -777,6 +799,13 @@ async def _get_chat_history(patient_id: int, db: AsyncSession) -> list[dict]:
 async def build_context(
     patient_id: int, db: AsyncSession, query: str = ""
 ) -> dict:
+    bundle = await build_context_bundle(patient_id, db, query=query)
+    return bundle["context"]
+
+
+async def build_context_bundle(
+    patient_id: int, db: AsyncSession, query: str = ""
+) -> dict:
     """
     Собирает данные пациента из БД.
     Если раздел вызвал исключение — логирует warning и возвращает пустой список.
@@ -805,22 +834,139 @@ async def build_context(
     }
 
     context: dict = {}
+    diagnostics: dict[str, object] = {
+        "patient_id": patient_id,
+        "query_length": len(query),
+        "total_latency_ms": 0,
+        "sections_ok": [],
+        "sections_failed": [],
+        "section_latency_ms": {},
+        "section_item_counts": {},
+        "rag": {
+            "attempted": False,
+            "skipped_reason": None,
+            "backend": None,
+            "backend_selected": None,
+            "candidate_rows": 0,
+            "query_vector_dims": 0,
+            "embedding_request_ms": 0,
+            "vector_search_ms": 0,
+            "progress_lookup_ms": 0,
+            "pgvector_extension_installed": False,
+            "pgvector_column_present": False,
+            "pgvector_index_present": False,
+            "pgvector_blocker": None,
+            "invalid_embedding_rows": 0,
+            "hit_count": 0,
+            "error": None,
+            "latency_ms": 0,
+        },
+        "summary_items": 0,
+    }
+
+    total_started = time.monotonic()
     for name, fn in sections.items():
+        started = time.monotonic()
         try:
             context[name] = await fn(patient_id, db)
-        except Exception as exc:
+            diagnostics["sections_ok"].append(name)
+        except (SQLAlchemyError, ValueError, TypeError, KeyError, RuntimeError) as exc:
             logger.warning("[context_builder] Раздел '%s' упал: %s", name, exc)
             context[name] = []
+            diagnostics["sections_failed"].append(name)
+        finally:
+            diagnostics["section_latency_ms"][name] = int((time.monotonic() - started) * 1000)
+            diagnostics["section_item_counts"][name] = len(context[name]) if isinstance(context[name], list) else 0
 
     # RAG: ищем релевантные образовательные модули только для содержательных запросов
     context["rag_context"] = []
+    context["rag_grounding_items"] = []
+    context["psych_support_practice_items"] = []
+    context["rag_views"] = {"psych_support": [], "routine": [], "education": []}
     if len(query) > 15:
+        rag_started = time.monotonic()
+        diagnostics["rag"]["attempted"] = True
         try:
-            context["rag_context"] = await _get_rag_context(patient_id, query, db)
-        except Exception as exc:
+            context["rag_context"], rag_meta, context["rag_grounding_items"] = await _get_rag_context(patient_id, query, db)
+            context["psych_support_practice_items"] = await _get_standalone_psych_support_items(
+                context["rag_grounding_items"],
+                db,
+            )
+            context["rag_views"] = _build_role_specific_rag_views(
+                context["rag_context"],
+                context["rag_grounding_items"],
+                context["psych_support_practice_items"],
+            )
+            diagnostics["rag"]["hit_count"] = len(context["rag_context"])
+            diagnostics["rag"]["backend"] = rag_meta.get("backend")
+            diagnostics["rag"]["backend_selected"] = rag_meta.get("backend_selected")
+            diagnostics["rag"]["candidate_rows"] = rag_meta.get("candidate_rows", 0)
+            diagnostics["rag"]["query_vector_dims"] = rag_meta.get("query_vector_dims", 0)
+            diagnostics["rag"]["embedding_request_ms"] = rag_meta.get("embedding_request_ms", 0)
+            diagnostics["rag"]["vector_search_ms"] = rag_meta.get("vector_search_ms", 0)
+            diagnostics["rag"]["progress_lookup_ms"] = rag_meta.get("progress_lookup_ms", 0)
+            diagnostics["rag"]["pgvector_extension_installed"] = rag_meta.get("pgvector_extension_installed", False)
+            diagnostics["rag"]["pgvector_column_present"] = rag_meta.get("pgvector_column_present", False)
+            diagnostics["rag"]["pgvector_index_present"] = rag_meta.get("pgvector_index_present", False)
+            diagnostics["rag"]["pgvector_blocker"] = rag_meta.get("pgvector_blocker")
+            diagnostics["rag"]["invalid_embedding_rows"] = rag_meta.get("invalid_embedding_rows", 0)
+            diagnostics["rag"]["grounding_items"] = list(context["rag_grounding_items"])
+            diagnostics["rag"]["views"] = {
+                "psych_support_count": len(context["rag_views"].get("psych_support", [])),
+                "routine_count": len(context["rag_views"].get("routine", [])),
+                "education_count": len(context["rag_views"].get("education", [])),
+            }
+        except RetrievalError as exc:
             logger.warning("[context_builder] RAG retriever упал: %s", exc)
+            diagnostics["rag"]["error"] = str(exc)
+        finally:
+            diagnostics["rag"]["latency_ms"] = int((time.monotonic() - rag_started) * 1000)
+    else:
+        diagnostics["rag"]["skipped_reason"] = "query_too_short"
+        diagnostics["rag"]["views"] = {
+            "psych_support_count": 0,
+            "routine_count": 0,
+            "education_count": 0,
+        }
 
-    return context
+    context["patient_summary_items"] = _build_patient_summary_items(context)
+    context["patient_summary"] = [str(item["text"]) for item in context["patient_summary_items"]]
+    diagnostics["summary_items"] = len(context["patient_summary"])
+    diagnostics["total_latency_ms"] = int((time.monotonic() - total_started) * 1000)
+
+    return {"context": context, "diagnostics": diagnostics}
+
+
+def get_rendered_context_sections(context: dict) -> list[str]:
+    """Returns the context sections that are actually rendered into the prompt."""
+    ordered_keys = [
+        "patient_summary_prompt",
+        "patient_summary",
+        "recent_vitals",
+        "medication_adherence",
+        "sleep_summary",
+        "active_practices",
+        "last_scale_scores",
+        "recent_weight",
+        "recent_water",
+        "routine_summary",
+        "practices_summary",
+        "rag_context",
+    ]
+
+    rendered: list[str] = []
+    has_prompt_summary = bool(context.get("patient_summary_prompt"))
+    has_any_summary = bool(has_prompt_summary or context.get("patient_summary"))
+    for key in ordered_keys:
+        values = context.get(key, [])
+        if not values:
+            continue
+        if has_prompt_summary and key == "patient_summary":
+            continue
+        if has_any_summary and key not in {"patient_summary_prompt", "patient_summary", "rag_context"}:
+            continue
+        rendered.append(key)
+    return rendered
 
 
 def format_context_for_llm(context: dict) -> str:
@@ -829,9 +975,11 @@ def format_context_for_llm(context: dict) -> str:
     Пустые разделы пропускаются.
 
     Returns:
-        Строка вида "=== Данные пациента ===\\n..." или "" если нет данных.
+        Строка вида "=== Данные пациента ===\n..." или "" если нет данных.
     """
     labels = {
+        "patient_summary_prompt": "Краткая сводка за последние дни",
+        "patient_summary": "Краткая сводка за последние дни",
         "recent_vitals": "Витальные показатели",
         "medication_adherence": "Приём лекарств",
         "sleep_summary": "Сон",
@@ -845,19 +993,21 @@ def format_context_for_llm(context: dict) -> str:
         # chat_history передаётся отдельно в messages — здесь не выводим
     }
 
+    rendered_sections = set(get_rendered_context_sections(context))
     lines: list[str] = []
     for key, label in labels.items():
+        if key not in rendered_sections:
+            continue
         values = context.get(key, [])
         if not values:
             continue
-        # rag_context содержит полные предложения — выводим по одному на строку
-        if key == "rag_context":
+        if key in {"patient_summary_prompt", "patient_summary", "rag_context"}:
             lines.append(f"{label}:")
             for item in values:
                 lines.append(f"  - {item}")
-        else:
-            value_str = ", ".join(str(v) for v in values)
-            lines.append(f"{label}: {value_str}")
+            continue
+        value_str = ", ".join(str(v) for v in values)
+        lines.append(f"{label}: {value_str}")
 
     if not lines:
         return ""

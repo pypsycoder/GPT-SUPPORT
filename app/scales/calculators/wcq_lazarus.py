@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Union
 
 from app.scales.config.wcq_lazarus import WCQ_CONFIG
+from app.scales.schemas import ScaleAnswerIn
 
 
 def calculate_wcq_lazarus(answers: List[Union[Dict[str, str], "ScaleAnswerIn"]]):

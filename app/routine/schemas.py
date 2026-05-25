@@ -25,6 +25,7 @@ ActivityCategory = Literal[
 DurationCode = Literal["15min", "30min", "1h", "1h_plus"]
 
 DietExecution = Literal["fully", "partly", "no"]
+ExecutionDone = Literal["yes", "no", "partly", "fully"]
 
 
 PLANNING_TIME_VALUES = ("morning", "evening")
@@ -40,7 +41,7 @@ class ActivityPlan(BaseModel):
 class ActivityExecution(BaseModel):
     """Исполнение одной активности при верификации."""
 
-    done: Optional[Literal["yes", "no", "partly"]] = None
+    done: Optional[ExecutionDone] = None
     actual_duration: Optional[DurationCode] = None
 
 

@@ -421,3 +421,28 @@
 .chat-confirm-status--err {
   color: #dc2626;
 }
+
+/* ---- Morning message inline buttons ---- */
+.chat-morning-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chat-morning-btn {
+  padding: 6px 14px;
+  border-radius: 16px;
+  border: 1.5px solid #4f8ef7;
+  background: #fff;
+  color: #4f8ef7;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1.4;
+}
+
+.chat-morning-btn:hover {
+  background: #4f8ef7;
+  color: #fff;
+}

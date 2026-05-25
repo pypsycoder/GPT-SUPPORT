@@ -10,6 +10,11 @@
     errorDiv.classList.add('visible');
   }
 
+  function getCookie(name) {
+    var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()\[\]\\/+^]/g, '\\$&') + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
   async function init() {
     // Auth guard (manual — avoid requireAuth loop since is_onboarded = false)
     var resp = await fetch('/api/v1/auth/patient/me');
@@ -44,7 +49,11 @@
     try {
       var resp = await fetch('/api/v1/auth/patient/onboarding/complete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCookie('csrf_token') || '',
+        },
+        credentials: 'include',
       });
 
       if (!resp.ok) {

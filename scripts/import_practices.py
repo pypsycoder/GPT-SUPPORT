@@ -18,13 +18,16 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import argparse
 import asyncio
-import json
 import re
 from typing import Optional
 
-from sqlalchemy import select, text
+from app.core.config import load_environment
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+
+load_environment()
 
 from core.db.engine import engine as async_engine
 from app.practices.models import StandalonePractice as Practice

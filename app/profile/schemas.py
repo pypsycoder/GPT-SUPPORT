@@ -84,6 +84,42 @@ class DialysisSummary(BaseModel):
     weekdays: list[int]  # ISO: 1=Пн .. 7=Вс
 
 
+class BadgeRead(BaseModel):
+    """Выданный бейдж достижения."""
+
+    key: str
+    icon: str
+    color: str
+    level: int
+    name: str
+    desc: str
+    tracker: str
+    earned_at: datetime
+
+
+class StreakInfo(BaseModel):
+    current: int = 0
+    best: int = 0
+
+
+class AchievementsProgress(BaseModel):
+    lessons_done: int = 0
+    lessons_total: int = 0
+    scales_done: int = 0
+    practices_done: int = 0
+    practices_total: int = 0
+
+
+class AchievementsSummary(BaseModel):
+    """Достижения пациента: бейджи, серии, прогресс."""
+
+    badges: list[BadgeRead] = []
+    streaks: dict[str, StreakInfo] = {}
+    progress: AchievementsProgress = AchievementsProgress()
+    tracker_levels: dict[str, int] = {}   # 0-5 для каждого трекера
+    scales_level: int = 0                 # 0-3 (T0/T1/T2)
+
+
 class ProfileSummary(BaseModel):
     """Полная сводка профиля пациента."""
 

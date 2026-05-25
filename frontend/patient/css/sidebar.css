@@ -161,6 +161,33 @@
   justify-content: center;
 
   font-size: 18px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* ====================================== */
+/* ============= NAV BADGES ============= */
+/* ====================================== */
+
+.nav-badge {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  background-color: #4aadad;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  z-index: 1;
 }
 
 .sidebar-item-text {

@@ -17,8 +17,7 @@ from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +41,7 @@ from app.researchers.schemas import (
     PatientListItem,
     PatientDetail,
     PatientCenterAssign,
+    BulkPatientActionRequest,
     PinResetResponse,
     KdqolPointStatus,
     ChatLogItem,
@@ -52,8 +52,6 @@ from app.researchers.schemas import (
     HumanTraceSection,
     ResearcherChatDebugRequest,
     ResearcherChatDebugResponse,
-    ResearcherDebugReportSaveRequest,
-    ResearcherDebugReportSaveResponse,
 )
 from app.researchers import crud
 
@@ -95,6 +93,32 @@ def _write_debug_supervisor_state(
         _DEBUG_SUPERVISOR_STATE_STORE.pop(key, None)
 
 
+def _normalize_debug_session_token(value: str | None, patient_id: int) -> str:
+    token = str(value or "").strip()
+    return token or f"researcher-debug-patient-{patient_id}"
+
+
+def _normalize_debug_thread_token(value: str | None) -> str:
+    token = str(value or "").strip()
+    return token or "main"
+
+
+def _apply_forced_model_tier(router_result: RouterResult, forced_tier: str | None) -> RouterResult:
+    value = str(forced_tier or "").strip().lower()
+    if not value:
+        return router_result
+    try:
+        tier = ModelTier(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректный model tier. Допустимо: lite, pro, max") from exc
+    return RouterResult(
+        request_type=router_result.request_type,
+        model_tier=tier,
+        domain_hint=router_result.domain_hint,
+        priority=router_result.priority,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
@@ -124,6 +148,7 @@ def _patient_to_list_item(p, *, measurement_points=None, dialysis_schedules=None
 
     kdqol_points = [
         KdqolPointStatus(
+            scale_code=mp.scale_code,
             point_type=mp.point_type,
             is_completed=mp.completed_at is not None,
             activated_at=mp.activated_at,
@@ -263,6 +288,36 @@ async def assign_patient_center(
 
 
 # ---------------------------------------------------------------------------
+# Bulk patient actions
+# ---------------------------------------------------------------------------
+
+@router.post("/patients/bulk-delete")
+async def bulk_delete_patients(
+    body: BulkPatientActionRequest,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Hard-delete multiple patients by ID."""
+    if not body.patient_ids:
+        raise HTTPException(status_code=400, detail="Список пациентов пуст")
+    deleted = await crud.bulk_delete_patients(session, body.patient_ids)
+    return {"ok": True, "deleted": deleted}
+
+
+@router.post("/patients/bulk-block")
+async def bulk_block_patients(
+    body: BulkPatientActionRequest,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Block (lock) multiple patients by ID."""
+    if not body.patient_ids:
+        raise HTTPException(status_code=400, detail="Список пациентов пуст")
+    updated = await crud.bulk_block_patients(session, body.patient_ids)
+    return {"ok": True, "blocked": updated}
+
+
+# ---------------------------------------------------------------------------
 # Chat log monitoring
 # ---------------------------------------------------------------------------
 
@@ -278,6 +333,7 @@ _CHAT_LOG_SQL = """
         lrl.response_time_ms,
         lrl.success,
         lrl.error_message,
+        lrl.diagnostics_json,
         cm_asst.domain                              AS domain,
         LEFT(cm_user.content, 300)                  AS user_content,
         LEFT(cm_asst.content, 300)                  AS assistant_content
@@ -417,6 +473,7 @@ async def get_chat_logs(
             response_time_ms=row["response_time_ms"] or 0,
             success=bool(row["success"]),
             error_message=row["error_message"],
+            diagnostics_json=row["diagnostics_json"],
         )
         for row in rows
     ]
@@ -445,7 +502,7 @@ async def researcher_chat_debug_message(
     thread_id = _normalize_debug_thread_token(body.thread_id)
     router_result = classify_request(body.message, body.source)
     router_result = _apply_forced_model_tier(router_result, body.forced_model_tier)
-    supervisor_state = body.supervisor_state or _read_debug_supervisor_state(
+    supervisor_state = _read_debug_supervisor_state(
         patient_id=body.patient_id,
         session_id=session_id,
         thread_id=thread_id,
@@ -503,8 +560,6 @@ async def researcher_chat_debug_message(
                 "memory_after": memory_before,
                 "pending_st_memory": [],
                 "pending_lt_memory": [],
-                "supervisor_state": supervisor_state,
-                "supervisor_state_delta": {},
             },
         )
 
@@ -577,28 +632,10 @@ async def researcher_chat_debug_message(
         memory_after=memory_after,
         pending_st_memory=pending_st_memory,
         pending_lt_memory=pending_lt_memory,
-        supervisor_state=llm_response.supervisor_state,
-        supervisor_state_delta=llm_response.supervisor_state_delta,
     )
 
 
-@router.post("/chat-debug/save-report", response_model=ResearcherDebugReportSaveResponse)
-async def researcher_chat_debug_save_report(
-    body: ResearcherDebugReportSaveRequest,
-    _researcher: Researcher = Depends(get_current_researcher),
-) -> ResearcherDebugReportSaveResponse:
-    """Save current researcher debug report into project-local LLM_test/reports."""
-    _DEBUG_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    target_path = _next_debug_report_path(_DEBUG_REPORTS_DIR)
-    payload = dict(body.report_data or {})
-    payload.setdefault("saved_at", datetime.now().isoformat())
-    payload.setdefault("saved_from", "researcher_chat_debug")
-    target_path.write_text(_build_debug_report_markdown(payload), encoding="utf-8")
-    return ResearcherDebugReportSaveResponse(
-        ok=True,
-        filename=target_path.name,
-        relative_path=str(target_path.relative_to(_PROJECT_ROOT)).replace("\\", "/"),
-    )
+
 # ---------------------------------------------------------------------------
 # Cohorts
 # ---------------------------------------------------------------------------

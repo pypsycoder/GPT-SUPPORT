@@ -130,23 +130,44 @@
     return '<span class="r-schedule-cell">' + days + (shift ? ' · ' + shift : '') + '</span>';
   }
 
-  function kdqolMiniDisplay(p) {
+  function scaleMiniDisplay(p) {
     var points = p.kdqol_points || [];
-    var byType = {};
-    points.forEach(function (pt) { byType[pt.point_type] = pt; });
+    // Group by point_type (may contain multiple scales per point)
+    var byType = { T0: [], T1: [], T2: [] };
+    points.forEach(function (pt) {
+      if (byType[pt.point_type]) byType[pt.point_type].push(pt);
+    });
     var badges = ['T0', 'T1', 'T2'].map(function (type) {
-      var pt = byType[type];
-      var cls = pt
-        ? (pt.is_completed ? 'r-kdqol-mini-badge-done' : 'r-kdqol-mini-badge-pending')
-        : 'r-kdqol-mini-badge-none';
+      var pts = byType[type];
+      var cls;
+      if (pts.length === 0) {
+        cls = 'r-kdqol-mini-badge-none';
+      } else if (pts.every(function (pt) { return pt.is_completed; })) {
+        cls = 'r-kdqol-mini-badge-done';
+      } else {
+        cls = 'r-kdqol-mini-badge-pending';
+      }
       return '<span class="r-kdqol-mini-badge ' + cls + '">' + type + '</span>';
     }).join('');
     return '<span class="r-kdqol-mini">' + badges + '</span>';
   }
 
+  function cohortDisplay(p) {
+    if (!p.active_schedule_days || p.active_schedule_days.length === 0 || !p.center_name) {
+      return '<span style="color:#9ca3af">—</span>';
+    }
+    var WD = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    var shift = p.active_schedule_shift === 'morning' ? 'Утро'
+              : p.active_schedule_shift === 'afternoon' ? 'День'
+              : p.active_schedule_shift === 'evening' ? 'Вечер' : '';
+    var days = p.active_schedule_days.map(function (d) { return WD[d - 1] || d; }).join('-');
+    var city = p.center_city || p.center_name;
+    return '<span class="r-cohort-cell" title="' + p.center_name + '">' + city + '&nbsp;/&nbsp;' + shift + '&nbsp;/&nbsp;' + days + '</span>';
+  }
+
   function renderPatients(patients) {
     if (!patients || patients.length === 0) {
-      patientsBody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#9ca3af;padding:2rem;">Нет пациентов</td></tr>';
+      patientsBody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#9ca3af;padding:2rem;">Нет пациентов</td></tr>';
       return;
     }
 
@@ -159,7 +180,7 @@
           '<div class="r-actions-dropdown">' +
             '<button onclick="window._closeAllActionsMenus();window._openAssignCenterModal(' + p.id + ',\'' + name + '\',\'' + centerId + '\')">Центр диализа</button>' +
             '<button onclick="window._closeAllActionsMenus();window._openScheduleModal(' + p.id + ',\'' + name + '\')">Расписание диализа</button>' +
-            '<button onclick="window._closeAllActionsMenus();window._openKdqolModal(' + p.id + ',\'' + name + '\')">KDQOL</button>' +
+            '<button onclick="window._closeAllActionsMenus();window._openKdqolModal(' + p.id + ',\'' + name + '\')">T0-T1-T2</button>' +
             '<div class="r-dropdown-divider"></div>' +
             '<button onclick="window._closeAllActionsMenus();window._resetPin(' + p.id + ')">Сбросить PIN</button>' +
             (p.is_locked
@@ -175,7 +196,8 @@
         '<td>' + (p.gender || '—') + '</td>' +
         '<td>' + centerDisplay(p) + '</td>' +
         '<td>' + scheduleDisplay(p) + '</td>' +
-        '<td>' + kdqolMiniDisplay(p) + '</td>' +
+        '<td>' + scaleMiniDisplay(p) + '</td>' +
+        '<td>' + cohortDisplay(p) + '</td>' +
         '<td>' + statusBadge(p) + '</td>' +
         '<td style="text-align:right;">' + dropdown + '</td>' +
         '</tr>';
@@ -541,6 +563,7 @@
         var active = scheduleList.find(function (s) { return s.valid_to == null; });
         renderScheduleCurrent(active, null);
         renderScheduleHistory(scheduleList);
+        loadPatients();
       } catch (err) {
         alert('Ошибка соединения');
       } finally {
@@ -567,11 +590,210 @@
         var active = scheduleList.find(function (s) { return s.valid_to == null; });
         renderScheduleCurrent(active, null);
         renderScheduleHistory(scheduleList);
+        loadPatients();
       } catch (err) {
         alert('Ошибка соединения');
       } finally {
         submitBtn.disabled = false;
       }
+    }
+  });
+
+  // =========================================================================
+  // Bulk action modal (delete / block)
+  // =========================================================================
+
+  var bulkModal = document.getElementById('modal-bulk-action');
+  var bulkActionType = null; // 'delete' | 'block'
+  var bulkSort = { col: null, dir: 1 }; // dir: 1=asc, -1=desc
+
+  function sortedPatients(patients) {
+    if (!bulkSort.col) return patients.slice();
+    return patients.slice().sort(function (a, b) {
+      var va, vb;
+      if (bulkSort.col === 'patient_number') {
+        va = a.patient_number || 0;
+        vb = b.patient_number || 0;
+        return bulkSort.dir * (va - vb);
+      }
+      if (bulkSort.col === 'full_name') {
+        va = (a.full_name || '').toLowerCase();
+        vb = (b.full_name || '').toLowerCase();
+        return bulkSort.dir * va.localeCompare(vb, 'ru');
+      }
+      if (bulkSort.col === 'cohort') {
+        va = cohortSortKey(a);
+        vb = cohortSortKey(b);
+        return bulkSort.dir * va.localeCompare(vb, 'ru');
+      }
+      if (bulkSort.col === 'consent') {
+        va = a.consent_personal_data ? 1 : 0;
+        vb = b.consent_personal_data ? 1 : 0;
+        return bulkSort.dir * (va - vb);
+      }
+      return 0;
+    });
+  }
+
+  function cohortSortKey(p) {
+    if (!p.center_name || !p.active_schedule_days || p.active_schedule_days.length === 0) return '';
+    var shift = p.active_schedule_shift || '';
+    var days = (p.active_schedule_days || []).join('-');
+    return (p.center_city || p.center_name) + '/' + shift + '/' + days;
+  }
+
+  function updateSortHeaders() {
+    document.querySelectorAll('.r-bulk-sortable').forEach(function (th) {
+      var icon = th.querySelector('.r-sort-icon');
+      var col = th.dataset.col;
+      th.classList.toggle('r-sort-active', col === bulkSort.col);
+      if (col === bulkSort.col) {
+        icon.textContent = bulkSort.dir === 1 ? ' ↑' : ' ↓';
+      } else {
+        icon.textContent = '';
+      }
+    });
+  }
+
+  function openBulkModal(actionType) {
+    bulkActionType = actionType;
+    var title = document.getElementById('bulk-action-title');
+    var desc = document.getElementById('bulk-action-desc');
+    var confirmBtn = document.getElementById('bulk-action-confirm');
+
+    if (actionType === 'delete') {
+      title.textContent = 'Удалить пациентов';
+      desc.textContent = 'Выберите пациентов для удаления. Действие необратимо — все данные пациента будут удалены.';
+      confirmBtn.textContent = 'Удалить выбранных';
+      confirmBtn.style.background = 'linear-gradient(135deg, #dc2626, #ef4444)';
+    } else {
+      title.textContent = 'Заблокировать пациентов';
+      desc.textContent = 'Выберите пациентов для блокировки. Заблокированные пациенты не смогут войти в приложение.';
+      confirmBtn.textContent = 'Заблокировать выбранных';
+      confirmBtn.style.background = 'linear-gradient(135deg, #d97706, #f59e0b)';
+    }
+
+    bulkSort = { col: null, dir: 1 };
+    updateSortHeaders();
+    renderBulkPatients(patientsCache);
+    updateBulkCount();
+    bulkModal.classList.add('visible');
+  }
+
+  function renderBulkPatients(patients) {
+    var tbody = document.getElementById('bulk-patients-tbody');
+    if (!patients || patients.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:1.5rem;">Нет пациентов</td></tr>';
+      return;
+    }
+    var sorted = sortedPatients(patients);
+    var prevChecked = getSelectedPatientIds();
+    tbody.innerHTML = sorted.map(function (p) {
+      var consentHtml = p.consent_personal_data
+        ? '<span class="r-badge r-badge-active">Дано</span>'
+        : '<span class="r-badge r-badge-no-consent">Нет согласия</span>';
+      var isChecked = prevChecked.indexOf(p.id) !== -1 ? ' checked' : '';
+      return '<tr>' +
+        '<td style="text-align:center;"><input type="checkbox" class="bulk-patient-cb" value="' + p.id + '"' + isChecked + '></td>' +
+        '<td><strong>' + (p.patient_number || p.id) + '</strong></td>' +
+        '<td>' + (p.full_name || '—') + '</td>' +
+        '<td>' + cohortDisplay(p) + '</td>' +
+        '<td>' + consentHtml + '</td>' +
+        '</tr>';
+    }).join('');
+
+    document.querySelectorAll('.bulk-patient-cb').forEach(function (cb) {
+      cb.addEventListener('change', updateBulkCount);
+    });
+  }
+
+  function getSelectedPatientIds() {
+    var checked = document.querySelectorAll('.bulk-patient-cb:checked');
+    return Array.from(checked).map(function (cb) { return parseInt(cb.value, 10); });
+  }
+
+  function updateBulkCount() {
+    var ids = getSelectedPatientIds();
+    document.getElementById('bulk-selected-count').textContent = ids.length + ' выбрано';
+    document.getElementById('bulk-action-confirm').disabled = ids.length === 0;
+
+    var allCbs = document.querySelectorAll('.bulk-patient-cb');
+    var selectAll = document.getElementById('bulk-select-all');
+    selectAll.checked = allCbs.length > 0 && ids.length === allCbs.length;
+    selectAll.indeterminate = ids.length > 0 && ids.length < allCbs.length;
+  }
+
+  document.getElementById('bulk-select-all').addEventListener('change', function () {
+    var checked = this.checked;
+    document.querySelectorAll('.bulk-patient-cb').forEach(function (cb) {
+      cb.checked = checked;
+    });
+    updateBulkCount();
+  });
+
+  document.getElementById('r-delete-patients-btn').addEventListener('click', function () {
+    openBulkModal('delete');
+  });
+
+  document.getElementById('r-block-patients-btn').addEventListener('click', function () {
+    openBulkModal('block');
+  });
+
+  document.getElementById('bulk-action-cancel').addEventListener('click', function () {
+    bulkModal.classList.remove('visible');
+  });
+
+  document.querySelectorAll('.r-bulk-sortable').forEach(function (th) {
+    th.addEventListener('click', function () {
+      var col = this.dataset.col;
+      if (bulkSort.col === col) {
+        bulkSort.dir = bulkSort.dir === 1 ? -1 : 1;
+      } else {
+        bulkSort.col = col;
+        bulkSort.dir = 1;
+      }
+      updateSortHeaders();
+      renderBulkPatients(patientsCache);
+      updateBulkCount();
+    });
+  });
+
+  document.getElementById('bulk-action-confirm').addEventListener('click', async function () {
+    var ids = getSelectedPatientIds();
+    if (ids.length === 0) return;
+
+    var actionLabel = bulkActionType === 'delete' ? 'удалить' : 'заблокировать';
+    if (!confirm('Вы уверены? Действие ' + actionLabel + ' ' + ids.length + ' пациентов.')) return;
+
+    var confirmBtn = document.getElementById('bulk-action-confirm');
+    confirmBtn.disabled = true;
+    var origText = confirmBtn.textContent;
+    confirmBtn.textContent = 'Выполнение...';
+
+    var endpoint = bulkActionType === 'delete'
+      ? '/api/v1/researcher/patients/bulk-delete'
+      : '/api/v1/researcher/patients/bulk-block';
+
+    try {
+      var resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ patient_ids: ids }),
+      });
+      if (!resp.ok) {
+        var err = await resp.json().catch(function () { return {}; });
+        alert(err.detail || 'Ошибка выполнения операции');
+        return;
+      }
+      bulkModal.classList.remove('visible');
+      loadPatients();
+      loadStats();
+    } catch (e) {
+      alert('Ошибка соединения');
+    } finally {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = origText;
     }
   });
 
@@ -604,19 +826,30 @@
 
   var kdqolModal = document.getElementById('modal-kdqol');
 
-  var KDQOL_POINT_LABELS = {
+  var POINT_LABELS = {
     T0: 'T0 — исходный',
     T1: 'T1 — 6 месяцев',
     T2: 'T2 — 12 месяцев',
   };
 
-  window._openKdqolModal = async function (patientId, patientName) {
-    document.getElementById('kdqol-modal-title').textContent = 'KDQOL — ' + (patientName || 'Пациент #' + patientId);
-    kdqolModal.classList.add('visible');
-    await loadKdqolPoints(patientId);
+  var SCALE_LABELS = {
+    KDQOL_SF:    'KDQOL-SF 1.3',
+    WCQ_LAZARUS: 'Опросник Лазаруса',
+    KOP_25A:     'КОП-25 А1',
   };
 
-  async function loadKdqolPoints(patientId) {
+  var ALL_SCALES = ['KDQOL_SF', 'WCQ_LAZARUS', 'KOP_25A'];
+
+  var _scalesCurrentPatientId = null;
+
+  window._openKdqolModal = async function (patientId, patientName) {
+    _scalesCurrentPatientId = patientId;
+    document.getElementById('kdqol-modal-title').textContent = 'Точки измерения — ' + (patientName || 'Пациент #' + patientId);
+    kdqolModal.classList.add('visible');
+    await loadScalePoints(patientId);
+  };
+
+  async function loadScalePoints(patientId) {
     var container = document.getElementById('kdqol-points-list');
     container.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:1rem;">Загрузка...</div>';
     try {
@@ -628,71 +861,116 @@
         return;
       }
       var points = await resp.json();
-      renderKdqolPoints(points, patientId);
+      renderScalePoints(points, patientId);
     } catch (e) {
       container.innerHTML = '<div style="color:#dc2626;padding:0.5rem;">Ошибка соединения</div>';
     }
   }
 
-  function renderKdqolPoints(points, patientId) {
+  function renderScalePoints(points, patientId) {
     var container = document.getElementById('kdqol-points-list');
-    var byType = {};
-    points.forEach(function (p) { byType[p.point_type] = p; });
 
-    var rows = ['T0', 'T1', 'T2'].map(function (type) {
-      var p = byType[type];
-      var label = KDQOL_POINT_LABELS[type];
-
-      if (!p) {
-        return '<div class="r-kdqol-row">' +
-          '<div class="r-kdqol-row-label">' + label + '</div>' +
-          '<div class="r-kdqol-row-status r-kdqol-status-none">Не активирована</div>' +
-          '<button class="r-kdqol-activate-btn" onclick="window._activateKdqolPoint(\'' + type + '\',' + patientId + ')">Активировать</button>' +
-          '</div>';
+    // Группируем: byPoint[T0][KDQOL_SF] = pointObj | null
+    var byPoint = {};
+    ['T0', 'T1', 'T2'].forEach(function (type) {
+      byPoint[type] = {};
+      ALL_SCALES.forEach(function (sc) { byPoint[type][sc] = null; });
+    });
+    points.forEach(function (pt) {
+      if (byPoint[pt.point_type] !== undefined) {
+        byPoint[pt.point_type][pt.scale_code] = pt;
       }
-
-      if (p.is_completed) {
-        return '<div class="r-kdqol-row">' +
-          '<div class="r-kdqol-row-label">' + label + '</div>' +
-          '<div class="r-kdqol-row-status r-kdqol-status-done">✓ Завершена ' + formatDateStr(p.completed_at) + '</div>' +
-          '</div>';
-      }
-
-      return '<div class="r-kdqol-row">' +
-        '<div class="r-kdqol-row-label">' + label + '</div>' +
-        '<div class="r-kdqol-row-status r-kdqol-status-pending">⏳ Ожидает пациента (с ' + formatDateStr(p.activated_at) + ')</div>' +
-        '</div>';
     });
 
-    container.innerHTML = rows.join('');
+    var html = ['T0', 'T1', 'T2'].map(function (type) {
+      var scalesMap = byPoint[type];
+      var nonActivated = ALL_SCALES.filter(function (sc) { return scalesMap[sc] === null; });
+
+      var headerBtn = nonActivated.length > 0
+        ? '<button class="r-kdqol-activate-btn" style="margin-left:auto;font-size:0.8rem;" onclick="window._activateAllScales(\'' + type + '\',' + patientId + ')">Активировать все</button>'
+        : '';
+
+      var header = '<div class="r-scales-point-header">' +
+        '<span class="r-kdqol-row-label">' + POINT_LABELS[type] + '</span>' +
+        headerBtn +
+        '</div>';
+
+      var scaleRows = ALL_SCALES.map(function (sc) {
+        var pt = scalesMap[sc];
+        var scaleName = SCALE_LABELS[sc] || sc;
+        var statusHtml, btnHtml = '';
+
+        if (!pt) {
+          statusHtml = '<span class="r-kdqol-row-status r-kdqol-status-none">Не активирована</span>';
+          btnHtml = '<button class="r-kdqol-activate-btn" onclick="window._activateScalePoint(\'' + type + '\',\'' + sc + '\',' + patientId + ')">Активировать</button>';
+        } else if (pt.is_completed) {
+          statusHtml = '<span class="r-kdqol-row-status r-kdqol-status-done">✓ Завершена ' + formatDateStr(pt.completed_at) + '</span>';
+        } else {
+          statusHtml = '<span class="r-kdqol-row-status r-kdqol-status-pending">⏳ Ожидает (с ' + formatDateStr(pt.activated_at) + ')</span>';
+        }
+
+        return '<div class="r-kdqol-scale-row">' +
+          '<div class="r-kdqol-scale-name">' + scaleName + '</div>' +
+          statusHtml + btnHtml +
+          '</div>';
+      }).join('');
+
+      return '<div class="r-scales-point-section">' + header + scaleRows + '</div>';
+    }).join('');
+
+    container.innerHTML = html;
   }
 
-  window._activateKdqolPoint = async function (pointType, patientId) {
-    var label = KDQOL_POINT_LABELS[pointType] || pointType;
-    if (!confirm('Активировать точку измерения «' + label + '»?\nПациент сможет пройти опросник KDQOL-SF после этого.')) return;
+  async function _doActivateScale(pointType, scaleCode, patientId) {
+    var resp = await fetch('/api/v1/researcher/patients/' + patientId + '/measurement-points', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ point_type: pointType, scale_code: scaleCode }),
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function () { return {}; });
+      var msg = typeof err.detail === 'string' ? err.detail : 'Ошибка активации';
+      alert(msg);
+      return false;
+    }
+    return true;
+  }
 
-    var btns = document.querySelectorAll('.r-kdqol-activate-btn');
-    btns.forEach(function (b) { b.disabled = true; });
+  window._activateScalePoint = async function (pointType, scaleCode, patientId) {
+    var scaleLabel = SCALE_LABELS[scaleCode] || scaleCode;
+    var pointLabel = POINT_LABELS[pointType] || pointType;
+    if (!confirm('Активировать «' + scaleLabel + '» для точки «' + pointLabel + '»?')) return;
+    document.querySelectorAll('.r-kdqol-activate-btn').forEach(function (b) { b.disabled = true; });
+    await _doActivateScale(pointType, scaleCode, patientId);
+    await loadScalePoints(patientId);
+    loadPatients();
+  };
+
+  window._activateAllScales = async function (pointType, patientId) {
+    var pointLabel = POINT_LABELS[pointType] || pointType;
+    if (!confirm('Активировать все шкалы для точки «' + pointLabel + '»?')) return;
+    document.querySelectorAll('.r-kdqol-activate-btn').forEach(function (b) { b.disabled = true; });
 
     try {
       var resp = await fetch('/api/v1/researcher/patients/' + patientId + '/measurement-points', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ point_type: pointType }),
       });
-      if (!resp.ok) {
-        var err = await resp.json().catch(function () { return {}; });
-        var msg = typeof err.detail === 'string' ? err.detail : 'Ошибка активации';
-        alert(msg);
-        btns.forEach(function (b) { b.disabled = false; });
-        return;
+      var existing = resp.ok ? await resp.json() : [];
+      var activatedScales = existing
+        .filter(function (pt) { return pt.point_type === pointType; })
+        .map(function (pt) { return pt.scale_code; });
+      var toActivate = ALL_SCALES.filter(function (sc) { return activatedScales.indexOf(sc) === -1; });
+
+      for (var i = 0; i < toActivate.length; i++) {
+        await _doActivateScale(pointType, toActivate[i], patientId);
       }
-      await loadKdqolPoints(patientId);
     } catch (e) {
       alert('Ошибка соединения');
-      btns.forEach(function (b) { b.disabled = false; });
     }
+
+    await loadScalePoints(patientId);
+    loadPatients();
   };
 
   document.getElementById('kdqol-modal-close').addEventListener('click', function () {
