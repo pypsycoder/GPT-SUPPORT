@@ -162,6 +162,17 @@ def parse_practice_block(md: str) -> dict:
     icf_domain = fields.get("icf") or None
     context = fields.get("контекст") or None
 
+    # --- Technique metadata ---
+    emotion_tags_raw = fields.get("эмоции") or ""
+    emotion_tags = [e.strip() for e in emotion_tags_raw.split(",") if e.strip()] or None
+
+    arousal_level = (fields.get("возбуждение") or "").strip() or None
+
+    dialysis_raw = (fields.get("диализ") or "").strip().lower()
+    dialysis_ok: Optional[bool] = True if dialysis_raw == "да" else (False if dialysis_raw == "нет" else None)
+
+    mechanism = (fields.get("механизм") or "").strip() or None
+
     # --- Секции ---
     sections = parse_sections(md)
 
@@ -194,6 +205,10 @@ def parse_practice_block(md: str) -> dict:
         "duration_seconds": duration_seconds,
         "completion_prompt": completion_prompt,
         "is_active": True,
+        "emotion_tags": emotion_tags,
+        "arousal_level": arousal_level,
+        "dialysis_ok": dialysis_ok,
+        "mechanism": mechanism,
     }
 
 

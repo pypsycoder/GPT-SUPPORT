@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import Any
 
 from app.llm.errors import LLMConfigurationError
+
+logger = logging.getLogger("gpt-support-llm.expert")
 from app.llm.langgraph_supervisor.models import (
     BinaryChoice,
     DelegationCard,
@@ -17,6 +21,12 @@ from app.llm.langgraph_supervisor.models import (
     IntakeCard,
 )
 from app.llm.pool import pool
+from app.llm.technique_library import (
+    format_techniques_block,
+    get_techniques,
+    infer_arousal,
+    infer_emotions,
+)
 
 _MAX_ATTEMPTS = 3
 _ANALYSIS_TEMPERATURE = 0.1
@@ -383,76 +393,59 @@ def _build_expert_retry_instruction(previous_error: str | None) -> str:
     if not previous_error:
         return ""
     return (
-        "\nИсправь предыдущую ошибку и верни полную карточку эксперта заново.\n"
+        "\nИсправь предыдущую ошибку и верни полную карточку заново.\n"
         f"Предыдущая ошибка: {previous_error}\n"
-        "Карточка содержит ровно 6 полей в строгом порядке: "
-        "Поддержка, Оценка, Стратегия, Шаг сейчас, Вопрос пациенту, Обоснование.\n"
-        "ПЕРВАЯ строка ОБЯЗАНА начинаться с 'Поддержка:' — не начинай с текста без метки поля.\n"
-        "Либо 'Шаг сейчас' != нет (режим интервенции), либо 'Вопрос пациенту' != нет (режим сбора контекста) — НЕ оба одновременно.\n"
-        "При стратегии 'завершить', 'углубить', 'сменить_подход': 'Шаг сейчас' обязателен и не может быть 'нет'. 'Вопрос пациенту' = нет.\n"
-        "При стратегии 'продолжить' + вопрос пациенту != нет: 'Шаг сейчас' = нет.\n"
-        "Не пропускай ни одно из 6 полей.\n"
+        "Карточка — ровно 7 строк в порядке: Поддержка, Оценка, Стратегия, Режим, Шаг сейчас, Вопрос пациенту, Обоснование.\n"
+        "ПЕРВАЯ строка ОБЯЗАНА начинаться с 'Поддержка:'.\n"
+        "Режим: уточнить → Шаг сейчас: нет; Режим: интервенция → Шаг сейчас != нет.\n"
+        "Нельзя: Шаг сейчас != нет И Вопрос пациенту != нет одновременно.\n"
     )
 
 
 def build_emotional_expert_system_prompt(previous_error: str | None = None) -> str:
     return (
-        "Ты эксперт эмоциональной поддержки в русскоязычном боте пациента.\n"
-        "Не повторяй слова пользователя эхом. Не делай вид, что точно знаешь его внутреннее состояние.\n"
-        "Не рекомендуй обратиться к врачу, не давай медицинских советов, не ставь задачи по изменению лечения.\n"
-        "Не задавай вопрос, ответ на который уже есть в переданном контексте.\n"
-        "Если последнее сообщение пользователя — прямой вопрос (начинается с 'сколько', 'как', 'когда', 'что', 'зачем', 'почему', 'где', 'чем', или заканчивается на '?'): "
-        "начни ответ с прямого конкретного ответа на него. Поддержку при этом опускай или ставь коротко после ответа. "
-        "Не игнорируй вопрос пациента ради продолжения поддержки.\n"
-        "Используй правильный грамматический род при обращении к пациенту — пол указан в пользовательском промпте.\n"
-        "Если в контексте явно сказано 'причина пользователю не известна', не пытайся выяснить причину. "
-        "Допустимы только поддержка, безопасный шаг и, если нужно, один мягкий вопрос про длительность, "
-        "интенсивность, телесные ощущения или влияние состояния на день.\n"
+        "Ты эксперт эмоциональной поддержки пациента на гемодиализе. "
+        "Только психологическая помощь — без медицинских оценок, советов и направлений к врачу.\n"
+        "Поддержка (3–5 слов) — живая эмпатия. НЕ пиши медицинские утверждения («давление под контролем», «всё нормально», «бояться нечего»), не повторяй фразы прошлых ходов.\n"
+        "Грамматический род — по полу пациента из пользовательского промпта.\n"
+        "Не задавай вопрос, ответ на который уже есть в контексте.\n"
         "\n"
-        "## Два режима — выбери ОДИН на каждый ход\n"
+        "## Шаг 1 — Оцени эффективность предыдущего хода\n"
+        "Смотри на ответ пациента ПОСЛЕ предложенной техники:\n"
+        "- хорошо: пациент говорит, что стало лучше → завершить\n"
+        "- частично: немного помогло, смешанная реакция → углубить\n"
+        "- не_помогло: не помогло или стало хуже → сменить_подход\n"
+        "- нет_данных: первый ход или ответ на ситуационный вопрос (технику ещё не оценивали) → продолжить\n"
         "\n"
-        "**Режим «уточнить» (gather)** — когда нужен контекст перед предложением техники:\n"
-        "- Шаг сейчас: нет\n"
-        "- Вопрос пациенту: ОДИН вопрос о ситуации (длительность, частота, триггер, влияние на жизнь)\n"
-        "- Поддержка: 3–5 слов, без повтора шаблонов прошлых ходов\n"
-        "- Используй этот режим не более 1–2 раз; если уже спрашивал про ситуацию — переходи к технике\n"
+        "## Шаг 2 — Выбери режим и заполни карточку\n"
         "\n"
-        "**Режим «интервенция» (intervene)** — предложение техники:\n"
-        "- Шаг сейчас: конкретная техника + в одной фразе, как именно она снизит данный страх пациента\n"
-        "- Вопрос пациенту: нет — или ТОЛЬКО «как сработало?»/«что почувствовал?» (не про ситуацию)\n"
-        "- Поддержка: 3–5 слов\n"
+        "КЛЮЧЕВОЕ ПРАВИЛО: если ниже в промпте есть список «Доступные техники» — "
+        "эмоция и уровень возбуждения уже определены системой автоматически. "
+        "Это означает: контекст ДОСТАТОЧЕН, уточнять нечего. "
+        "Выбирай ТОЛЬКО Режим: интервенция.\n"
         "\n"
-        "НЕЛЬЗЯ предлагать технику (Шаг сейчас != нет) И задавать ситуационный вопрос (Вопрос пациенту != нет) в одном ходу.\n"
+        "**Режим: уточнить** (ТОЛЬКО если список техник НЕ предоставлен, стратегия продолжить, и эмоция неясна):\n"
+        "  Шаг сейчас: нет\n"
+        "  Вопрос пациенту: ОДИН вопрос — только про эмоцию или основное переживание\n"
+        "  → Максимум 1 раз. После ответа — только интервенция.\n"
         "\n"
-        "## Цикл обратной связи\n"
-        "Если передан предыдущий ответ бота с техникой, оцени эффективность по ответу пользователя:\n"
-        "- хорошо: пользователь явно говорит, что помогло или стало лучше\n"
-        "- частично: помогло немного, не до конца, или смешанная реакция\n"
-        "- не_помогло: явно не помогло или стало хуже\n"
-        "- нет_данных: нет обратной связи об эффективности (первый ход или ответ на уточнение ситуации)\n"
+        "**Режим: интервенция** (всегда, если список техник предоставлен; также при углубить / сменить_подход / завершить):\n"
+        "  Шаг сейчас: начни с [id техники] из предложенного списка, затем одной фразой КАК ИМЕННО она снизит ЭТОТ страх пациента.\n"
+        "  Если список техник не предоставлен — опиши конкретную технику.\n"
+        "  Вопрос пациенту: нет — или только «как сработало?» (не про ситуацию)\n"
+        "  При завершить: Шаг сейчас = практическая рекомендация для реальных процедур; Вопрос = нет.\n"
+        "  При сменить_подход: не используй технику с тем же id, что в предыдущем ходу.\n"
         "\n"
-        "На основе оценки выбери стратегию:\n"
-        "- нет_данных → продолжить: уточни ситуацию или сделай первый шаг техники\n"
-        "- хорошо → завершить: кейс закрыт, поздравь и дай конкретную рекомендацию для реальных процедур\n"
-        "- частично → углубить: развей ту же технику или добавь следующий уровень\n"
-        "- не_помогло → сменить_подход: предложи принципиально другую технику\n"
+        "Нельзя: Режим уточнить + Шаг сейчас != нет. Нельзя: Шаг сейчас != нет + Вопрос пациенту != нет.\n"
         "\n"
-        "При стратегии 'завершить': Шаг сейчас = конкретная практическая рекомендация, "
-        "которую пациент может применить в реальной жизни (например, перед следующей процедурой). "
-        "Вопрос пациенту = нет.\n"
-        "При стратегии 'сменить_подход': не используй технику из контекста как уже опробованную.\n"
-        "\n"
-        "## Формат ответа\n"
-        "Верни только карточку ровно из 6 строк, одно поле в строке, без JSON и без пояснений.\n"
-        "Каждая строка ОБЯЗАНА начинаться с имени поля и двоеточия. "
-        "Не начинай ни одну строку с текста без метки поля.\n"
-        "Поддержка: <одна короткая живая фраза>\n"
+        "## Формат — 7 строк строго в этом порядке, без JSON\n"
+        "Поддержка: <3–5 слов>\n"
         "Оценка: хорошо | частично | не_помогло | нет_данных\n"
         "Стратегия: углубить | сменить_подход | завершить | продолжить\n"
-        "Шаг сейчас: <техника с объяснением механизма, или нет в режиме «уточнить»>\n"
-        "Вопрос пациенту: <ситуационный вопрос в режиме «уточнить», или результат техники, или нет>\n"
-        "Обоснование: <одна короткая строка>\n"
-        "ВАЖНО: Шаг сейчас и Вопрос пациенту не могут быть оба != нет одновременно.\n"
+        "Режим: уточнить | интервенция\n"
+        "Шаг сейчас: <техника с механизмом, или нет>\n"
+        "Вопрос пациенту: <вопрос или нет>\n"
+        "Обоснование: <одна строка>\n"
         + _build_expert_retry_instruction(previous_error)
     )
 
@@ -464,6 +457,25 @@ def _normalize_gender(raw: str | None) -> str:
     if g in {"female", "ж", "жен", "женский", "женщина"}:
         return "женский"
     return "не указан"
+
+
+def _build_technique_injection(state: FirstModuleState) -> str:
+    """Select and format 2-3 relevant techniques for the expert prompt."""
+    context_text = str(state.current_state.slots.get("intake_context") or "").strip()
+    problem_text = str(getattr(state.intake_card, "problem", "") or "").strip()
+    emotions = infer_emotions(state.user_message, f"{problem_text} {context_text}")
+    arousal = infer_arousal(state.user_message, f"{problem_text} {context_text}")
+    exclude_id = str(state.current_state.last_technique_id or "").strip() or None
+    techniques = get_techniques(emotions, arousal, exclude_id=exclude_id)
+    logger.debug(
+        "[technique_injection] msg=%r | emotions=%s | arousal=%s | exclude_id=%s | found=%s",
+        state.user_message[:80],
+        emotions,
+        arousal,
+        exclude_id,
+        [t.id for t in techniques],
+    )
+    return format_techniques_block(techniques)
 
 
 def build_emotional_expert_user_prompt(state: FirstModuleState) -> str:
@@ -481,6 +493,10 @@ def build_emotional_expert_user_prompt(state: FirstModuleState) -> str:
         "Задача эксперта:\n"
         f"{delegation.task if delegation else 'нет'}\n"
     )
+    technique_block = _build_technique_injection(state)
+    if technique_block:
+        prompt += f"\n{technique_block}\n"
+
     last_reply = str(state.current_state.last_bot_reply or "").strip()
     if last_reply:
         prompt += (
@@ -489,32 +505,54 @@ def build_emotional_expert_user_prompt(state: FirstModuleState) -> str:
     if _context_has_unknown_reason(intake.context if intake else None):
         prompt += (
             "\nОсобое ограничение: причина пользователю не известна. "
-            "Не задавай вопрос о причине и не превращай 'Шаг сейчас' в вопрос. "
-            "Если вопрос действительно нужен, он может быть только про длительность, "
-            "интенсивность, телесные ощущения или влияние состояния на день."
+            "Не задавай вопрос о причине. "
+            "Вопрос (если нужен) — только про длительность, интенсивность или влияние на день."
+        )
+    pending_q = state.current_state.pending_question
+    if pending_q is not None and pending_q.reason == "expert" and (pending_q.attempts or 0) >= 1:
+        prompt += (
+            f"\n\n⚠️ Ты уже задал {pending_q.attempts} уточняющий вопрос эксперта. "
+            "Контекст достаточен. ОБЯЗАТЕЛЬНО выбери Режим: интервенция и предложи технику из списка (Шаг сейчас != нет)."
         )
     return prompt
 
 
 def parse_emotional_expert_card(fields: dict[str, str]) -> EmotionalExpertCard:
+    mode_raw = str(fields.get("Режим") or "").strip().lower()
+    # Normalise "режим уточнить" → "уточнить", "режим интервенция" → "интервенция"
+    mode = mode_raw.removeprefix("режим").strip()
+    step_now = str(fields.get("Шаг сейчас") or "").strip()
     follow_up = str(fields.get("Вопрос пациенту") or "").strip()
+    # If follow_up is missing from LLM output, default to "нет" (режим интервенция)
+    if not follow_up:
+        follow_up = "нет"
+    step_missing = not step_now or step_now.lower() == "нет"
+
+    if mode == "уточнить":
+        if not step_missing:
+            raise ValueError("Режим уточнить: Шаг сейчас должен быть нет")
+    elif mode == "интервенция":
+        if step_missing:
+            raise ValueError("Режим интервенция: Шаг сейчас не может быть нет")
+    else:
+        raise ValueError(f"Режим должен быть 'уточнить' или 'интервенция', получено: '{mode}'")
+
     needs_more = follow_up.lower() not in {"", "нет"}
-    strategy = ExpertStrategy.parse(str(fields.get("Стратегия") or ""))
     card = EmotionalExpertCard(
         support=str(fields.get("Поддержка") or "").strip(),
-        step_now=str(fields.get("Шаг сейчас") or "").strip(),
+        step_now=step_now,
         follow_up=follow_up,
         needs_more_info=BinaryChoice.YES if needs_more else BinaryChoice.NO,
         rationale=str(fields.get("Обоснование") or "").strip(),
         effectiveness=EffectivenessLevel.parse(str(fields.get("Оценка") or "")),
-        strategy=strategy,
+        strategy=ExpertStrategy.parse(str(fields.get("Стратегия") or "")),
     )
     validate_emotional_expert_card(card)
     return card
 
 
 def validate_emotional_expert_card(card: EmotionalExpertCard) -> None:
-    if not card.support or not card.rationale:
+    if not card.support:
         raise ValueError("expert card has empty required text fields")
     step = str(card.step_now or "").strip().lower()
     follow = str(card.follow_up or "").strip().lower()
@@ -795,6 +833,13 @@ async def extract_delegation_card(state: FirstModuleState) -> tuple[DelegationCa
 
 
 async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[EmotionalExpertCard | None, dict[str, Any]]:
+    pending_q = state.current_state.pending_question
+    force_intervene = (
+        pending_q is not None
+        and pending_q.reason == "expert"
+        and (pending_q.attempts or 0) >= 1
+    )
+
     failures: list[dict[str, Any]] = []
     previous_error: str | None = None
     total_tokens_in = 0
@@ -803,12 +848,28 @@ async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[Emotio
     last_account_id = ""
 
     for attempt in range(1, _MAX_ATTEMPTS + 1):
+        sys_prompt = build_emotional_expert_system_prompt(previous_error)
+        user_prompt = build_emotional_expert_user_prompt(state)
+        logger.debug(
+            "[expert_call] attempt=%d | force_intervene=%s | pending_q_attempts=%s\n"
+            "=== SYSTEM PROMPT (first 400) ===\n%s\n"
+            "=== USER PROMPT ===\n%s",
+            attempt,
+            force_intervene,
+            (pending_q.attempts if pending_q else None),
+            sys_prompt[:400],
+            user_prompt,
+        )
         raw_text, account_id, tokens_in, tokens_out, latency_ms = await _call_structured_llm(
-            system_prompt=build_emotional_expert_system_prompt(previous_error),
-            user_prompt=build_emotional_expert_user_prompt(state),
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             model_tier=state.model_tier,
             strict_model_tier=state.strict_model_tier,
             temperature=_EXPERT_TEMPERATURE,
+        )
+        logger.debug(
+            "[expert_raw] attempt=%d | tokens_in=%d | tokens_out=%d\n%s",
+            attempt, tokens_in, tokens_out, raw_text,
         )
         last_account_id = account_id
         total_tokens_in += tokens_in
@@ -824,9 +885,23 @@ async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[Emotio
         try:
             fields = _parse_field_block(
                 raw_text,
-                {"Поддержка", "Шаг сейчас", "Вопрос пациенту", "Обоснование"},
+                # "Вопрос пациенту" and "Обоснование" default gracefully when absent
+                {"Поддержка", "Оценка", "Стратегия", "Режим", "Шаг сейчас"},
             )
             card = parse_emotional_expert_card(fields)
+            logger.debug(
+                "[expert_parsed] attempt=%d | режим=%s | step_now=%r | follow_up=%r",
+                attempt,
+                "уточнить" if card.needs_more_info and not card.step_now or str(card.step_now or "").lower() == "нет" else "интервенция",
+                card.step_now,
+                card.follow_up,
+            )
+            if force_intervene:
+                step = str(card.step_now or "").strip().lower()
+                if not step or step == "нет":
+                    raise ValueError(
+                        f"gather cap: уже задан {pending_q.attempts} вопрос эксперта — ОБЯЗАТЕЛЬНО Режим: интервенция, Шаг сейчас != нет"
+                    )
             if _context_has_unknown_reason(getattr(state.intake_card, "context", None)):
                 if _contains_cause_probe(card.step_now) or _contains_cause_probe(card.follow_up):
                     raise ValueError("unknown-reason flow must not ask about cause/source")
@@ -842,6 +917,7 @@ async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[Emotio
             )
         except (TypeError, ValueError) as exc:
             previous_error = str(exc)
+            logger.debug("[expert_error] attempt=%d | %s", attempt, exc)
             _append_failure(failures, attempt=attempt, error=exc, raw_text=raw_text)
 
     return None, _build_step_diagnostics(
@@ -933,8 +1009,11 @@ def build_intake_reply(card: IntakeCard, *, is_first_turn: bool = True) -> str:
     return f"Сочувствую. {card.question}"
 
 
+_TECHNIQUE_ID_PREFIX = re.compile(r"^\[p\d+\]\s*")
+
+
 def build_emotional_reply(card: EmotionalExpertCard) -> str:
-    step = str(card.step_now or "").strip()
+    step = _TECHNIQUE_ID_PREFIX.sub("", str(card.step_now or "")).strip()
     parts = [card.support]
     if step and step.lower() != "нет":
         parts.append(step)

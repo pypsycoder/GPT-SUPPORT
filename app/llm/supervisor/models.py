@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-
 ContentBlock = dict[str, str]
 
 
@@ -53,6 +52,7 @@ class CurrentState:
     last_bot_reply: str | None = None
     last_expert_effectiveness: str | None = None
     last_expert_strategy: str | None = None
+    last_technique_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +72,7 @@ class CurrentState:
             "last_bot_reply": self.last_bot_reply,
             "last_expert_effectiveness": self.last_expert_effectiveness,
             "last_expert_strategy": self.last_expert_strategy,
+            "last_technique_id": self.last_technique_id,
         }
 
     @classmethod
@@ -114,6 +115,11 @@ class CurrentState:
             last_expert_strategy=(
                 str(payload.get("last_expert_strategy")).strip()
                 if payload.get("last_expert_strategy") is not None
+                else None
+            ),
+            last_technique_id=(
+                str(payload.get("last_technique_id")).strip()
+                if payload.get("last_technique_id") is not None
                 else None
             ),
         )

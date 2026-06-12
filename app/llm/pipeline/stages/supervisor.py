@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -155,6 +156,9 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
     if isinstance(expert_card, EmotionalExpertCard):
         updated.last_expert_effectiveness = expert_card.effectiveness.value
         updated.last_expert_strategy = expert_card.strategy.value
+        step = str(expert_card.step_now or "").strip()
+        match = re.match(r'^\[(p\d+)\]', step)
+        updated.last_technique_id = match.group(1) if match else None
 
     return updated
 

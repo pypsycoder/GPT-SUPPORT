@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, SmallInteger, String
+from sqlalchemy import ARRAY, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -28,6 +28,10 @@ class StandalonePractice(Base):
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_prompt: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    emotion_tags: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)
+    arousal_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    dialysis_ok: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    mechanism: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
