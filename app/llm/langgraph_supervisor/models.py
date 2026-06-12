@@ -29,7 +29,10 @@ class DelegationExpert(StrEnum):
 
     @classmethod
     def parse(cls, value: str) -> "DelegationExpert":
-        return cls(str(value or "").strip())
+        normalized = str(value or "").strip()
+        if normalized.lower() in {"emotional_support", "emotional support"}:
+            return cls.EMOTIONAL_SUPPORT
+        return cls(normalized)
 
 
 class ValidationDecision(StrEnum):
@@ -42,6 +45,36 @@ class ExecutionKind(StrEnum):
     ASK = "уточнение"
     DELEGATE = "делегация"
     FINISH = "завершение"
+
+
+class EffectivenessLevel(StrEnum):
+    GOOD = "хорошо"
+    PARTIAL = "частично"
+    FAILED = "не_помогло"
+    UNKNOWN = "нет_данных"
+
+    @classmethod
+    def parse(cls, value: str) -> "EffectivenessLevel":
+        normalized = str(value or "").strip().lower()
+        for member in cls:
+            if member.value == normalized:
+                return member
+        return cls.UNKNOWN
+
+
+class ExpertStrategy(StrEnum):
+    DEEPEN = "углубить"
+    PIVOT = "сменить_подход"
+    CLOSE = "завершить"
+    CONTINUE = "продолжить"
+
+    @classmethod
+    def parse(cls, value: str) -> "ExpertStrategy":
+        normalized = str(value or "").strip().lower()
+        for member in cls:
+            if member.value == normalized:
+                return member
+        return cls.CONTINUE
 
 
 @dataclass(slots=True)
@@ -114,6 +147,8 @@ class EmotionalExpertCard:
     follow_up: str
     needs_more_info: BinaryChoice
     rationale: str
+    effectiveness: EffectivenessLevel = EffectivenessLevel.UNKNOWN
+    strategy: ExpertStrategy = ExpertStrategy.CONTINUE
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +157,8 @@ class EmotionalExpertCard:
             "follow_up": self.follow_up,
             "needs_more_info": self.needs_more_info.value,
             "rationale": self.rationale,
+            "effectiveness": self.effectiveness.value,
+            "strategy": self.strategy.value,
         }
 
     @classmethod
@@ -137,6 +174,8 @@ class EmotionalExpertCard:
                 field_name="Нужно ли уточнение",
             ),
             rationale=str(payload.get("rationale") or "").strip(),
+            effectiveness=EffectivenessLevel.parse(str(payload.get("effectiveness") or "")),
+            strategy=ExpertStrategy.parse(str(payload.get("strategy") or "")),
         )
 
 
@@ -180,6 +219,7 @@ class FirstModuleInput:
     strict_model_tier: bool = False
     education_rag_context: list[str] = field(default_factory=list)
     education_rag_grounding_items: list[dict[str, Any]] = field(default_factory=list)
+    patient_gender: str | None = None
 
 
 @dataclass(slots=True)
@@ -191,6 +231,7 @@ class FirstModuleState:
     strict_model_tier: bool = False
     education_rag_context: list[str] = field(default_factory=list)
     education_rag_grounding_items: list[dict[str, Any]] = field(default_factory=list)
+    patient_gender: str | None = None
     intake_card: IntakeCard | None = None
     delegation_card: DelegationCard | None = None
     expert_card: EmotionalExpertCard | EducationExpertCard | None = None
@@ -220,6 +261,7 @@ class FirstModuleState:
             strict_model_tier=payload.strict_model_tier,
             education_rag_context=[str(item) for item in payload.education_rag_context if str(item).strip()],
             education_rag_grounding_items=[dict(item) for item in payload.education_rag_grounding_items],
+            patient_gender=payload.patient_gender,
         )
 
     def register_llm_call(

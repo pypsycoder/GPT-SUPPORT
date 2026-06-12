@@ -93,32 +93,6 @@ def _write_debug_supervisor_state(
         _DEBUG_SUPERVISOR_STATE_STORE.pop(key, None)
 
 
-def _normalize_debug_session_token(value: str | None, patient_id: int) -> str:
-    token = str(value or "").strip()
-    return token or f"researcher-debug-patient-{patient_id}"
-
-
-def _normalize_debug_thread_token(value: str | None) -> str:
-    token = str(value or "").strip()
-    return token or "main"
-
-
-def _apply_forced_model_tier(router_result: RouterResult, forced_tier: str | None) -> RouterResult:
-    value = str(forced_tier or "").strip().lower()
-    if not value:
-        return router_result
-    try:
-        tier = ModelTier(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Некорректный model tier. Допустимо: lite, pro, max") from exc
-    return RouterResult(
-        request_type=router_result.request_type,
-        model_tier=tier,
-        domain_hint=router_result.domain_hint,
-        priority=router_result.priority,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
@@ -523,6 +497,7 @@ async def researcher_chat_debug_message(
                 supervisor_state=supervisor_state,
                 strict_model_tier=bool(body.forced_model_tier),
                 db=session,
+                patient_gender=str(patient.gender).strip() if patient.gender else None,
             )
         )
     except LLMConfigurationError as exc:
@@ -632,8 +607,24 @@ async def researcher_chat_debug_message(
         memory_after=memory_after,
         pending_st_memory=pending_st_memory,
         pending_lt_memory=pending_lt_memory,
+        supervisor_state=dict(llm_response.supervisor_state) if llm_response.supervisor_state else None,
     )
 
+
+@router.post("/chat-debug/save-report")
+async def researcher_chat_debug_save_report(
+    body: dict,
+    _researcher: Researcher = Depends(get_current_researcher),
+) -> dict:
+    """Save debug chat export as a markdown report file in LLM_test/reports/."""
+    report_data = body.get("report_data")
+    if not report_data:
+        raise HTTPException(status_code=400, detail="report_data is required")
+    markdown = _build_debug_report_markdown(report_data)
+    _DEBUG_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    path = _next_debug_report_path(_DEBUG_REPORTS_DIR)
+    path.write_text(markdown, encoding="utf-8")
+    return {"ok": True, "relative_path": str(path.relative_to(_PROJECT_ROOT))}
 
 
 # ---------------------------------------------------------------------------

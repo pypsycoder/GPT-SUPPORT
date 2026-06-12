@@ -50,6 +50,9 @@ class CurrentState:
     clarification_streak: int = 0
     last_clarification_reason: str | None = None
     last_goal_status: str | None = None
+    last_bot_reply: str | None = None
+    last_expert_effectiveness: str | None = None
+    last_expert_strategy: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +69,9 @@ class CurrentState:
             "clarification_streak": int(self.clarification_streak),
             "last_clarification_reason": self.last_clarification_reason,
             "last_goal_status": self.last_goal_status,
+            "last_bot_reply": self.last_bot_reply,
+            "last_expert_effectiveness": self.last_expert_effectiveness,
+            "last_expert_strategy": self.last_expert_strategy,
         }
 
     @classmethod
@@ -93,6 +99,21 @@ class CurrentState:
             last_goal_status=(
                 str(payload.get("last_goal_status")).strip()
                 if payload.get("last_goal_status") is not None
+                else None
+            ),
+            last_bot_reply=(
+                str(payload.get("last_bot_reply")).strip()
+                if payload.get("last_bot_reply") is not None
+                else None
+            ),
+            last_expert_effectiveness=(
+                str(payload.get("last_expert_effectiveness")).strip()
+                if payload.get("last_expert_effectiveness") is not None
+                else None
+            ),
+            last_expert_strategy=(
+                str(payload.get("last_expert_strategy")).strip()
+                if payload.get("last_expert_strategy") is not None
                 else None
             ),
         )

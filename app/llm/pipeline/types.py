@@ -24,6 +24,7 @@ class LLMRequest:
     router_result: RouterResult | None = None
     strict_model_tier: bool = False
     db: AsyncSession | None = None
+    patient_gender: str | None = None
 
 
 @dataclass

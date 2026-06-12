@@ -14,11 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
-<<<<<<< HEAD
-=======
 import time
-from decimal import Decimal
->>>>>>> master
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -333,7 +329,6 @@ async def _build_rag_grounding_items(
 
     from app.education.models import LessonProgress, LessonTest, LessonTestResult, Practice
 
-<<<<<<< HEAD
     valid_modules: list[dict[str, object]] = []
     for module in modules:
         try:
@@ -346,9 +341,6 @@ async def _build_rag_grounding_items(
         return []
 
     lesson_ids = sorted({int(module["lesson_id"]) for module in valid_modules})
-=======
-    lesson_ids = sorted({int(module["lesson_id"]) for module in modules})
->>>>>>> master
 
     progress_result = await db.execute(
         select(LessonProgress).where(
@@ -411,11 +403,7 @@ async def _build_rag_grounding_items(
         }
 
     grounding_items: list[dict[str, object]] = []
-<<<<<<< HEAD
     for index, module in enumerate(valid_modules):
-=======
-    for index, module in enumerate(modules):
->>>>>>> master
         lesson_id = int(module["lesson_id"])
         progress = progress_by_lesson_id.get(lesson_id)
         practice = practice_by_lesson_id.get(lesson_id)
@@ -502,11 +490,8 @@ def select_patient_summary_for_prompt(
         return prompt_summary
 
     return [str(item["text"]) for item in items[:2]]
-<<<<<<< HEAD
-=======
 
 
->>>>>>> master
 # ---------------------------------------------------------------------------
 # Отдельные разделы
 # ---------------------------------------------------------------------------

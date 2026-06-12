@@ -78,14 +78,6 @@ def should_use_supervisor(user_input: str, classification: object, intake_result
     return bool(str(user_input or "").strip())
 
 
-def __getattr__(name: str):
-    if name == "SupervisorOrchestrator":
-        from app.llm.supervisor.orchestrator import SupervisorOrchestrator
-
-        return SupervisorOrchestrator
-    raise AttributeError(name)
-
-
 __all__ = [
     "AmbiguityType",
     "CurrentState",

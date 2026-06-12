@@ -179,3 +179,4 @@ class ResearcherChatDebugResponse(BaseModel):
     memory_after: List[dict] = []
     pending_st_memory: List[dict] = []
     pending_lt_memory: List[dict] = []
+    supervisor_state: Optional[dict] = None

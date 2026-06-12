@@ -129,15 +129,9 @@ async def parse_patient_message(
     system = "Ты медицинский парсер. Отвечай только валидным JSON."
 
     try:
-<<<<<<< HEAD
-        client = await pool.get_available()
-        raw_text, _, _, _ = await client.call(messages, system, model_tier="lite")
-    except Exception as exc:
-=======
         client = await pool.get_available("lite")
         raw_text, _, _, _ = await client.call(messages, system)
     except (LLMTransportError, LLMResponseError) as exc:
->>>>>>> master
         logger.warning("[parser] LLM call failed: %s", exc)
         return {}
 

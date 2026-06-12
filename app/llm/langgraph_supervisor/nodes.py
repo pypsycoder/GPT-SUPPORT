@@ -79,15 +79,16 @@ def _delegation_targets(state: FirstModuleState, expert: DelegationExpert) -> bo
     )
 
 
-def _merge_expert_follow_up_context(previous: str | None, answer: str | None) -> str:
+def _merge_expert_follow_up_context(previous: str | None, answer: str | None, question: str | None = None) -> str:
     previous_text = str(previous or "").strip()
     answer_text = str(answer or "").strip()
-    addition = f"ответ на уточнение эксперта: {answer_text}" if answer_text else ""
+    question_text = str(question or "").strip()
+    if not answer_text:
+        return previous_text
+    addition = f"на вопрос «{question_text}»: {answer_text}" if question_text else f"ответ: {answer_text}"
     if not previous_text:
         return addition
-    if not addition:
-        return previous_text
-    return f"{previous_text}. {addition}"
+    return f"{previous_text.rstrip('.')}. {addition}"
 
 
 def _normalize_unknown_reason_intake_card(state: FirstModuleState, card: IntakeCard | None) -> tuple[IntakeCard | None, bool]:
@@ -125,11 +126,13 @@ async def intake_analyze_node(state: FirstModuleState) -> FirstModuleState:
     _mark_node(state, "intake_analyze")
     if _is_emotional_expert_follow_up_turn(state):
         problem = str(state.current_state.goal or "").strip() or _UNDEFINED_PROBLEM
+        pending_q = state.current_state.pending_question
         state.intake_card = IntakeCard(
             problem=problem,
             context=_merge_expert_follow_up_context(
                 state.current_state.slots.get("intake_context"),
                 state.user_message,
+                question=pending_q.question_text if pending_q else None,
             ),
             needs_clarification=BinaryChoice.NO,
             question="нет",
@@ -218,7 +221,9 @@ def intake_execute_node(state: FirstModuleState) -> FirstModuleState:
     if card.needs_clarification is BinaryChoice.YES:
         state.execution_kind = ExecutionKind.ASK
         state.user_question = card.question
-        state.final_reply = build_intake_reply(card)
+        state.final_reply = build_intake_reply(
+            card, is_first_turn=not bool(state.current_state.last_bot_reply)
+        )
         return state
 
     if card.ready_to_delegate is BinaryChoice.YES:

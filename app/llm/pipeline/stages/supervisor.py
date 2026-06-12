@@ -9,6 +9,7 @@ from typing import Any
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
+from app.llm.langgraph_supervisor.models import EmotionalExpertCard
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 from app.llm.supervisor import CurrentState, PendingQuestion, SupervisorTurnResult
 from app.llm.supervisor.classification import detect_message_type
@@ -28,18 +29,67 @@ def _changed_state(before: dict[str, Any], after: dict[str, Any]) -> dict[str, A
     return changed
 
 
+_CONTEXT_PLACEHOLDER = "контекст пока не раскрыт"
+
+_UNKNOWN_REASON_PHRASES = (
+    "причина тревоги неизвестна",
+    "причина пользователю не известна",
+    "причина не известна",
+    "причина неизвестна",
+)
+
+
+def _has_unknown_reason(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in _UNKNOWN_REASON_PHRASES)
+
+
+def _strip_unknown_reason_sentences(text: str) -> str:
+    parts = [p.strip() for p in text.split(".") if p.strip()]
+    parts = [p for p in parts if not _has_unknown_reason(p)]
+    return ". ".join(parts)
+
+
+def _normalize_for_compare(text: str) -> str:
+    """Collapse consecutive dots and whitespace for substring comparison."""
+    result = text
+    while ".." in result:
+        result = result.replace("..", ".")
+    return " ".join(result.split()).strip()
+
+
+def _strip_placeholder(text: str) -> str:
+    """Remove leading placeholder sentences from accumulated context."""
+    parts = [p.strip() for p in text.split(".") if p.strip()]
+    parts = [p for p in parts if p.lower() != _CONTEXT_PLACEHOLDER]
+    return ". ".join(parts)
+
+
 def _merge_intake_context(previous: str | None, current: str | None, *, preserve_history: bool) -> str | None:
     previous_text = str(previous or "").strip()
     current_text = str(current or "").strip()
-    if not current_text:
+    if not current_text or current_text.lower() == _CONTEXT_PLACEHOLDER:
         return previous_text or None
+    # Replace placeholder-only previous with real context
+    if previous_text.lower() == _CONTEXT_PLACEHOLDER:
+        previous_text = ""
     if not preserve_history or not previous_text or previous_text == current_text:
         return current_text
-    if current_text in previous_text:
-        return previous_text
-    if previous_text in current_text:
+    # Strip any stale placeholder from accumulated text before merging
+    previous_clean = _strip_placeholder(previous_text)
+    # Strip "unknown reason" stubs if new context provides a concrete cause
+    if not _has_unknown_reason(current_text):
+        previous_clean = _strip_unknown_reason_sentences(previous_clean)
+    if not previous_clean or previous_clean == current_text:
         return current_text
-    return f"{previous_text}. {current_text}"
+    # Normalize before substring checks to handle "..." vs "." inconsistencies
+    previous_norm = _normalize_for_compare(previous_clean)
+    current_norm = _normalize_for_compare(current_text)
+    if current_norm in previous_norm:
+        return previous_clean
+    if previous_norm in current_norm:
+        return current_text
+    return f"{previous_clean}. {current_text}"
 
 
 def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentState:
@@ -97,6 +147,14 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
         updated.needs_clarification = False
         updated.clarification_streak = 0
         updated.last_selected_agents = []
+
+    if graph_state.final_reply:
+        updated.last_bot_reply = str(graph_state.final_reply).strip() or None
+
+    expert_card = getattr(graph_state, "expert_card", None)
+    if isinstance(expert_card, EmotionalExpertCard):
+        updated.last_expert_effectiveness = expert_card.effectiveness.value
+        updated.last_expert_strategy = expert_card.strategy.value
 
     return updated
 
@@ -183,6 +241,7 @@ class SupervisorStage(PipelineStage):
                 strict_model_tier=bool(context.request.strict_model_tier),
                 education_rag_context=education_rag_context,
                 education_rag_grounding_items=education_rag_grounding_items,
+                patient_gender=context.request.patient_gender,
             )
         )
 
