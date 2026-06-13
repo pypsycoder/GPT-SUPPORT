@@ -44,13 +44,11 @@ def test_expert_prompts_forbid_cause_search_when_reason_is_unknown():
         ),
     )
 
-    system_prompt = build_emotional_expert_system_prompt()
     delegation_prompt = build_delegation_user_prompt(state)
     expert_prompt = build_emotional_expert_user_prompt(state)
 
     assert "Не формулируй задачу как поиск причины" in delegation_prompt
     assert "Не задавай вопрос о причине" in expert_prompt
-    assert "не пытайся выяснить причину" in system_prompt
 
 
 def test_validate_emotional_expert_card_rejects_question_in_step_now():

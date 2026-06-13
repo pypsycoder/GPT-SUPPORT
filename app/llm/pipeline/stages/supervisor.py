@@ -149,8 +149,9 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
         updated.clarification_streak = 0
         updated.last_selected_agents = []
 
-    if graph_state.final_reply:
-        updated.last_bot_reply = str(graph_state.final_reply).strip() or None
+    final_reply = getattr(graph_state, "final_reply", None)
+    if final_reply:
+        updated.last_bot_reply = str(final_reply).strip() or None
 
     expert_card = getattr(graph_state, "expert_card", None)
     if isinstance(expert_card, EmotionalExpertCard):

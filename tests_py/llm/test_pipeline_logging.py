@@ -37,6 +37,7 @@ async def pipeline_logging_session_ctx() -> AsyncSession:
                     request_type VARCHAR(40),
                     success BOOLEAN NOT NULL DEFAULT 1,
                     error_message TEXT,
+                    diagnostics_json JSON,
                     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """

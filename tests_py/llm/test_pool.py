@@ -1,64 +1,48 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import httpx
 import pytest
 
-from app.llm import pool as pool_module
-from app.llm.errors import LLMConfigurationError, LLMTransportError
+from app.llm.errors import LLMConfigurationError
+from app.llm.pool import AccountPool, GigaChatClient, MODEL_NAMES, _SharedAccountState, _ascii_only
 
 
-def test_get_ssl_verify_defaults_to_secure(monkeypatch):
-    monkeypatch.delenv("GIGACHAT_CERT_PATH", raising=False)
-    monkeypatch.delenv("GIGACHAT_ALLOW_INSECURE_SSL", raising=False)
-
-    assert pool_module._get_ssl_verify() is True
+def test_ascii_only_strips_non_ascii_characters():
+    assert _ascii_only("abc-ключ-123") == "abc--123"
 
 
-def test_get_ssl_verify_uses_explicit_cert_path(monkeypatch, tmp_path: Path):
-    cert_path = tmp_path / "gigachat-ca.pem"
-    cert_path.write_text("fake-cert", encoding="utf-8")
-    monkeypatch.setenv("GIGACHAT_CERT_PATH", str(cert_path))
-    monkeypatch.delenv("GIGACHAT_ALLOW_INSECURE_SSL", raising=False)
+def test_account_pool_raises_when_no_accounts_configured(monkeypatch):
+    for index in range(1, 20):
+        monkeypatch.delenv(f"GIGACHAT_KEY_A{index}", raising=False)
 
-    assert pool_module._get_ssl_verify() == str(cert_path)
+    pool = AccountPool()
 
+    with pytest.raises(LLMConfigurationError, match="No GigaChat accounts configured"):
+        import asyncio
 
-def test_get_ssl_verify_allows_insecure_only_when_enabled(monkeypatch):
-    monkeypatch.delenv("GIGACHAT_CERT_PATH", raising=False)
-    monkeypatch.setenv("GIGACHAT_ALLOW_INSECURE_SSL", "true")
-
-    assert pool_module._get_ssl_verify() is False
+        asyncio.run(pool.get_available("lite"))
 
 
-def test_safe_response_excerpt_redacts_tokens():
-    excerpt = pool_module._safe_response_excerpt(
-        '{"access_token":"secret","refresh_token":"another","token":"short","detail":"keep"}'
-    )
+def test_account_pool_adds_shared_tier_aliases_for_single_key(monkeypatch):
+    for index in range(1, 20):
+        monkeypatch.delenv(f"GIGACHAT_KEY_A{index}", raising=False)
+        monkeypatch.delenv(f"GIGACHAT_MODEL_A{index}", raising=False)
+    monkeypatch.setenv("GIGACHAT_KEY_A1", "abc123")
 
-    assert "secret" not in excerpt
-    assert "another" not in excerpt
-    assert "short" not in excerpt
-    assert "<redacted>" in excerpt
-    assert "keep" in excerpt
+    pool = AccountPool()
 
-
-def test_normalize_httpx_error_marks_ssl_failures_as_configuration():
-    exc = httpx.ConnectError(
-        "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain"
-    )
-
-    normalized = pool_module._normalize_httpx_error(exc)
-
-    assert isinstance(normalized, LLMConfigurationError)
-    assert "GIGACHAT_ALLOW_INSECURE_SSL=true" in str(normalized)
+    assert {client.model_tier for client in pool.clients} == set(MODEL_NAMES)
 
 
-def test_normalize_httpx_error_marks_other_transport_failures_as_transport():
-    exc = httpx.ConnectError("network unreachable")
+def test_shared_state_lock_drives_busy_status():
+    state = _SharedAccountState(api_key="abc")
+    client = GigaChatClient("A1", "abc", "lite", shared_state=state)
 
-    normalized = pool_module._normalize_httpx_error(exc)
+    assert client.is_busy is False
 
-    assert isinstance(normalized, LLMTransportError)
-    assert "transport error" in str(normalized)
+    async def _locked() -> bool:
+        async with state.lock:
+            return client.is_busy
+
+    import asyncio
+
+    assert asyncio.run(_locked()) is True

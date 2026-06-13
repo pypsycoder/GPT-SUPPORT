@@ -77,7 +77,7 @@ async def test_first_module_routes_expert_follow_up_answer_back_to_expert(monkey
     assert state.execution_kind is ExecutionKind.DELEGATE
     assert state.intake_card is not None
     assert state.intake_card.ready_to_delegate is BinaryChoice.YES
-    assert "ответ на уточнение эксперта: уже пару часов" in state.intake_card.context
+    assert "на вопрос «Когда впервые ощутили грусть?»: уже пару часов" in state.intake_card.context
     assert state.delegation_card is not None
     assert state.delegation_card.expert.value == "эмоциональная_поддержка"
     assert state.final_reply == "Понял вас. Это уже важная деталь, спасибо."

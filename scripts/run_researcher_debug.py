@@ -20,9 +20,9 @@ env_file = PROJECT_ROOT / ".env"
 if env_file.exists():
     load_dotenv(env_file)
 
-from app.llm.agent_v2 import generate_response_v2
 from app.llm.errors import LLMConfigurationError, LLMError
 from app.llm.memory import st_memory_store
+from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.router import classify_request
 from app.llm.trace_humanizer import build_human_trace
 from app.models.llm import ChatMessage
@@ -34,6 +34,9 @@ from app.researchers.router import (
 )
 from app.researchers.schemas import HumanTraceSection
 from core.db.session import async_session_factory
+
+
+_llm_pipeline = LLMPipeline()
 
 
 def _parse_args() -> argparse.Namespace:
@@ -147,32 +150,25 @@ async def _run_turn(
     supervisor_state: dict[str, Any] | None,
     persist_messages: bool,
 ) -> TurnRunResult:
-    from app.llm.morning_service import get_daily_context_for_llm
-
     memory_before = st_memory_store.read(
         patient_id=patient_id,
         session_id=session_id,
         thread_id=thread_id,
     )
-    daily_ctx = await get_daily_context_for_llm(patient_id, db)
 
     router_result = _apply_forced_model_tier(classify_request(message, "text"), tier)
 
     try:
-        llm_result = await generate_response_v2(
-            patient_id=patient_id,
-            user_input=message,
-            router_result=router_result,
-            context={
-                "source": "text",
-                "daily_context": daily_ctx,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "st_memory": memory_before,
-                "supervisor_state": supervisor_state,
-                "strict_model_tier": True,
-            },
-            db=db,
+        llm_result = await _llm_pipeline.process(
+            LLMRequest(
+                patient_id=patient_id,
+                user_input=message,
+                source="text",
+                router_result=router_result,
+                supervisor_state=supervisor_state,
+                strict_model_tier=True,
+                db=db,
+            )
         )
     except LLMConfigurationError as exc:
         raise SystemExit(str(exc)) from exc
@@ -195,8 +191,8 @@ async def _run_turn(
             memory_after=memory_before,
         )
 
-    pending_st_memory = list(llm_result.get("pending_st_memory") or [])
-    pending_lt_memory = list(llm_result.get("pending_lt_memory") or [])
+    pending_st_memory = list(llm_result.pending_st_memory or [])
+    pending_lt_memory = list(llm_result.pending_lt_memory or [])
     memory_after = st_memory_store.write(
         patient_id=patient_id,
         session_id=session_id,
@@ -212,7 +208,7 @@ async def _run_turn(
                 content=message,
                 tokens_used=0,
                 model_used=None,
-                domain=llm_result.get("domain"),
+                domain=llm_result.domain,
                 request_type=router_result.request_type.value,
             )
         )
@@ -220,28 +216,28 @@ async def _run_turn(
             ChatMessage(
                 patient_id=patient_id,
                 role="assistant",
-                content=llm_result["response"],
-                tokens_used=int(llm_result.get("tokens_input", 0)) + int(llm_result.get("tokens_output", 0)),
-                model_used=llm_result.get("model"),
-                domain=llm_result.get("domain"),
+                content=llm_result.response,
+                tokens_used=int(llm_result.tokens_input or 0) + int(llm_result.tokens_output or 0),
+                model_used=llm_result.model,
+                domain=llm_result.domain,
                 request_type=router_result.request_type.value,
                 is_read=False,
             )
         )
         await db.commit()
 
-    diagnostics_json = dict(llm_result.get("diagnostics") or {})
+    diagnostics_json = dict(llm_result.diagnostics or {})
     return TurnRunResult(
         ok=True,
-        response=str(llm_result["response"]),
+        response=str(llm_result.response),
         diagnostics_json=diagnostics_json,
         human_trace=_human_trace_payload(diagnostics_json),
-        requested_model_tier=llm_result.get("requested_model_tier"),
-        actual_model_tier=llm_result.get("actual_model_tier"),
-        account_id=llm_result.get("account_id"),
+        requested_model_tier=llm_result.requested_model_tier,
+        actual_model_tier=llm_result.actual_model_tier,
+        account_id=llm_result.account_id,
         request_type=router_result.request_type.value,
-        supervisor_state=llm_result.get("supervisor_state"),
-        supervisor_state_delta=dict(llm_result.get("supervisor_state_delta") or {}),
+        supervisor_state=llm_result.supervisor_state,
+        supervisor_state_delta=dict(llm_result.supervisor_state_delta or {}),
         pending_st_memory=pending_st_memory,
         pending_lt_memory=pending_lt_memory,
         memory_before=memory_before,

@@ -201,5 +201,5 @@ def test_build_updated_state_preserves_accumulated_intake_context():
     updated = _build_updated_state(current_state, GraphState())
 
     assert updated.slots["intake_context"] == (
-        "диализ. страх перед процедурой.. во время процедуры поднимается давление."
+        "диализ. страх перед процедурой. во время процедуры поднимается давление."
     )
