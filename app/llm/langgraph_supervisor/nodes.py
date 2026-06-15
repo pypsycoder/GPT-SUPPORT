@@ -11,6 +11,7 @@ from app.llm.langgraph_supervisor.models import (
     EducationExpertCard,
     EmotionalExpertCard,
     ExecutionKind,
+    ExpertStrategy,
     FirstModuleState,
     IntakeCard,
     ValidationDecision,
@@ -30,6 +31,7 @@ from app.llm.langgraph_supervisor.policy import (
     validate_intake_card,
 )
 from app.llm.supervisor.short_answers import is_unknown_reason_answer
+from app.llm.technique_library import get_technique_by_id
 
 _MAX_CLARIFICATION_STREAK = 2
 _UNDEFINED_PROBLEM = "не обозначена"
@@ -63,11 +65,13 @@ def _merge_unknown_reason_context(*values: str | None) -> str:
     return ". ".join(parts)
 
 
-def _is_emotional_expert_follow_up_turn(state: FirstModuleState) -> bool:
-    pending = state.current_state.pending_question
-    if pending is None or pending.reason != "expert":
+def _should_route_to_emotional_expert(state: FirstModuleState) -> bool:
+    """True если эмоциональный эксперт уже был активен и сессия не завершена."""
+    if "emotional_support" not in state.current_state.last_selected_agents:
         return False
-    return "emotional_support" in state.current_state.last_selected_agents
+    if state.current_state.last_expert_strategy == ExpertStrategy.CLOSE.value:
+        return False
+    return True
 
 
 def _delegation_targets(state: FirstModuleState, expert: DelegationExpert) -> bool:
@@ -79,13 +83,16 @@ def _delegation_targets(state: FirstModuleState, expert: DelegationExpert) -> bo
     )
 
 
-def _merge_expert_follow_up_context(previous: str | None, answer: str | None, question: str | None = None) -> str:
+def _merge_expert_follow_up_context(
+    previous: str | None,
+    answer: str | None,
+    label: str | None = None,
+) -> str:
     previous_text = str(previous or "").strip()
     answer_text = str(answer or "").strip()
-    question_text = str(question or "").strip()
     if not answer_text:
         return previous_text
-    addition = f"на вопрос «{question_text}»: {answer_text}" if question_text else f"ответ: {answer_text}"
+    addition = f"{label}: {answer_text}" if label else f"ответ: {answer_text}"
     if not previous_text:
         return addition
     return f"{previous_text.rstrip('.')}. {addition}"
@@ -122,22 +129,73 @@ def _normalize_unknown_reason_intake_card(state: FirstModuleState, card: IntakeC
     )
 
 
+def _restore_dropped_context(state: FirstModuleState, card: IntakeCard | None) -> tuple[IntakeCard | None, bool]:
+    """Восстанавливает goal/context если intake LLM сбросил их при ответе на pending intake-вопрос."""
+    if card is None:
+        return None, False
+    if str(card.problem or "").strip() != _UNDEFINED_PROBLEM:
+        return card, False
+
+    pending = state.current_state.pending_question
+    if pending is None or pending.reason != "intake":
+        return card, False
+
+    existing_goal = str(state.current_state.goal or "").strip()
+    if not existing_goal or existing_goal == _UNDEFINED_PROBLEM:
+        return card, False
+
+    existing_context = str(state.current_state.slots.get("intake_context") or "").strip()
+    return (
+        IntakeCard(
+            problem=existing_goal,
+            context=existing_context or card.context,
+            needs_clarification=BinaryChoice.NO,
+            question="нет",
+            ready_to_delegate=BinaryChoice.YES,
+            rationale="intake не должен сбрасывать накопленную проблему при ответе пользователя на уточняющий вопрос",
+        ),
+        True,
+    )
+
+
+def _build_context_label(state: FirstModuleState) -> str | None:
+    """Build a context label describing what the patient's answer is responding to."""
+    pending_q = state.current_state.pending_question
+    if pending_q is not None:
+        return f"на вопрос «{pending_q.question_text}»"
+    tech_id = str(state.current_state.current_technique_id or "").strip()
+    if not tech_id:
+        return None
+    step_text = str(state.current_state.last_expert_step or "").strip()
+    if step_text:
+        card = get_technique_by_id(tech_id)
+        if card and card.interactive and card.steps:
+            # current_step_index is next-to-deliver; just-delivered is index (step_idx+1 = current)
+            step_num = int(state.current_state.current_step_index or 1)
+            total = len(card.steps)
+            short = step_text[:60].rstrip() + ("…" if len(step_text) > 60 else "")
+            return f"[{tech_id}] шаг {step_num}/{total} «{short}»"
+        short = step_text[:60].rstrip() + ("…" if len(step_text) > 60 else "")
+        return f"[{tech_id}] шаг «{short}»"
+    return f"[{tech_id}] ответ"
+
+
 async def intake_analyze_node(state: FirstModuleState) -> FirstModuleState:
     _mark_node(state, "intake_analyze")
-    if _is_emotional_expert_follow_up_turn(state):
+    if _should_route_to_emotional_expert(state):
         problem = str(state.current_state.goal or "").strip() or _UNDEFINED_PROBLEM
-        pending_q = state.current_state.pending_question
+        context_label = _build_context_label(state)
         state.intake_card = IntakeCard(
             problem=problem,
             context=_merge_expert_follow_up_context(
                 state.current_state.slots.get("intake_context"),
                 state.user_message,
-                question=pending_q.question_text if pending_q else None,
+                label=context_label,
             ),
             needs_clarification=BinaryChoice.NO,
             question="нет",
             ready_to_delegate=BinaryChoice.YES,
-            rationale="ответ пользователя относится к уточнению эксперта, поэтому запрос сразу возвращается эксперту",
+            rationale="эмоциональная сессия активна и не завершена — запрос возвращается эксперту напрямую",
         )
         state.diagnostics["intake"] = {
             "card": state.intake_card.to_dict(),
@@ -147,9 +205,12 @@ async def intake_analyze_node(state: FirstModuleState) -> FirstModuleState:
 
     card, step_diagnostics = await extract_intake_card(state)
     card, normalized = _normalize_unknown_reason_intake_card(state, card)
+    card, context_restored = _restore_dropped_context(state, card)
     diagnostics = dict(step_diagnostics or {})
     if normalized:
         diagnostics["normalized_unknown_reason"] = True
+    if context_restored:
+        diagnostics["context_restored"] = True
     state.intake_card = card
     state.diagnostics["intake"] = {
         "card": card.to_dict() if card else None,
@@ -240,11 +301,11 @@ async def delegation_analyze_node(state: FirstModuleState) -> FirstModuleState:
         return state
     _mark_node(state, "delegation_analyze")
 
-    if _is_emotional_expert_follow_up_turn(state):
+    if _should_route_to_emotional_expert(state):
         state.delegation_card = DelegationCard(
             expert=DelegationExpert.EMOTIONAL_SUPPORT,
-            task="продолжить эмоциональную поддержку с учетом ответа пользователя на уточнение эксперта",
-            rationale="это продолжение уже начатого диалога с emotional_support",
+            task="продолжить эмоциональную поддержку — оценить реакцию пациента и выбрать следующий шаг",
+            rationale="эмоциональная сессия активна, intake пропускается, запрос идёт напрямую к эксперту",
         )
         state.diagnostics["delegation"] = {
             "card": state.delegation_card.to_dict(),

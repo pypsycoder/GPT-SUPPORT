@@ -10,7 +10,8 @@ from typing import Any
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
-from app.llm.langgraph_supervisor.models import EmotionalExpertCard
+from app.llm.langgraph_supervisor.models import EmotionalExpertCard, ExpertStrategy
+from app.llm.technique_library import get_technique_by_id
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 from app.llm.supervisor import CurrentState, PendingQuestion, SupervisorTurnResult
 from app.llm.supervisor.classification import detect_message_type
@@ -159,7 +160,49 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
         updated.last_expert_strategy = expert_card.strategy.value
         step = str(expert_card.step_now or "").strip()
         match = re.match(r'^\[(p\d+)\]', step)
-        updated.last_technique_id = match.group(1) if match else None
+        new_technique_id = match.group(1) if match else None
+        step_text = step[match.end():].strip() if match else None
+        # Defensive: if we're mid-interactive-flow and expert omitted [pNN] prefix,
+        # auto-attribute the step to the current technique so step index advances.
+        _step_is_action = step and step.lower() not in ("нет", "no", "")
+        if new_technique_id is None and _step_is_action:
+            _current_id = str(current_state.current_technique_id or "").strip()
+            if _current_id:
+                _card = get_technique_by_id(_current_id)
+                if _card and _card.interactive:
+                    new_technique_id = _current_id
+                    step_text = step
+        # Preserve current_technique_id during reflection/follow-up turns (step_now = нет).
+        # Only clear it when explicitly closing or when a new technique is delivered.
+        if new_technique_id is not None:
+            updated.current_technique_id = new_technique_id
+        elif expert_card.strategy is ExpertStrategy.CLOSE:
+            updated.current_technique_id = None
+        # else: продолжить/углубить with follow_up — keep current_technique_id from state copy
+        updated.last_expert_step = step_text or None
+        if new_technique_id:
+            recent = list(updated.recent_technique_ids)
+            if not recent or recent[-1] != new_technique_id:
+                recent.append(new_technique_id)
+            updated.recent_technique_ids = recent[-5:]
+            if new_technique_id == current_state.current_technique_id:
+                updated.current_technique_turns = int(current_state.current_technique_turns or 0) + 1
+            else:
+                updated.current_technique_turns = 1
+            # Advance step index for interactive techniques
+            card = get_technique_by_id(new_technique_id)
+            if card and card.interactive:
+                if new_technique_id != current_state.current_technique_id:
+                    updated.current_step_index = 1  # just delivered step 0
+                else:
+                    prev = int(current_state.current_step_index or 0)
+                    if prev >= len(card.steps):
+                        # углубить after all steps done: treat as fresh restart
+                        updated.current_step_index = 1
+                    else:
+                        updated.current_step_index = min(prev + 1, len(card.steps))
+            else:
+                updated.current_step_index = 0
 
     return updated
 

@@ -23,6 +23,9 @@ class TechniqueCard:
     emotions: frozenset[str]
     arousal: str  # высокое | среднее | низкое
     dialysis_ok: bool
+    steps: tuple[str, ...] = ()
+    completion_prompt: str = ""
+    interactive: bool = False  # True = agent leads step-by-step; False = dump all steps at once
 
 
 TECHNIQUE_LIBRARY: list[TechniqueCard] = [
@@ -34,6 +37,16 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"тревога", "стресс", "страх"}),
         arousal="высокое",
         dialysis_ok=True,
+        steps=(
+            "Устройтесь удобно — можно сидеть, можно лежать. Можно делать прямо на диализе.",
+            "Закройте рот. Вдохните через нос, медленно считая до 4.",
+            "Задержите дыхание на 7 счётов.",
+            "Выдохните через рот со звуком на 8 счётов — как будто задуваете свечу.",
+            "Это один цикл. Повторите 3–4 раза.",
+            "После последнего выдоха — просто подышите обычно и заметьте, как изменилось тело.",
+        ),
+        completion_prompt="Как вы себя чувствуете после?",
+        interactive=False,
     ),
     TechniqueCard(
         id="p02",
@@ -43,6 +56,16 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"тревога", "страх", "стресс", "злость"}),
         arousal="высокое",
         dialysis_ok=True,
+        steps=(
+            "Оглянитесь вокруг. Назовите про себя 5 вещей, которые видите прямо сейчас.",
+            "Прислушайтесь. Назовите 4 звука, которые слышите.",
+            "Почувствуйте тело. Назовите 3 ощущения — кресло под спиной, одежда на коже, воздух.",
+            "Сделайте вдох. Назовите 2 запаха — или просто почувствуйте воздух.",
+            "Что сейчас во рту? Назовите 1 вкус.",
+            "Сделайте медленный выдох. Вы здесь.",
+        ),
+        completion_prompt="Удалось вернуться в момент?",
+        interactive=False,
     ),
     TechniqueCard(
         id="p03",
@@ -52,6 +75,16 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"тревога", "стресс"}),
         arousal="среднее",
         dialysis_ok=True,
+        steps=(
+            "Можно делать с открытыми глазами — никто не заметит.",
+            "Вдохните через нос на 4 счёта.",
+            "Задержите дыхание на 4 счёта.",
+            "Выдохните через нос на 4 счёта.",
+            "Задержите на 4 счёта.",
+            "Это один квадрат. Повторите 4–5 раз в своём темпе.",
+        ),
+        completion_prompt="Как вы себя чувствуете?",
+        interactive=False,
     ),
     TechniqueCard(
         id="p04",
@@ -61,6 +94,17 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"стресс", "тревога", "напряжение"}),
         arousal="среднее",
         dialysis_ok=False,
+        steps=(
+            "Лягте удобно. Закройте глаза.",
+            "Напрягите ступни и икры на 5 секунд — сильно, как можете. Отпустите.",
+            "Напрягите бёдра и живот на 5 секунд. Отпустите.",
+            "Сожмите руки в кулаки и напрягите руки на 5 секунд. Отпустите.",
+            "Поднимите плечи к ушам на 5 секунд. Отпустите.",
+            "Зажмурьтесь и нахмурьтесь на 5 секунд. Отпустите.",
+            "Почувствуйте, как тело стало тяжелее. Дышите спокойно.",
+        ),
+        completion_prompt="Тело расслабилось?",
+        interactive=False,
     ),
     TechniqueCard(
         id="p05",
@@ -70,6 +114,15 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"тревога", "растерянность", "стресс"}),
         arousal="низкое",
         dialysis_ok=True,
+        steps=(
+            "Назовите трудную ситуацию, которая давит прямо сейчас. Одним предложением.",
+            "Первый вариант — самое очевидное, что приходит в голову. Что это?",
+            "Второй вариант — самый маленький шаг, который реально сделать сегодня. Какой?",
+            "Третий вариант — попросить кого-то помочь. Есть такой человек?",
+            "Смотрите на три варианта. Какой кажется чуть менее тяжёлым?",
+        ),
+        completion_prompt="Появилась хоть одна идея что делать?",
+        interactive=True,
     ),
     TechniqueCard(
         id="p06",
@@ -79,6 +132,14 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"апатия", "усталость", "уныние"}),
         arousal="низкое",
         dialysis_ok=True,
+        steps=(
+            "Назовите одно дело, которое откладываете. Только одно.",
+            "Поставьте таймер на 2 минуты — прямо сейчас.",
+            "Делайте это дело ровно 2 минуты. Когда таймер звякнет — можете остановиться.",
+            "Как прошло? Остановились или продолжили?",
+        ),
+        completion_prompt="Как вы себя чувствуете?",
+        interactive=True,
     ),
     TechniqueCard(
         id="p07",
@@ -88,6 +149,14 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"тревога", "стресс", "рассеянность"}),
         arousal="низкое",
         dialysis_ok=True,
+        steps=(
+            "Возьмите телефон или листок.",
+            "Напишите ровно три дела на завтра — не больше трёх.",
+            "Если хочется написать больше — выберите три самых важных и остальное уберите.",
+            "Отложите список до завтра.",
+        ),
+        completion_prompt="Стало немного легче?",
+        interactive=False,
     ),
     TechniqueCard(
         id="p08",
@@ -97,6 +166,14 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"стресс", "выгорание", "злость", "раздражение"}),
         arousal="высокое",
         dialysis_ok=True,
+        steps=(
+            "Сделайте обычный вдох через нос.",
+            "В конце вдоха — добавьте ещё короткий вдох-добор через нос (как всхлип).",
+            "Теперь медленно и долго выдохните через рот — как будто сдуваетесь.",
+            "Повторите 2–3 раза. Это всё.",
+        ),
+        completion_prompt="Как вы себя чувствуете?",
+        interactive=False,
     ),
     TechniqueCard(
         id="p09",
@@ -106,6 +183,13 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"грусть", "апатия", "подавленность", "уныние"}),
         arousal="низкое",
         dialysis_ok=True,
+        steps=(
+            "Остановитесь на минуту.",
+            "Что тело сделало сегодня? Просто факты — без оценки. Например: встал, поел, дошёл до дивана. Назовите три таких вещи.",
+            "Не оценивайте — много это или мало. Просто заметьте, что это было.",
+        ),
+        completion_prompt="Удалось что-то заметить?",
+        interactive=True,
     ),
     TechniqueCard(
         id="p10",
@@ -115,6 +199,15 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"злость", "раздражение"}),
         arousal="высокое",
         dialysis_ok=True,
+        steps=(
+            "Сожмите обе руки в кулаки — как можно сильнее. Удерживайте 10 секунд.",
+            "Резко разожмите. Почувствуйте, как напряжение уходит из рук.",
+            "Поднимите плечи к ушам — сильно, на 10 секунд. Резко опустите. Выдохните.",
+            "Если можно — напрягите бёдра и икры на 10 секунд. Отпустите.",
+            "Сделайте три медленных выдоха. Просто подышите.",
+        ),
+        completion_prompt="Стало чуть легче в теле?",
+        interactive=False,
     ),
     TechniqueCard(
         id="p11",
@@ -124,6 +217,13 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"грусть", "уныние", "одиночество", "подавленность"}),
         arousal="низкое",
         dialysis_ok=True,
+        steps=(
+            "Остановитесь. Что сейчас тяжело? Назовите это — хотя бы одним словом.",
+            "Представьте: близкий вам человек переживает то же самое. Что бы вы ему сказали — по-человечески, с теплом?",
+            "Скажите это себе — вслух или про себя. Если слова не идут — просто положите руку на грудь и посидите так минуту.",
+        ),
+        completion_prompt="Удалось сказать что-то доброе себе?",
+        interactive=True,
     ),
     TechniqueCard(
         id="p12",
@@ -133,6 +233,15 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         emotions=frozenset({"страх", "паника", "тревога"}),
         arousal="высокое",
         dialysis_ok=True,
+        steps=(
+            "Найдите что-то холодное или плотное рядом: стакан с водой, поручень кресла, собственная ладонь.",
+            "Приложите к запястью или щеке. Просто почувствуйте — температуру, текстуру.",
+            "Сделайте медленный выдох — длиннее вдоха.",
+            "Назовите про себя 3 вещи, которые видите прямо сейчас.",
+            "Напомните себе: «Я сейчас в безопасности. Это ощущение — не факт об опасности».",
+        ),
+        completion_prompt="Стало немного спокойнее?",
+        interactive=False,
     ),
 ]
 
@@ -155,6 +264,16 @@ def _row_to_card(row: object) -> TechniqueCard | None:
             return None
         short_id = m.group(1)
         tags = row.emotion_tags or []  # type: ignore[attr-defined]
+        raw_steps = row.instruction or []  # type: ignore[attr-defined]
+        steps = tuple(str(s).strip() for s in raw_steps if str(s).strip())
+        # Prefer static library's interactive flag — it's authoritative for known practices.
+        # DB type column doesn't reliably encode step-by-step guidance intent.
+        static_entry = next((c for c in TECHNIQUE_LIBRARY if c.id == short_id), None)
+        if static_entry is not None:
+            interactive = static_entry.interactive
+        else:
+            practice_type = str(getattr(row, "type", "") or "").lower()
+            interactive = practice_type in {"cognitive", "behavioral"} and len(steps) > 1
         return TechniqueCard(
             id=short_id,
             name=row.title,  # type: ignore[attr-defined]
@@ -163,6 +282,9 @@ def _row_to_card(row: object) -> TechniqueCard | None:
             emotions=frozenset(tags),
             arousal=row.arousal_level or "высокое",  # type: ignore[attr-defined]
             dialysis_ok=row.dialysis_ok if row.dialysis_ok is not None else True,  # type: ignore[attr-defined]
+            steps=steps,
+            completion_prompt=str(getattr(row, "completion_prompt", "") or "").strip(),
+            interactive=interactive,
         )
     except Exception:
         return None
@@ -201,6 +323,18 @@ async def refresh_technique_cache() -> int:
 
 def _active_library() -> list[TechniqueCard]:
     return _cache if _cache else TECHNIQUE_LIBRARY
+
+
+def get_technique_by_id(technique_id: str) -> TechniqueCard | None:
+    # Static library is authoritative for known practices (curated steps and completion prompts).
+    # Only fall back to DB cache for IDs not present in static library.
+    for card in TECHNIQUE_LIBRARY:
+        if card.id == technique_id:
+            return card
+    for card in _cache:
+        if card.id == technique_id:
+            return card
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -289,13 +423,48 @@ def infer_arousal(message: str, context: str = "") -> str:
     return "высокое"
 
 
+def _negated_emotion_stems(text: str) -> set[str]:
+    """Return stems from _EMOTION_STEMS that are directly preceded by не/нет/без in text."""
+    text_l = text.lower()
+    negated: set[str] = set()
+    for m in re.finditer(r'\b(не|нет|без)\s+(\w+)', text_l):
+        neg_word = m.group(2)
+        for emotion, stems in _EMOTION_STEMS.items():
+            if any(stem in neg_word for stem in stems):
+                negated.add(emotion)
+    return negated
+
+
 def infer_emotions(message: str, context: str = "") -> set[str]:
-    """Return the set of canonical emotion names detected in message + context."""
-    combined = f"{message} {context}".lower()
-    found: set[str] = set()
+    """Return the set of canonical emotion names detected in message + context.
+
+    Message takes priority: if the message explicitly names emotions, those are
+    used and context is ignored (prevents old context from overriding corrections
+    like «не тревогу, мне грустно»). Negated emotions (не/нет/без X) are excluded.
+    """
+    msg_lower = message.lower()
+    negated = _negated_emotion_stems(message)
+
+    # Check message first
+    msg_found: set[str] = set()
     for emotion, stems in _EMOTION_STEMS.items():
-        if any(stem in combined for stem in stems):
-            found.add(emotion)
+        if emotion in negated:
+            continue
+        if any(stem in msg_lower for stem in stems):
+            msg_found.add(emotion)
+
+    # If message has clear emotion signals, use only those (don't mix in context)
+    if msg_found:
+        found = msg_found
+    else:
+        # Ambiguous / short message — fall back to message + context
+        ctx_lower = context.lower()
+        combined = f"{msg_lower} {ctx_lower}"
+        found = set()
+        for emotion, stems in _EMOTION_STEMS.items():
+            if any(stem in combined for stem in stems):
+                found.add(emotion)
+
     # паника implies страх
     if "паника" in found:
         found.add("страх")
@@ -310,6 +479,7 @@ def get_techniques(
     arousal: str,
     *,
     exclude_id: str | None = None,
+    exclude_ids: list[str] | None = None,
     dialysis_ok: bool | None = None,
     max_results: int = 3,
 ) -> list[TechniqueCard]:
@@ -323,10 +493,14 @@ def get_techniques(
     _AROUSAL_ORDER = {"высокое": 2, "среднее": 1, "низкое": 0}
     target_level = _AROUSAL_ORDER.get(arousal, 2)
 
+    _exclude: set[str] = set(filter(None, (exclude_ids or [])))
+    if exclude_id:
+        _exclude.add(exclude_id)
+
     candidates: list[tuple[int, TechniqueCard]] = []
 
     for card in _active_library():
-        if card.id == exclude_id:
+        if card.id in _exclude:
             continue
         if dialysis_ok is True and not card.dialysis_ok:
             continue
@@ -358,7 +532,30 @@ def get_techniques(
     return relevant[:max_results]
 
 
-def format_techniques_block(techniques: list[TechniqueCard]) -> str:
+def format_interactive_step(card: TechniqueCard, step_idx: int) -> str:
+    """Inject a single step of an interactive technique for the expert prompt."""
+    total = len(card.steps)
+    step_text = card.steps[step_idx]
+    return (
+        f"[{card.id}] ИНТЕРАКТИВНЫЙ ШАГ ({step_idx + 1} из {total}): «{step_text}»\n"
+        f"Задача: задай этот шаг пациенту своими словами, персонализируй используя контекст выше.\n"
+        f"ОБЯЗАТЕЛЬНО: поле «Шаг сейчас» ДОЛЖНО начинаться с [{card.id}] — "
+        f"например: [{card.id}] Давай вспомним три... Без этого префикса прогресс техники не сохранится.\n"
+        f"Правило: Режим интервенция, ИСКЛЮЧЕНИЕ-рефлексия НЕ применяется (техника ещё не завершена)."
+    )
+
+
+def format_technique_completion(card: TechniqueCard) -> str:
+    """Inject completion prompt after all interactive steps are done."""
+    prompt = card.completion_prompt or "Что заметил? Что почувствовал после?"
+    return (
+        f"[{card.id}] ВСЕ ШАГИ ВЫПОЛНЕНЫ ({len(card.steps)} из {len(card.steps)}).\n"
+        f"Задай вопрос: «{prompt}»\n"
+        f"Правило: Режим уточнить, Шаг сейчас: нет, Вопрос пациенту: {prompt}"
+    )
+
+
+def format_techniques_block(techniques: list[TechniqueCard], current_id: str | None = None) -> str:
     """Format technique cards for injection into the expert user prompt."""
     if not techniques:
         return ""
@@ -369,8 +566,17 @@ def format_techniques_block(techniques: list[TechniqueCard]) -> str:
     for t in techniques:
         emotions_str = ", ".join(sorted(t.emotions))
         dialysis_note = "" if t.dialysis_ok else " · только вне диализа"
-        lines.append(
-            f"[{t.id}] {t.name} · {t.arousal} возбуждение · {emotions_str}{dialysis_note}\n"
+        current_mark = " (текущая)" if t.id == current_id else ""
+        if t.interactive:
+            mode_note = f" · интерактивная ({len(t.steps)} шага — агент ведёт пошагово)"
+        else:
+            mode_note = ""
+        entry = (
+            f"[{t.id}] {t.name}{current_mark} · {t.arousal} возбуждение · {emotions_str}{dialysis_note}{mode_note}\n"
             f"  Механизм: {t.mechanism}"
         )
+        if not t.interactive and t.steps:
+            steps_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(t.steps))
+            entry += f"\n  Шаги (выдай все сразу в Шаг сейчас):\n{steps_text}"
+        lines.append(entry)
     return "\n".join(lines)

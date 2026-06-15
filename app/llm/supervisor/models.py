@@ -52,7 +52,11 @@ class CurrentState:
     last_bot_reply: str | None = None
     last_expert_effectiveness: str | None = None
     last_expert_strategy: str | None = None
-    last_technique_id: str | None = None
+    current_technique_id: str | None = None
+    current_technique_turns: int = 0
+    current_step_index: int = 0
+    last_expert_step: str | None = None
+    recent_technique_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,7 +76,11 @@ class CurrentState:
             "last_bot_reply": self.last_bot_reply,
             "last_expert_effectiveness": self.last_expert_effectiveness,
             "last_expert_strategy": self.last_expert_strategy,
-            "last_technique_id": self.last_technique_id,
+            "current_technique_id": self.current_technique_id,
+            "current_technique_turns": int(self.current_technique_turns),
+            "current_step_index": int(self.current_step_index),
+            "last_expert_step": self.last_expert_step,
+            "recent_technique_ids": list(self.recent_technique_ids),
         }
 
     @classmethod
@@ -117,11 +125,20 @@ class CurrentState:
                 if payload.get("last_expert_strategy") is not None
                 else None
             ),
-            last_technique_id=(
-                str(payload.get("last_technique_id")).strip()
-                if payload.get("last_technique_id") is not None
+            current_technique_id=(
+                str(payload.get("current_technique_id") or payload.get("last_technique_id") or "").strip()
+                or None
+            ),
+            current_technique_turns=int(payload.get("current_technique_turns") or 0),
+            current_step_index=int(payload.get("current_step_index") or 0),
+            last_expert_step=(
+                str(payload.get("last_expert_step")).strip()
+                if payload.get("last_expert_step") is not None
                 else None
             ),
+            recent_technique_ids=[
+                str(item) for item in (payload.get("recent_technique_ids") or []) if str(item).strip()
+            ],
         )
 
 

@@ -22,7 +22,10 @@ from app.llm.langgraph_supervisor.models import (
 )
 from app.llm.pool import pool
 from app.llm.technique_library import (
+    format_interactive_step,
+    format_technique_completion,
     format_techniques_block,
+    get_technique_by_id,
     get_techniques,
     infer_arousal,
     infer_emotions,
@@ -236,6 +239,12 @@ def build_intake_system_prompt(previous_error: str | None = None) -> str:
         "- ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: если clarification_streak >= 2 и Проблема уже обозначена "
         "(не равна 'не обозначена'), ты ОБЯЗАН поставить Готово к передаче: да, "
         "Нужно уточнение: нет, Вопрос: нет. Эксперт справится с тем контекстом, который уже собран.\n"
+        "- ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: если в состоянии уже есть current_goal (не пустой и не 'не обозначена') "
+        "и есть открытый pending_question — ты ОБЯЗАН сохранить эту проблему. "
+        "Никогда не возвращай Проблема = 'не обозначена', если current_goal уже заполнен. "
+        "Краткий ответ пользователя ('нет', 'да', 'не знаю', 'ладно') не отменяет уже собранный контекст — "
+        "он дополняет его. Используй current_goal как Проблему, обнови Контекст ответом пользователя "
+        "и ставь Готово к передаче: да.\n"
         "- Для приветствия без проблемы: Проблема = 'не обозначена', Готово к передаче = 'нет', Нужно уточнение = 'да', и задай один открывающий вопрос.\n"
         # Fix 2: правило дистресс-сообщений — условное, зависит от наличия конкретики в контексте
         "- Для общих дистресс-сообщений вроде 'мне тревожно', 'мне грустно', 'мне страшно', 'мне тяжело': "
@@ -251,6 +260,12 @@ def build_intake_system_prompt(previous_error: str | None = None) -> str:
         "считай, что причина пользователю не известна. Не задавай новых уточнений: поставь "
         "Нужно уточнение: нет, Вопрос: нет, Готово к передаче: да, а в Контекст явно запиши "
         "'причина пользователю не известна' или равнозначную формулировку.\n"
+        "- Если сообщение пользователя — короткое дейктическое уточнение "
+        "('что это?', 'что это значит?', 'как это делать?', 'не понял', 'поясни', 'как это?', "
+        "'что имеется в виду?', 'объясни') и last_bot_reply не пустой: "
+        "сохраняй текущую Проблему и Контекст без изменений, не подменяй goal новой формулировкой. "
+        "Это вопрос про предыдущий ответ бота, а не новая тема. "
+        "Поставь Готово к передаче: да, Нужно уточнение: нет, Вопрос: нет.\n"
         "- Если Проблема = 'не обозначена', Готово к передаче не может быть 'да'.\n"
         "- Не добавляй намерение, фазу, статус, экспертов и любые другие поля.\n"
         + _build_intake_retry_instruction(previous_error)
@@ -415,26 +430,40 @@ def build_emotional_expert_system_prompt(previous_error: str | None = None) -> s
         "- хорошо: пациент говорит, что стало лучше → завершить\n"
         "- частично: немного помогло, смешанная реакция → углубить\n"
         "- не_помогло: не помогло или стало хуже → сменить_подход\n"
-        "- нет_данных: первый ход или ответ на ситуационный вопрос (технику ещё не оценивали) → продолжить\n"
+        "- нет_данных: оценки техники ещё нет → продолжить\n"
         "\n"
         "## Шаг 2 — Выбери режим и заполни карточку\n"
         "\n"
         "КЛЮЧЕВОЕ ПРАВИЛО: если ниже в промпте есть список «Доступные техники» — "
         "эмоция и уровень возбуждения уже определены системой автоматически. "
-        "Это означает: контекст ДОСТАТОЧЕН, уточнять нечего. "
-        "Выбирай ТОЛЬКО Режим: интервенция.\n"
+        "Выбирай Режим: интервенция.\n"
         "\n"
-        "**Режим: уточнить** (ТОЛЬКО если список техник НЕ предоставлен, стратегия продолжить, и эмоция неясна):\n"
+        "ИСКЛЮЧЕНИЕ — рефлексия после техники:\n"
+        "Если ниже в промпте есть раздел «Предыдущий ответ бота» содержащий [pNN] "
+        "(то есть техника уже предлагалась) И оценка = нет_данных — "
+        "пациент выполнил технику, но не сказал «помогло» / «не помогло». "
+        "В этом случае ОБЯЗАТЕЛЬНО: Стратегия: продолжить, Режим: уточнить, Шаг сейчас: нет, "
+        "Вопрос пациенту: «Что заметил? Что почувствовал после?» "
+        "Не предлагай новую технику — сначала узнай эффект предыдущей.\n"
+        "ПРИОРИТЕТ: если ниже в промпте есть блок «ИНТЕРАКТИВНЫЙ ШАГ» или «ВСЕ ШАГИ ВЫПОЛНЕНЫ» — "
+        "это прямая инструкция для текущего хода. Следуй правилу из этого блока, "
+        "ИСКЛЮЧЕНИЕ-рефлексия НЕ применяется пока техника не завершена.\n"
+        "\n"
+        "**Режим: уточнить** (если ИСКЛЮЧЕНИЕ выше; ИЛИ если список техник НЕ предоставлен и эмоция неясна):\n"
         "  Шаг сейчас: нет\n"
-        "  Вопрос пациенту: ОДИН вопрос — только про эмоцию или основное переживание\n"
-        "  → Максимум 1 раз. После ответа — только интервенция.\n"
+        "  Вопрос пациенту: ОДИН вопрос — про эффект техники (ИСКЛЮЧЕНИЕ) или про эмоцию\n"
+        "  → Максимум 1 раз. После ответа с оценкой — только интервенция.\n"
         "\n"
-        "**Режим: интервенция** (всегда, если список техник предоставлен; также при углубить / сменить_подход / завершить):\n"
+        "**Режим: интервенция** (если список техник предоставлен И ИСКЛЮЧЕНИЕ не применяется; "
+        "также при углубить / сменить_подход / завершить):\n"
         "  Шаг сейчас: начни с [id техники] из предложенного списка, затем одной фразой КАК ИМЕННО она снизит ЭТОТ страх пациента.\n"
         "  Если список техник не предоставлен — опиши конкретную технику.\n"
-        "  Вопрос пациенту: нет — или только «как сработало?» (не про ситуацию)\n"
-        "  При завершить: Шаг сейчас = практическая рекомендация для реальных процедур; Вопрос = нет.\n"
-        "  При сменить_подход: не используй технику с тем же id, что в предыдущем ходу.\n"
+        "  Вопрос пациенту: нет.\n"
+        "  При углубить: выбирай технику помеченную (текущая) — продолжи ту же практику с новым углом.\n"
+        "    ИСКЛЮЧЕНИЕ из углубить: если «Текущая активная техника» использована 2+ хода и оценка частично — "
+        "используй сменить_подход вместо углубить.\n"
+        "  При сменить_подход: выбирай технику БЕЗ пометки (текущая).\n"
+        "  При завершить: Шаг сейчас = практическая рекомендация для реальных процедур.\n"
         "\n"
         "Нельзя: Режим уточнить + Шаг сейчас != нет. Нельзя: Шаг сейчас != нет + Вопрос пациенту != нет.\n"
         "\n"
@@ -460,22 +489,51 @@ def _normalize_gender(raw: str | None) -> str:
 
 
 def _build_technique_injection(state: FirstModuleState) -> str:
-    """Select and format 2-3 relevant techniques for the expert prompt."""
+    """Build technique injection block for the expert user prompt.
+
+    Three cases:
+    1. Interactive technique mid-flow: inject current step.
+    2. Interactive technique all steps done: inject completion prompt.
+    3. Default: inject selection list (dump-all techniques include full steps).
+    """
+    current_id = str(state.current_state.current_technique_id or "").strip() or None
+    step_idx = int(state.current_state.current_step_index or 0)
+
+    if current_id:
+        card = get_technique_by_id(current_id)
+        if card and card.interactive and card.steps:
+            if step_idx < len(card.steps):
+                logger.debug(
+                    "[technique_injection] interactive step %d/%d for %s",
+                    step_idx + 1, len(card.steps), current_id,
+                )
+                return format_interactive_step(card, step_idx)
+            else:
+                # Check whether the completion question was already sent last turn.
+                # If so, the patient is now answering it — fall through to technique selection
+                # so the LLM can evaluate effectiveness and углубить/сменить_подход.
+                last_reply = str(state.current_state.last_bot_reply or "").lower()
+                completion_q = str(card.completion_prompt or "").lower()
+                if not completion_q or completion_q not in last_reply:
+                    logger.debug("[technique_injection] all steps done for %s, completion", current_id)
+                    return format_technique_completion(card)
+                logger.debug(
+                    "[technique_injection] completion already sent for %s, switching to selection", current_id
+                )
+
+    # Default: build selection list
     context_text = str(state.current_state.slots.get("intake_context") or "").strip()
     problem_text = str(getattr(state.intake_card, "problem", "") or "").strip()
     emotions = infer_emotions(state.user_message, f"{problem_text} {context_text}")
     arousal = infer_arousal(state.user_message, f"{problem_text} {context_text}")
-    exclude_id = str(state.current_state.last_technique_id or "").strip() or None
-    techniques = get_techniques(emotions, arousal, exclude_id=exclude_id)
+    recent = list(state.current_state.recent_technique_ids or [])
+    exclude_ids = recent[:-1] if len(recent) > 1 else []
+    techniques = get_techniques(emotions, arousal, exclude_ids=exclude_ids)
     logger.debug(
-        "[technique_injection] msg=%r | emotions=%s | arousal=%s | exclude_id=%s | found=%s",
-        state.user_message[:80],
-        emotions,
-        arousal,
-        exclude_id,
-        [t.id for t in techniques],
+        "[technique_injection] selection | emotions=%s | arousal=%s | current_id=%s | exclude_ids=%s | found=%s",
+        emotions, arousal, current_id, exclude_ids, [t.id for t in techniques],
     )
-    return format_techniques_block(techniques)
+    return format_techniques_block(techniques, current_id=current_id)
 
 
 def build_emotional_expert_user_prompt(state: FirstModuleState) -> str:
@@ -496,6 +554,11 @@ def build_emotional_expert_user_prompt(state: FirstModuleState) -> str:
     technique_block = _build_technique_injection(state)
     if technique_block:
         prompt += f"\n{technique_block}\n"
+
+    current_tech_id = str(state.current_state.current_technique_id or "").strip() or None
+    if current_tech_id:
+        turns = int(state.current_state.current_technique_turns or 1)
+        prompt += f"\nТекущая активная техника: [{current_tech_id}], использована {turns} {'ход' if turns == 1 else 'хода' if turns <= 4 else 'ходов'}.\n"
 
     last_reply = str(state.current_state.last_bot_reply or "").strip()
     if last_reply:
@@ -564,11 +627,15 @@ def validate_emotional_expert_card(card: EmotionalExpertCard) -> None:
     if step_missing and follow_missing:
         raise ValueError("must have step_now or follow_up")
     if not step_missing and "?" in card.step_now:
-        raise ValueError("step_now must be an action, not a question")
+        # Technique steps ([pNN] prefix) legitimately contain ? — only reject free-form questions
+        if not re.match(r"^\[p\d+\]", card.step_now):
+            raise ValueError("step_now must be an action, not a question")
     if card.strategy is ExpertStrategy.CLOSE and step_missing:
         raise ValueError("step_now required for завершить (take-home recommendation)")
     if card.strategy in (ExpertStrategy.DEEPEN, ExpertStrategy.PIVOT) and step_missing:
-        raise ValueError("step_now required for углубить/сменить_подход")
+        # Allow when follow_up is set: reflection question counts as the action (e.g. ИСКЛЮЧЕНИЕ-рефлексия)
+        if follow_missing:
+            raise ValueError("step_now required for углубить/сменить_подход")
 
 
 def _lookup_grounded_lesson_target(

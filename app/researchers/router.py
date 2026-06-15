@@ -18,7 +18,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.session import get_async_session
@@ -28,7 +28,7 @@ from app.llm.memory import st_memory_store
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.router import classify_request
 from app.llm.trace_humanizer import build_human_trace
-from app.models.llm import ChatMessage
+from app.models.llm import ChatMessage, ChatSupervisorState
 from app.researchers.models import Researcher
 from app.researchers.chat_debug_utils import (
     apply_forced_model_tier as _apply_forced_model_tier,
@@ -57,9 +57,9 @@ from app.researchers import crud
 
 router = APIRouter(prefix="/researcher", tags=["researcher"])
 _llm_pipeline = LLMPipeline()
-_DEBUG_SUPERVISOR_STATE_STORE: dict[tuple[int, str, str], dict[str, Any]] = {}
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEBUG_REPORTS_DIR = _PROJECT_ROOT / "LLM_test" / "reports"
+_DEBUG_THREAD_PREFIX = "debug-"
 
 
 def _normalize_debug_session_token(value: str | None, patient_id: int) -> str:
@@ -72,25 +72,57 @@ def _normalize_debug_thread_token(value: str | None) -> str:
     return token or "main"
 
 
-def _debug_state_key(patient_id: int, session_id: str, thread_id: str) -> tuple[int, str, str]:
-    return (patient_id, session_id, thread_id)
+def _debug_thread_id(session_id: str, thread_id: str) -> str:
+    """Build the DB thread_id for debug state (max 80 chars)."""
+    return f"{_DEBUG_THREAD_PREFIX}{session_id}-{thread_id}"[:80]
 
 
-def _read_debug_supervisor_state(patient_id: int, session_id: str, thread_id: str) -> dict[str, Any] | None:
-    return _DEBUG_SUPERVISOR_STATE_STORE.get(_debug_state_key(patient_id, session_id, thread_id))
+async def _read_debug_supervisor_state(
+    session: AsyncSession,
+    *,
+    patient_id: int,
+    session_id: str,
+    thread_id: str,
+) -> dict[str, Any] | None:
+    db_thread_id = _debug_thread_id(session_id, thread_id)
+    result = await session.execute(
+        select(ChatSupervisorState.state_json).where(
+            ChatSupervisorState.patient_id == patient_id,
+            ChatSupervisorState.thread_id == db_thread_id,
+        )
+    )
+    state = result.scalar_one_or_none()
+    return dict(state) if isinstance(state, dict) else None
 
 
-def _write_debug_supervisor_state(
+async def _write_debug_supervisor_state(
+    session: AsyncSession,
+    *,
     patient_id: int,
     session_id: str,
     thread_id: str,
     supervisor_state: dict[str, Any] | None,
 ) -> None:
-    key = _debug_state_key(patient_id, session_id, thread_id)
-    if supervisor_state:
-        _DEBUG_SUPERVISOR_STATE_STORE[key] = dict(supervisor_state)
+    if not supervisor_state:
+        return
+    db_thread_id = _debug_thread_id(session_id, thread_id)
+    result = await session.execute(
+        select(ChatSupervisorState).where(
+            ChatSupervisorState.patient_id == patient_id,
+            ChatSupervisorState.thread_id == db_thread_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        session.add(
+            ChatSupervisorState(
+                patient_id=patient_id,
+                thread_id=db_thread_id,
+                state_json=dict(supervisor_state),
+            )
+        )
     else:
-        _DEBUG_SUPERVISOR_STATE_STORE.pop(key, None)
+        row.state_json = dict(supervisor_state)
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +508,8 @@ async def researcher_chat_debug_message(
     thread_id = _normalize_debug_thread_token(body.thread_id)
     router_result = classify_request(body.message, body.source)
     router_result = _apply_forced_model_tier(router_result, body.forced_model_tier)
-    supervisor_state = _read_debug_supervisor_state(
+    supervisor_state = await _read_debug_supervisor_state(
+        session,
         patient_id=body.patient_id,
         session_id=session_id,
         thread_id=thread_id,
@@ -540,7 +573,8 @@ async def researcher_chat_debug_message(
 
     pending_st_memory = list(llm_response.pending_st_memory or [])
     pending_lt_memory = list(llm_response.pending_lt_memory or [])
-    _write_debug_supervisor_state(
+    await _write_debug_supervisor_state(
+        session,
         patient_id=body.patient_id,
         session_id=session_id,
         thread_id=thread_id,
@@ -577,7 +611,7 @@ async def researcher_chat_debug_message(
                 is_read=False,
             )
         )
-        await session.commit()
+    await session.commit()
 
     diagnostics_json = llm_response.diagnostics or {}
     human_trace = [
