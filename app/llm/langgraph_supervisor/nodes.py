@@ -349,6 +349,24 @@ def delegation_validate_node(state: FirstModuleState) -> FirstModuleState:
     return state
 
 
+_TECHNIQUE_PREFIX_RE = re.compile(r'^\[(p\d+)\]')
+
+
+def _enforce_interactive_step_0(card: EmotionalExpertCard, state: FirstModuleState) -> None:
+    """If the LLM selected a new interactive technique, replace its invented step with actual step 0."""
+    step = str(card.step_now or "").strip()
+    m = _TECHNIQUE_PREFIX_RE.match(step)
+    if not m:
+        return
+    chosen_id = m.group(1)
+    current_id = str(state.current_state.current_technique_id or "").strip()
+    if chosen_id == current_id:
+        return  # continuing existing technique — don't override
+    tech = get_technique_by_id(chosen_id)
+    if tech and tech.interactive and tech.steps:
+        card.step_now = f"[{chosen_id}] {tech.steps[0]}"
+
+
 async def invoke_emotional_expert_node(state: FirstModuleState) -> FirstModuleState:
     if state.execution_kind is not ExecutionKind.DELEGATE:
         return state
@@ -362,6 +380,8 @@ async def invoke_emotional_expert_node(state: FirstModuleState) -> FirstModuleSt
 
     state.selected_agents = ["emotional_support"]
     card, step_diagnostics = await extract_emotional_expert_card(state)
+    if card is not None:
+        _enforce_interactive_step_0(card, state)
     state.expert_card = card
     state.diagnostics["expert"] = {
         "card": card.to_dict() if card else None,

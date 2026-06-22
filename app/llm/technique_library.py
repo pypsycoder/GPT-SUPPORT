@@ -26,6 +26,8 @@ class TechniqueCard:
     steps: tuple[str, ...] = ()
     completion_prompt: str = ""
     interactive: bool = False  # True = agent leads step-by-step; False = dump all steps at once
+    therapeutic_intent: str = ""   # what the technique achieves at session level
+    synthesis_hint: str = ""       # how to use collected patient responses for the final reframe
 
 
 TECHNIQUE_LIBRARY: list[TechniqueCard] = [
@@ -184,12 +186,23 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         arousal="низкое",
         dialysis_ok=True,
         steps=(
-            "Остановитесь на минуту.",
-            "Что тело сделало сегодня? Просто факты — без оценки. Например: встал, поел, дошёл до дивана. Назовите три таких вещи.",
-            "Не оценивайте — много это или мало. Просто заметьте, что это было.",
+            "Закройте глаза на секунду. Вспомните одно простое действие, которое ваше тело сделало сегодня — самое обычное, которое мы обычно не замечаем.",
+            "Назовите ещё два-три таких действия. Самых простых — встал, поел, умылся, дошёл до диализа.",
+            "Посмотрите на весь список. Что вы замечаете, когда видите всё это вместе?",
         ),
-        completion_prompt="Удалось что-то заметить?",
+        completion_prompt="Что вы замечаете, глядя на всё это?",
         interactive=True,
+        therapeutic_intent=(
+            "Помочь пациенту заметить, что несмотря на усталость его тело активно работало — "
+            "восстановить ощущение ресурса и снизить самокритику."
+        ),
+        synthesis_hint=(
+            "Используй конкретные действия, которые пациент назвал, как доказательства его продуктивности. "
+            "Нормализуй усталость после диализа как физиологическую норму, а не признак слабости. "
+            "Подчеркни: то, что он перечислил — уже много для человека после 4+ часов процедуры. "
+            "Регулярный диализ сам по себе — уже подвиг. Если пациент говорит «да... но устал» — "
+            "признай «да» как реальный результат, а усталость — как закономерную цену этой работы."
+        ),
     ),
     TechniqueCard(
         id="p10",
@@ -224,6 +237,15 @@ TECHNIQUE_LIBRARY: list[TechniqueCard] = [
         ),
         completion_prompt="Удалось сказать что-то доброе себе?",
         interactive=True,
+        therapeutic_intent=(
+            "Активировать самосострадание через смещение внутреннего диалога с самокритики на поддержку."
+        ),
+        synthesis_hint=(
+            "Используй слова поддержки, которые пациент нашёл для воображаемого друга, и верни их ему самому. "
+            "Если слова нашлись — отметь это как реальный навык, который он только что применил. "
+            "Если было трудно подобрать слова — нормализуй: самосострадание требует практики, "
+            "и то, что он попробовал — уже шаг. Тепло к себе не обязано приходить сразу."
+        ),
     ),
     TechniqueCard(
         id="p12",
@@ -537,22 +559,40 @@ def format_interactive_step(card: TechniqueCard, step_idx: int) -> str:
     total = len(card.steps)
     step_text = card.steps[step_idx]
     return (
-        f"[{card.id}] ИНТЕРАКТИВНЫЙ ШАГ ({step_idx + 1} из {total}): «{step_text}»\n"
-        f"Задача: задай этот шаг пациенту своими словами, персонализируй используя контекст выше.\n"
+        f"[{card.id}] ИНТЕРАКТИВНЫЙ ШАГ ({step_idx + 1} из {total}):\n"
+        f"«{step_text}»\n"
+        f"Шаг сейчас ДОЛЖЕН передать пациенту ИМЕННО этот текст — не меняй суть, не придумывай свой вариант. "
+        f"Допустимо только: адаптировать тон (ты/вы).\n"
         f"ОБЯЗАТЕЛЬНО: поле «Шаг сейчас» ДОЛЖНО начинаться с [{card.id}] — "
-        f"например: [{card.id}] Давай вспомним три... Без этого префикса прогресс техники не сохранится.\n"
+        f"без этого префикса прогресс техники не сохранится.\n"
         f"Правило: Режим интервенция, ИСКЛЮЧЕНИЕ-рефлексия НЕ применяется (техника ещё не завершена)."
     )
 
 
-def format_technique_completion(card: TechniqueCard) -> str:
-    """Inject completion prompt after all interactive steps are done."""
+def format_technique_synthesis(card: TechniqueCard) -> str:
+    """Adaptive completion block: synthesize using patient data or ask completion question."""
     prompt = card.completion_prompt or "Что заметил? Что почувствовал после?"
+    intent = card.therapeutic_intent or ""
+    hint = card.synthesis_hint or ""
+    intent_line = f"Терапевтическая цель: {intent}\n" if intent else ""
+    hint_line = f"Синтез-подсказка: {hint}\n" if hint else ""
     return (
         f"[{card.id}] ВСЕ ШАГИ ВЫПОЛНЕНЫ ({len(card.steps)} из {len(card.steps)}).\n"
-        f"Задай вопрос: «{prompt}»\n"
-        f"Правило: Режим уточнить, Шаг сейчас: нет, Вопрос пациенту: {prompt}"
+        f"{intent_line}"
+        f"{hint_line}"
+        f"\n"
+        f"ВЫБЕРИ ОДИН ИЗ ДВУХ ПУТЕЙ:\n"
+        f"А. Если пациент уже дал обратную связь о состоянии (любое «да», «нет», «но...», «немного»):\n"
+        f"   Оцени эффективность и выбери стратегию. Произведи синтез используя Синтез-подсказку выше.\n"
+        f"   Если есть возражение («да... но...») — открой ветку: Ветка: открыть, Тип ветки: возражение.\n"
+        f"Б. Если обратной связи о состоянии нет:\n"
+        f"   Режим уточнить, Шаг сейчас: нет, Вопрос пациенту: «{prompt}»"
     )
+
+
+def format_technique_completion(card: TechniqueCard) -> str:
+    """Kept for backward compatibility — delegates to format_technique_synthesis."""
+    return format_technique_synthesis(card)
 
 
 def format_techniques_block(techniques: list[TechniqueCard], current_id: str | None = None) -> str:
@@ -575,7 +615,13 @@ def format_techniques_block(techniques: list[TechniqueCard], current_id: str | N
             f"[{t.id}] {t.name}{current_mark} · {t.arousal} возбуждение · {emotions_str}{dialysis_note}{mode_note}\n"
             f"  Механизм: {t.mechanism}"
         )
-        if not t.interactive and t.steps:
+        if t.interactive and t.steps:
+            first_step = t.steps[0]
+            entry += (
+                f"\n  Шаг 1 (выдай ИМЕННО этот текст в поле «Шаг сейчас», начни с [{t.id}]):\n"
+                f"  «{first_step}»"
+            )
+        elif not t.interactive and t.steps:
             steps_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(t.steps))
             entry += f"\n  Шаги (выдай все сразу в Шаг сейчас):\n{steps_text}"
         lines.append(entry)

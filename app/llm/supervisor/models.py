@@ -57,6 +57,14 @@ class CurrentState:
     current_step_index: int = 0
     last_expert_step: str | None = None
     recent_technique_ids: list[str] = field(default_factory=list)
+    # Session Arc
+    anchor_goal: str | None = None
+    session_plan: str | None = None
+    # Branch tracking
+    on_branch: bool = False
+    branch_type: str | None = None
+    branch_turns: int = 0
+    branch_return_intent: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +89,12 @@ class CurrentState:
             "current_step_index": int(self.current_step_index),
             "last_expert_step": self.last_expert_step,
             "recent_technique_ids": list(self.recent_technique_ids),
+            "anchor_goal": self.anchor_goal,
+            "session_plan": self.session_plan,
+            "on_branch": bool(self.on_branch),
+            "branch_type": self.branch_type,
+            "branch_turns": int(self.branch_turns),
+            "branch_return_intent": self.branch_return_intent,
         }
 
     @classmethod
@@ -139,6 +153,28 @@ class CurrentState:
             recent_technique_ids=[
                 str(item) for item in (payload.get("recent_technique_ids") or []) if str(item).strip()
             ],
+            anchor_goal=(
+                str(payload.get("anchor_goal")).strip()
+                if payload.get("anchor_goal") is not None
+                else None
+            ),
+            session_plan=(
+                str(payload.get("session_plan")).strip()
+                if payload.get("session_plan") is not None
+                else None
+            ),
+            on_branch=bool(payload.get("on_branch")),
+            branch_type=(
+                str(payload.get("branch_type")).strip()
+                if payload.get("branch_type") is not None
+                else None
+            ),
+            branch_turns=int(payload.get("branch_turns") or 0),
+            branch_return_intent=(
+                str(payload.get("branch_return_intent")).strip()
+                if payload.get("branch_return_intent") is not None
+                else None
+            ),
         )
 
 

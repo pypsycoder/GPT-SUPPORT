@@ -140,6 +140,10 @@ class DelegationCard:
         )
 
 
+_BRANCH_ACTIONS = frozenset({"none", "open", "continue", "close"})
+_BRANCH_TYPES = frozenset({"отражение", "рефрейм", "возражение", "новая_тема", "нет"})
+
+
 @dataclass(slots=True)
 class EmotionalExpertCard:
     support: str
@@ -149,6 +153,12 @@ class EmotionalExpertCard:
     rationale: str
     effectiveness: EffectivenessLevel = EffectivenessLevel.UNKNOWN
     strategy: ExpertStrategy = ExpertStrategy.CONTINUE
+    # Branch fields
+    branch_action: str = "none"
+    branch_type: str = "нет"
+    branch_return_intent: str = "нет"
+    # Session Arc
+    session_plan: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -159,12 +169,20 @@ class EmotionalExpertCard:
             "rationale": self.rationale,
             "effectiveness": self.effectiveness.value,
             "strategy": self.strategy.value,
+            "branch_action": self.branch_action,
+            "branch_type": self.branch_type,
+            "branch_return_intent": self.branch_return_intent,
+            "session_plan": self.session_plan,
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> "EmotionalExpertCard | None":
         if not payload:
             return None
+        raw_branch_action = str(payload.get("branch_action") or "none").strip().lower()
+        branch_action = raw_branch_action if raw_branch_action in _BRANCH_ACTIONS else "none"
+        raw_branch_type = str(payload.get("branch_type") or "нет").strip().lower()
+        branch_type = raw_branch_type if raw_branch_type in _BRANCH_TYPES else "нет"
         return cls(
             support=str(payload.get("support") or "").strip(),
             step_now=str(payload.get("step_now") or "").strip(),
@@ -176,6 +194,10 @@ class EmotionalExpertCard:
             rationale=str(payload.get("rationale") or "").strip(),
             effectiveness=EffectivenessLevel.parse(str(payload.get("effectiveness") or "")),
             strategy=ExpertStrategy.parse(str(payload.get("strategy") or "")),
+            branch_action=branch_action,
+            branch_type=branch_type,
+            branch_return_intent=str(payload.get("branch_return_intent") or "нет").strip(),
+            session_plan=str(payload.get("session_plan") or "").strip(),
         )
 
 

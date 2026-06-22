@@ -89,6 +89,12 @@ def _parse_field_block(text: str, required_fields: set[str]) -> dict[str, str]:
     if not cleaned:
         raise ValueError("empty field block")
 
+    # LLM sometimes writes bare "—" on line 1 instead of "Поддержка: —"
+    lines = cleaned.splitlines()
+    first_content = next((l.strip() for l in lines if l.strip()), "")
+    if first_content and ":" not in first_content and "Поддержка" in required_fields:
+        cleaned = cleaned.replace(first_content, f"Поддержка: {first_content}", 1)
+
     fields: dict[str, str] = {}
     for line_number, raw_line in enumerate(cleaned.splitlines(), start=1):
         line = raw_line.strip()
@@ -410,10 +416,12 @@ def _build_expert_retry_instruction(previous_error: str | None) -> str:
     return (
         "\nИсправь предыдущую ошибку и верни полную карточку заново.\n"
         f"Предыдущая ошибка: {previous_error}\n"
-        "Карточка — ровно 7 строк в порядке: Поддержка, Оценка, Стратегия, Режим, Шаг сейчас, Вопрос пациенту, Обоснование.\n"
+        "Карточка — ровно 11 строк в порядке: Поддержка, Оценка, Стратегия, Режим, Шаг сейчас, Вопрос пациенту, "
+        "Ветка, Тип ветки, Возврат к протоколу, План на следующий ход, Обоснование.\n"
         "ПЕРВАЯ строка ОБЯЗАНА начинаться с 'Поддержка:'.\n"
         "Режим: уточнить → Шаг сейчас: нет; Режим: интервенция → Шаг сейчас != нет.\n"
         "Нельзя: Шаг сейчас != нет И Вопрос пациенту != нет одновременно.\n"
+        "Ветка: открыть | продолжить | закрыть | нет.\n"
     )
 
 
@@ -421,7 +429,15 @@ def build_emotional_expert_system_prompt(previous_error: str | None = None) -> s
     return (
         "Ты эксперт эмоциональной поддержки пациента на гемодиализе. "
         "Только психологическая помощь — без медицинских оценок, советов и направлений к врачу.\n"
-        "Поддержка (3–5 слов) — живая эмпатия. НЕ пиши медицинские утверждения («давление под контролем», «всё нормально», «бояться нечего»), не повторяй фразы прошлых ходов.\n"
+        "Поддержка (3–5 слов) — живая эмпатия на русском языке. "
+        "НЕ пиши медицинские утверждения («давление под контролем», «всё нормально», «бояться нечего»), не повторяй фразы прошлых ходов.\n"
+        "ЗАПРЕТ: конструкция «[глагол] твою/твои [существительное]» — это калька с английского «I feel/hear/see your X». "
+        "Не пиши: «Чувствую твою усталость», «Слышу твою боль», «Замечаю твои усилия».\n"
+        "Хорошие примеры (адаптируй к контексту): «Это правда тяжело», «Понятно, что устаёшь», "
+        "«Да, это отнимает силы», «После диализа — конечно», «Столько навалилось сразу», «Это непросто».\n"
+        "Во время ИНТЕРАКТИВНОГО ШАГА: Поддержка — конкретная реакция на то, что сказал пациент "
+        "(«Тёплые слова», «Это звучит по-настоящему»), или пиши «Поддержка: —» если ответ пациента — просто выполнение шага "
+        "и ничего нового эмоционально не произошло. Не пиши шаблонное «понимаю» / «слышу» между шагами.\n"
         "Грамматический род — по полу пациента из пользовательского промпта.\n"
         "Не задавай вопрос, ответ на который уже есть в контексте.\n"
         "\n"
@@ -467,13 +483,44 @@ def build_emotional_expert_system_prompt(previous_error: str | None = None) -> s
         "\n"
         "Нельзя: Режим уточнить + Шаг сейчас != нет. Нельзя: Шаг сейчас != нет + Вопрос пациенту != нет.\n"
         "\n"
-        "## Формат — 7 строк строго в этом порядке, без JSON\n"
+        "## Шаг 3 — Определи тип терапевтического хода\n"
+        "Перед выбором техники определи, какой ход нужен прямо сейчас:\n"
+        "- отражение: пациент выражает острую эмоцию (горе, злость, одиночество) — просто будь рядом, не спеши с техникой.\n"
+        "  НЕ нормализуй. НЕ предлагай технику. Отрази: «Слышу, что...» Вопрос: «Хочешь сказать об этом больше?»\n"
+        "  Открой ветку: Ветка: открыть, Тип ветки: отражение.\n"
+        "- нормализация: пациент думает, что только у него так — добавь фразу «многие на диализе чувствуют то же».\n"
+        "- рефрейм: есть искажение («я слаб», «я ничего не сделал») — предложи альтернативный взгляд с конкретными фактами.\n"
+        "- поддержка+техника: стандартный путь — поддержка + шаг техники из списка.\n"
+        "Не нормализуй то, что не требует нормализации. Острую злость или горе — сначала отражай.\n"
+        "\n"
+        "## Шаг 4 — Управление ветками\n"
+        "Ветка — временный выход из основного протокола с намерением вернуться.\n"
+        "- открыть (Ветка: открыть): когда пациент уходит в сторону, возражает или выражает острую эмоцию.\n"
+        "  Укажи Тип ветки: отражение | рефрейм | возражение | новая_тема\n"
+        "- продолжить (Ветка: продолжить): оставаться в ветке ещё один ход.\n"
+        "- закрыть (Ветка: закрыть): ветка завершена. Укажи Возврат к протоколу: как планируешь вернуться.\n"
+        "- нет (Ветка: нет): основной протокол, без ветки.\n"
+        "\n"
+        "На ветке «возражение» («да... но...»):\n"
+        "  1. Признай «да» (что-то сработало, это реально).\n"
+        "  2. Обработай «но» (новая боль — не обесценивай, а прими).\n"
+        "  3. При закрытии — предложи вернуться к основной цели через Возврат к протоколу.\n"
+        "\n"
+        "На ветке «отражение»: не предлагай технику, не нормализуй — только слушай и отражай.\n"
+        "\n"
+        "Если сейчас уже активна ветка (СТАТУС ВЕТКИ в промпте): продолжи или закрой её, не открывай новую.\n"
+        "\n"
+        "## Формат — 11 строк строго в этом порядке, без JSON\n"
         "Поддержка: <3–5 слов>\n"
         "Оценка: хорошо | частично | не_помогло | нет_данных\n"
         "Стратегия: углубить | сменить_подход | завершить | продолжить\n"
         "Режим: уточнить | интервенция\n"
         "Шаг сейчас: <техника с механизмом, или нет>\n"
         "Вопрос пациенту: <вопрос или нет>\n"
+        "Ветка: открыть | продолжить | закрыть | нет\n"
+        "Тип ветки: отражение | рефрейм | возражение | новая_тема | нет\n"
+        "Возврат к протоколу: <одно предложение или нет>\n"
+        "План на следующий ход: <одно предложение — что планируешь сделать в следующем ходу>\n"
         "Обоснование: <одна строка>\n"
         + _build_expert_retry_instruction(previous_error)
     )
@@ -508,10 +555,8 @@ def _build_technique_injection(state: FirstModuleState) -> str:
                     step_idx + 1, len(card.steps), current_id,
                 )
                 return format_interactive_step(card, step_idx)
-            else:
-                # Check whether the completion question was already sent last turn.
-                # If so, the patient is now answering it — fall through to technique selection
-                # so the LLM can evaluate effectiveness and углубить/сменить_подход.
+            elif step_idx == len(card.steps):
+                # All steps just delivered — send completion prompt unless already sent.
                 last_reply = str(state.current_state.last_bot_reply or "").lower()
                 completion_q = str(card.completion_prompt or "").lower()
                 if not completion_q or completion_q not in last_reply:
@@ -520,6 +565,9 @@ def _build_technique_injection(state: FirstModuleState) -> str:
                 logger.debug(
                     "[technique_injection] completion already sent for %s, switching to selection", current_id
                 )
+            else:
+                # step_idx > len: technique fully exhausted (completion already handled) — go to selection
+                logger.debug("[technique_injection] technique %s exhausted, switching to selection", current_id)
 
     # Default: build selection list
     context_text = str(state.current_state.slots.get("intake_context") or "").strip()
@@ -536,12 +584,32 @@ def _build_technique_injection(state: FirstModuleState) -> str:
     return format_techniques_block(techniques, current_id=current_id)
 
 
+def _build_session_arc_block(state: FirstModuleState) -> str:
+    cs = state.current_state
+    anchor = str(cs.anchor_goal or "").strip() or "не установлена"
+    plan = str(cs.session_plan or "").strip() or "первый ход"
+    if cs.on_branch:
+        branch_turns = int(cs.branch_turns or 0)
+        branch_type = str(cs.branch_type or "неизвестно").strip()
+        return_intent = str(cs.branch_return_intent or "не указано").strip()
+        branch_status = f"на ветке: {branch_type}, ход {branch_turns}, намерение: {return_intent}"
+    else:
+        branch_status = "основной протокол"
+    return (
+        f"ЯКОРНАЯ ЦЕЛЬ СЕССИИ: {anchor}\n"
+        f"ПЛАН ПРЕДЫДУЩЕГО ХОДА: {plan}\n"
+        f"СТАТУС ВЕТКИ: {branch_status}\n"
+    )
+
+
 def build_emotional_expert_user_prompt(state: FirstModuleState) -> str:
     intake = state.intake_card
     delegation = state.delegation_card
     gender_label = _normalize_gender(state.patient_gender)
     prompt = (
-        f"Пол пациента: {gender_label}\n\n"
+        _build_session_arc_block(state)
+        + "\n"
+        + f"Пол пациента: {gender_label}\n\n"
         "Последнее сообщение пользователя:\n"
         f"{state.user_message}\n\n"
         "Проблема пользователя:\n"
@@ -580,6 +648,19 @@ def build_emotional_expert_user_prompt(state: FirstModuleState) -> str:
     return prompt
 
 
+_BRANCH_ACTION_MAP: dict[str, str] = {
+    "открыть": "open",
+    "продолжить": "continue",
+    "закрыть": "close",
+    "нет": "none",
+    # english passthrough (retry re-uses same values)
+    "open": "open",
+    "continue": "continue",
+    "close": "close",
+    "none": "none",
+}
+
+
 def parse_emotional_expert_card(fields: dict[str, str]) -> EmotionalExpertCard:
     mode_raw = str(fields.get("Режим") or "").strip().lower()
     # Normalise "режим уточнить" → "уточнить", "режим интервенция" → "интервенция"
@@ -600,6 +681,13 @@ def parse_emotional_expert_card(fields: dict[str, str]) -> EmotionalExpertCard:
     else:
         raise ValueError(f"Режим должен быть 'уточнить' или 'интервенция', получено: '{mode}'")
 
+    # Parse branch fields (all optional — fall back to safe defaults)
+    raw_branch = str(fields.get("Ветка") or "нет").strip().lower()
+    branch_action = _BRANCH_ACTION_MAP.get(raw_branch, "none")
+    raw_branch_type = str(fields.get("Тип ветки") or "нет").strip().lower()
+    branch_return_intent = str(fields.get("Возврат к протоколу") or "нет").strip()
+    session_plan = str(fields.get("План на следующий ход") or "").strip()
+
     needs_more = follow_up.lower() not in {"", "нет"}
     card = EmotionalExpertCard(
         support=str(fields.get("Поддержка") or "").strip(),
@@ -609,6 +697,10 @@ def parse_emotional_expert_card(fields: dict[str, str]) -> EmotionalExpertCard:
         rationale=str(fields.get("Обоснование") or "").strip(),
         effectiveness=EffectivenessLevel.parse(str(fields.get("Оценка") or "")),
         strategy=ExpertStrategy.parse(str(fields.get("Стратегия") or "")),
+        branch_action=branch_action,
+        branch_type=raw_branch_type,
+        branch_return_intent=branch_return_intent,
+        session_plan=session_plan,
     )
     validate_emotional_expert_card(card)
     return card
@@ -630,12 +722,26 @@ def validate_emotional_expert_card(card: EmotionalExpertCard) -> None:
         # Technique steps ([pNN] prefix) legitimately contain ? — only reject free-form questions
         if not re.match(r"^\[p\d+\]", card.step_now):
             raise ValueError("step_now must be an action, not a question")
+    if not step_missing and re.match(r"^\[p\d+\]\s*$", card.step_now):
+        raise ValueError("step_now has [pNN] prefix but no step text — include the actual instruction")
     if card.strategy is ExpertStrategy.CLOSE and step_missing:
         raise ValueError("step_now required for завершить (take-home recommendation)")
     if card.strategy in (ExpertStrategy.DEEPEN, ExpertStrategy.PIVOT) and step_missing:
         # Allow when follow_up is set: reflection question counts as the action (e.g. ИСКЛЮЧЕНИЕ-рефлексия)
         if follow_missing:
             raise ValueError("step_now required for углубить/сменить_подход")
+    # Branch field validation (constants imported at module level from models)
+    _BRANCH_ACTIONS_LOCAL = frozenset({"none", "open", "continue", "close"})
+    _BRANCH_TYPES_LOCAL = frozenset({"отражение", "рефрейм", "возражение", "новая_тема", "нет"})
+    if card.branch_action not in _BRANCH_ACTIONS_LOCAL:
+        raise ValueError(f"branch_action must be one of {_BRANCH_ACTIONS_LOCAL}, got: '{card.branch_action}'")
+    if card.branch_action in ("open", "continue"):
+        if card.branch_type in ("нет", "none", ""):
+            raise ValueError("branch_type must be set when branch_action is open or continue")
+    if card.branch_action == "close":
+        ri = str(card.branch_return_intent or "").strip().lower()
+        if ri in ("нет", "none", ""):
+            raise ValueError("branch_return_intent must be set when branch_action is close")
 
 
 def _lookup_grounded_lesson_target(
@@ -1081,14 +1187,17 @@ _TECHNIQUE_ID_PREFIX = re.compile(r"^\[p\d+\]\s*")
 
 def build_emotional_reply(card: EmotionalExpertCard) -> str:
     step = _TECHNIQUE_ID_PREFIX.sub("", str(card.step_now or "")).strip()
-    parts = [card.support]
+    support = str(card.support or "").strip()
+    parts = []
+    if support and support != "—":
+        parts.append(support)
     if step and step.lower() != "нет":
         parts.append(step)
     if card.strategy is not ExpertStrategy.CLOSE and card.needs_more_info is BinaryChoice.YES:
         follow = str(card.follow_up or "").strip()
         if follow and follow.lower() != "нет":
             parts.append(follow)
-    return " ".join(part.strip() for part in parts if str(part or "").strip()).strip()
+    return "\n".join(part.strip() for part in parts if str(part or "").strip()).strip()
 
 
 def build_education_reply(card: EducationExpertCard) -> str:

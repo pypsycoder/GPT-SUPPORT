@@ -339,6 +339,13 @@
       color: #9ca3af;
       font-size: 0.95rem;
     }
+    .r-debug-compose {
+      margin-top: 1rem;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 1rem;
+      display: grid;
+      gap: 0.75rem;
+    }
     .r-export-panel {
       margin-top: 1rem;
       border-top: 1px solid #e5e7eb;
@@ -441,14 +448,6 @@
                 <option value="max">Max</option>
               </select>
             </div>
-            <div class="r-debug-field">
-              <label for="dbg-message">Сообщение</label>
-              <textarea id="dbg-message" placeholder="Напишите сообщение от имени пациента"></textarea>
-            </div>
-            <div class="r-debug-actions">
-              <button type="button" class="r-debug-btn" id="dbg-send">Отправить</button>
-              <button type="button" class="r-debug-btn secondary" id="dbg-clear">Очистить чат</button>
-            </div>
             <label class="r-debug-checkbox">
               <input id="dbg-persist" type="checkbox">
               <span>Сохранять в обычную историю чата пациента</span>
@@ -464,6 +463,16 @@
         <div class="r-debug-body">
           <div class="r-debug-chat" id="dbg-chat">
             <div class="r-debug-empty">Здесь появится поток ходов: фраза пациента, state до/после рядом, pipeline и затем фраза бота.</div>
+          </div>
+          <div class="r-debug-compose">
+            <div class="r-debug-field">
+              <label for="dbg-message">Сообщение</label>
+              <textarea id="dbg-message" placeholder="Напишите сообщение от имени пациента"></textarea>
+            </div>
+            <div class="r-debug-actions">
+              <button type="button" class="r-debug-btn" id="dbg-send">Отправить</button>
+              <button type="button" class="r-debug-btn secondary" id="dbg-clear">Очистить чат</button>
+            </div>
           </div>
           <div class="r-export-panel">
             <div class="r-export-title">Экспорт</div>

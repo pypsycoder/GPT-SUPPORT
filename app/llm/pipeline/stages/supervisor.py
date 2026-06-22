@@ -155,13 +155,47 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
         updated.last_bot_reply = str(final_reply).strip() or None
 
     expert_card = getattr(graph_state, "expert_card", None)
+
+    # anchor_goal: set once on first delegation, never overwritten
+    if updated.anchor_goal is None and intake_card is not None:
+        problem = str(getattr(intake_card, "problem", "") or "").strip()
+        if problem and problem != "не обозначена":
+            updated.anchor_goal = problem
+
     if isinstance(expert_card, EmotionalExpertCard):
+        # session_plan: written by expert each turn
+        if expert_card.session_plan:
+            updated.session_plan = expert_card.session_plan
+
+        # branch state machine
+        action = expert_card.branch_action
+        if action == "open":
+            updated.on_branch = True
+            updated.branch_type = expert_card.branch_type or None
+            updated.branch_turns = 1
+            updated.branch_return_intent = (
+                expert_card.branch_return_intent
+                if expert_card.branch_return_intent not in ("нет", "none", "")
+                else None
+            )
+        elif action == "continue":
+            updated.branch_turns = int(updated.branch_turns or 0) + 1
+        elif action == "close":
+            updated.on_branch = False
+            updated.branch_type = None
+            updated.branch_turns = 0
+            updated.branch_return_intent = None
+        # action == "none" → branch state unchanged
+
         updated.last_expert_effectiveness = expert_card.effectiveness.value
         updated.last_expert_strategy = expert_card.strategy.value
         step = str(expert_card.step_now or "").strip()
         match = re.match(r'^\[(p\d+)\]', step)
         new_technique_id = match.group(1) if match else None
         step_text = step[match.end():].strip() if match else None
+        # If the model wrote just "[pNN]" with no text, don't credit it as a delivered step.
+        if new_technique_id and not step_text:
+            new_technique_id = None
         # Defensive: if we're mid-interactive-flow and expert omitted [pNN] prefix,
         # auto-attribute the step to the current technique so step index advances.
         _step_is_action = step and step.lower() not in ("нет", "no", "")
@@ -197,8 +231,8 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
                 else:
                     prev = int(current_state.current_step_index or 0)
                     if prev >= len(card.steps):
-                        # углубить after all steps done: treat as fresh restart
-                        updated.current_step_index = 1
+                        # All steps delivered — mark exhausted so next turn goes to selection list
+                        updated.current_step_index = len(card.steps) + 1
                     else:
                         updated.current_step_index = min(prev + 1, len(card.steps))
             else:
