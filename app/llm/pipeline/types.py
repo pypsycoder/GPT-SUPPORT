@@ -46,6 +46,7 @@ class LLMResponse:
     supervisor_state: dict[str, Any] | None = None
     supervisor_state_delta: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    education_cta: dict[str, Any] | None = None
 
 
 @dataclass

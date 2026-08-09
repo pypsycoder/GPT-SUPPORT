@@ -208,6 +208,8 @@ class EducationExpertCard:
     cta_label: str | None
     cta_target: dict[str, Any] | None
     rationale: str
+    follow_up: str = "нет"
+    session_plan: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -216,6 +218,8 @@ class EducationExpertCard:
             "cta_label": self.cta_label,
             "cta_target": dict(self.cta_target) if self.cta_target else None,
             "rationale": self.rationale,
+            "follow_up": self.follow_up,
+            "session_plan": self.session_plan,
         }
 
     @classmethod
@@ -229,6 +233,8 @@ class EducationExpertCard:
             cta_label=str(payload.get("cta_label")).strip() if payload.get("cta_label") is not None else None,
             cta_target=dict(cta_target) if isinstance(cta_target, dict) else None,
             rationale=str(payload.get("rationale") or "").strip(),
+            follow_up=str(payload.get("follow_up") or "нет").strip(),
+            session_plan=str(payload.get("session_plan") or "").strip(),
         )
 
 

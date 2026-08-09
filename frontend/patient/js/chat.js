@@ -31,6 +31,7 @@
     textarea: null,
     sendBtn: null,
     quickActions: null,
+    newBtn: null,
   };
 
   var typingEl = null;
@@ -101,8 +102,17 @@
       '</div>' +
 
       '<div class="chat-header">' +
-        '<div class="chat-header-title">🤖 Поддержка</div>' +
-        '<button class="chat-close-btn" aria-label="Закрыть чат">×</button>' +
+        '<div class="chat-header-title">Поддержка</div>' +
+        '<div class="chat-header-actions">' +
+          '<button class="chat-new-btn" id="chat-new-btn" aria-label="Новый разговор" title="Новый разговор">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="M12 20h9"></path>' +
+              '<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>' +
+            '</svg>' +
+            'Новый разговор' +
+          '</button>' +
+          '<button class="chat-close-btn" aria-label="Закрыть чат">×</button>' +
+        '</div>' +
       '</div>' +
 
       '<div class="chat-messages" id="chat-messages"></div>' +
@@ -141,9 +151,11 @@
     els.textarea = drawer.querySelector('#chat-textarea');
     els.sendBtn = drawer.querySelector('#chat-send-btn');
     els.quickActions = drawer.querySelector('#chat-quick-actions');
+    els.newBtn = drawer.querySelector('#chat-new-btn');
 
     // --- Events ---
     drawer.querySelector('.chat-close-btn').addEventListener('click', closeChatDrawer);
+    els.newBtn.addEventListener('click', handleNewSession);
 
     els.sendBtn.addEventListener('click', function () {
       handleSend(els.textarea.value.trim(), 'text');
@@ -370,6 +382,41 @@
   // CORE LOGIC
   // ============================================================
 
+  function appendSessionSeparator() {
+    var sep = document.createElement('div');
+    sep.className = 'chat-session-separator';
+    var span = document.createElement('span');
+    span.textContent = 'Новый разговор';
+    sep.appendChild(span);
+    els.messages.appendChild(sep);
+    scrollToBottom();
+  }
+
+  async function handleNewSession() {
+    if (state.loading) return;
+    try {
+      await apiFetch('/api/chat/reset-session', 'POST');
+      appendSessionSeparator();
+    } catch (err) {
+      console.warn('[ChatDrawer] Session reset failed:', err.message);
+    }
+  }
+
+  function appendEducationCta(msgEl, cta) {
+    if (!cta || cta.type !== 'lesson' || !cta.lesson_id) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'chat-education-cta';
+    var btn = document.createElement('button');
+    btn.className = 'chat-education-cta-btn';
+    btn.textContent = cta.label || 'Открыть урок';
+    btn.addEventListener('click', function () {
+      closeChatDrawer();
+      window.location.href = '/patient/education/lesson?id=' + cta.lesson_id;
+    });
+    wrap.appendChild(btn);
+    msgEl.appendChild(wrap);
+  }
+
   async function handleSend(text, source) {
     if (!text || state.loading) return;
 
@@ -393,6 +440,9 @@
       var msgEl = appendMessage('assistant', data.response, data.created_at || new Date().toISOString());
       if (data.pending_vitals && data.pending_vitals.length > 0) {
         appendConfirmButtons(msgEl, data.pending_vitals);
+      }
+      if (data.education_cta) {
+        appendEducationCta(msgEl, data.education_cta);
       }
     } catch (err) {
       hideTyping();

@@ -10,7 +10,7 @@ from typing import Any
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
-from app.llm.langgraph_supervisor.models import EmotionalExpertCard, ExpertStrategy
+from app.llm.langgraph_supervisor.models import EducationExpertCard, EmotionalExpertCard, ExpertStrategy
 from app.llm.technique_library import get_technique_by_id
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 from app.llm.supervisor import CurrentState, PendingQuestion, SupervisorTurnResult
@@ -21,6 +21,44 @@ logger = logging.getLogger("gpt-support-llm.pipeline.supervisor")
 
 def _derive_message_type(user_message: str, current_state: CurrentState) -> str:
     return detect_message_type(user_message, current_state)
+
+
+_EXPERT_CLOSE_STRATEGY = "завершить"
+
+
+def _resolve_model_tier(
+    requested_tier: str,
+    current_state: CurrentState,
+    *,
+    strict: bool,
+    education_grounding_available: bool = False,
+) -> str:
+    """Upgrade lite→pro when an active expert session is detected or education grounding is loaded.
+
+    classify_request() knows nothing about supervisor state, so short follow-up
+    messages in an ongoing emotional/education session get tier=lite.  The expert
+    nodes (11 fields for emotional, 7 fields for education) reliably fail on
+    GigaChat-2; a pro-tier upgrade prevents the 3-retry failure cascade.
+
+    education_grounding_available=True means RAG found education content — the
+    request will almost certainly go to the education expert, so upgrade on the
+    first turn too (before education_session_active is set).
+
+    strict=True (researcher debug with forced tier) is never upgraded.
+    """
+    if strict or requested_tier != "lite":
+        return requested_tier
+    emotional_active = (
+        "emotional_support" in current_state.last_selected_agents
+        and current_state.last_expert_strategy != _EXPERT_CLOSE_STRATEGY
+    )
+    education_active = (
+        current_state.education_session_active
+        and "education" in current_state.last_selected_agents
+    )
+    if emotional_active or education_active or education_grounding_available:
+        return "pro"
+    return requested_tier
 
 
 def _changed_state(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
@@ -122,6 +160,11 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
         updated.needs_clarification = True
         updated.clarification_streak = int(updated.clarification_streak or 0) + 1
         updated.last_selected_agents = []
+        # ASK comes only through normal intake (not education bypass) → topic has changed
+        if current_state.education_session_active:
+            updated.education_session_active = False
+            updated.education_topic = None
+            updated.education_turn_count = 0
     elif graph_state.execution_kind is ExecutionKind.DELEGATE:
         expert_card = getattr(graph_state, "expert_card", None)
         follow_up = str(getattr(expert_card, "follow_up", "") or "").strip()
@@ -149,6 +192,10 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
         updated.needs_clarification = False
         updated.clarification_streak = 0
         updated.last_selected_agents = []
+        if current_state.education_session_active:
+            updated.education_session_active = False
+            updated.education_topic = None
+            updated.education_turn_count = 0
 
     final_reply = getattr(graph_state, "final_reply", None)
     if final_reply:
@@ -161,6 +208,19 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
         problem = str(getattr(intake_card, "problem", "") or "").strip()
         if problem and problem != "не обозначена":
             updated.anchor_goal = problem
+
+    if isinstance(expert_card, EducationExpertCard):
+        updated.education_session_active = True
+        if intake_card is not None:
+            problem = str(getattr(intake_card, "problem", "") or "").strip()
+            if problem and problem != "не обозначена":
+                updated.education_topic = problem
+        updated.education_turn_count = int(updated.education_turn_count or 0) + 1
+
+    elif isinstance(expert_card, EmotionalExpertCard):
+        updated.education_session_active = False
+        updated.education_topic = None
+        updated.education_turn_count = 0
 
     if isinstance(expert_card, EmotionalExpertCard):
         # session_plan: written by expert each turn
@@ -241,15 +301,20 @@ def _build_updated_state(current_state: CurrentState, graph_state) -> CurrentSta
     return updated
 
 
-async def _load_education_grounding(context: PipelineContext) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
+async def _load_education_grounding(
+    context: PipelineContext,
+    *,
+    query_override: str | None = None,
+) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
     if context.request.db is None:
         return [], [], {"enabled": False, "reason": "db_unavailable"}
 
+    query = query_override or context.request.user_input
     try:
         bundle = await build_context_bundle_optimized(
             context.request.patient_id,
             context.request.db,
-            context.request.user_input,
+            query,
         )
     except Exception as exc:
         logger.warning("[supervisor] education grounding failed patient=%d: %s", context.request.patient_id, exc)
@@ -311,16 +376,42 @@ class SupervisorStage(PipelineStage):
         education_rag_context, education_rag_grounding_items, education_grounding_diagnostics = (
             await _load_education_grounding(context)
         )
+
+        # Fallback: if education session is active but RAG returned nothing (e.g. query too short —
+        # "давай", "да", "ок"), re-query with the saved education topic so the expert still has grounding.
+        if (
+            not education_rag_grounding_items
+            and current_state.education_session_active
+            and current_state.education_topic
+        ):
+            fallback_topic = str(current_state.education_topic).strip()
+            if fallback_topic and fallback_topic != context.request.user_input.strip():
+                logger.info(
+                    "[supervisor] education grounding empty, retrying with education_topic patient=%d topic=%r",
+                    context.request.patient_id,
+                    fallback_topic,
+                )
+                education_rag_context, education_rag_grounding_items, education_grounding_diagnostics = (
+                    await _load_education_grounding(context, query_override=fallback_topic)
+                )
+
         context.education_rag_context = education_rag_context
         context.education_rag_grounding_items = education_rag_grounding_items
 
+        strict_tier = bool(context.request.strict_model_tier)
+        model_tier = _resolve_model_tier(
+            context.classification.model_tier.value,
+            current_state,
+            strict=strict_tier,
+            education_grounding_available=bool(education_rag_grounding_items),
+        )
         graph_state = await run_first_module(
             FirstModuleInput(
                 user_message=context.request.user_input,
                 current_state=current_state,
                 message_type=message_type,
-                model_tier=context.classification.model_tier.value,
-                strict_model_tier=bool(context.request.strict_model_tier),
+                model_tier=model_tier,
+                strict_model_tier=strict_tier,
                 education_rag_context=education_rag_context,
                 education_rag_grounding_items=education_rag_grounding_items,
                 patient_gender=context.request.patient_gender,
@@ -365,6 +456,16 @@ class SupervisorStage(PipelineStage):
                 diagnostics={"supervisor": supervisor_diagnostics},
             )
 
+        education_cta: dict[str, Any] | None = None
+        _expert = getattr(graph_state, "expert_card", None)
+        if isinstance(_expert, EducationExpertCard) and _expert.cta_type == "lesson" and _expert.cta_target:
+            education_cta = {
+                "type": "lesson",
+                "label": _expert.cta_label or "",
+                "lesson_id": _expert.cta_target.get("lesson_id"),
+                "lesson_code": _expert.cta_target.get("lesson_code"),
+            }
+
         turn = SupervisorTurnResult(
             reply=reply,
             state_delta=state_delta,
@@ -374,6 +475,7 @@ class SupervisorStage(PipelineStage):
             used_pending_answer=False,
             needs_clarification=bool(graph_state.needs_clarification),
             diagnostics=supervisor_diagnostics,
+            education_cta=education_cta,
         )
 
         context.supervisor_turn = turn

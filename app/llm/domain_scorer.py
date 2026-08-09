@@ -469,4 +469,54 @@ def get_priority_domains(scores: dict[str, float | None]) -> list[str]:
 
     return sorted(scores.keys(), key=sort_key)
 
-    
+
+async def get_last_activity_dates(
+    patient_id: int,
+    db: AsyncSession,
+) -> dict[str, "date | None"]:
+    """
+    Возвращает дату последней активности пациента по каждому домену.
+
+    Ключи: vitals, medications, sleep, practices, education.
+    None — если в домене никогда не было активности.
+    Используется мотиватором для детекции простоя.
+    """
+    from datetime import date  # noqa: F811
+
+    queries: dict[str, str] = {
+        "vitals": (
+            "SELECT MAX(DATE(measured_at)) FROM vitals.bp_measurements"
+            " WHERE user_id = :pid"
+        ),
+        "medications": (
+            "SELECT MAX(DATE(intake_datetime)) FROM medications.medication_intakes"
+            " WHERE patient_id = :pid"
+        ),
+        "sleep": (
+            "SELECT MAX(sleep_date) FROM sleep.sleep_records"
+            " WHERE patient_id = :pid"
+        ),
+        "practices": (
+            "SELECT MAX(DATE(completed_at)) FROM practices.practice_completions"
+            " WHERE patient_id = :pid"
+        ),
+        "education": (
+            "SELECT MAX(DATE(updated_at)) FROM education.lesson_progress"
+            " WHERE user_id = :pid"
+        ),
+    }
+
+    results: dict[str, date | None] = {}
+    for domain, query in queries.items():
+        try:
+            row = await db.execute(text(query), {"pid": patient_id})
+            results[domain] = row.scalar()
+        except SQLAlchemyError as exc:
+            logger.debug(
+                "[domain_scorer] last_activity %s failed patient=%d: %s",
+                domain, patient_id, exc,
+            )
+            results[domain] = None
+
+    return results
+

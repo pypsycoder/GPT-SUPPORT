@@ -4,6 +4,7 @@ Chat HTTP router for patient <-> LLM interaction.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,6 +23,43 @@ from core.db.session import get_async_session
 router = APIRouter()
 _llm_pipeline = LLMPipeline()
 _DEFAULT_THREAD_ID = "default"
+_SESSION_TIMEOUT_HOURS = 8
+
+# Fields that belong to the current expert session — cleared on reset.
+# Accumulated patient context (facts, signals, risk_flags, domain) is kept.
+_SESSION_RESET_FIELDS: dict = {
+    "goal": None,
+    "slots": {},
+    "pending_question": None,
+    "last_selected_agents": [],
+    "needs_clarification": False,
+    "clarification_streak": 0,
+    "last_clarification_reason": None,
+    "last_goal_status": None,
+    "last_bot_reply": None,
+    "last_expert_effectiveness": None,
+    "last_expert_strategy": None,
+    "current_technique_id": None,
+    "current_technique_turns": 0,
+    "current_step_index": 0,
+    "last_expert_step": None,
+    "recent_technique_ids": [],
+    "anchor_goal": None,
+    "session_plan": None,
+    "on_branch": False,
+    "branch_type": None,
+    "branch_turns": 0,
+    "branch_return_intent": None,
+    "education_session_active": False,
+    "education_topic": None,
+    "education_turn_count": 0,
+}
+
+
+def _reset_session_state(state: dict | None) -> dict:
+    result = dict(state or {})
+    result.update(_SESSION_RESET_FIELDS)
+    return result
 
 
 class MessageRequest(BaseModel):
@@ -37,6 +75,7 @@ class MessageResponse(BaseModel):
     domain: Optional[str]
     model: str
     pending_vitals: Optional[list] = None
+    education_cta: Optional[dict] = None
 
 
 class ChatMessageOut(BaseModel):
@@ -54,13 +93,23 @@ class ChatMessageOut(BaseModel):
 
 async def _read_supervisor_state(db: AsyncSession, patient_id: int) -> dict | None:
     result = await db.execute(
-        select(ChatSupervisorState.state_json).where(
+        select(ChatSupervisorState.state_json, ChatSupervisorState.updated_at).where(
             ChatSupervisorState.patient_id == patient_id,
             ChatSupervisorState.thread_id == _DEFAULT_THREAD_ID,
         )
     )
-    state = result.scalar_one_or_none()
-    return dict(state) if isinstance(state, dict) else None
+    row = result.first()
+    if row is None:
+        return None
+    state_json, updated_at = row
+    state = dict(state_json) if isinstance(state_json, dict) else None
+    if state is not None and updated_at is not None:
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        elapsed_hours = (datetime.now(tz=timezone.utc) - updated_at).total_seconds() / 3600
+        if elapsed_hours >= _SESSION_TIMEOUT_HOURS:
+            return _reset_session_state(state)
+    return state
 
 
 async def _write_supervisor_state(
@@ -153,6 +202,7 @@ async def send_message(
         domain=llm_response.domain,
         model=llm_response.model,
         pending_vitals=llm_response.pending_vitals,
+        education_cta=llm_response.education_cta,
     )
 
 
@@ -235,6 +285,24 @@ async def confirm_vitals(
 
     await db.commit()
     return {"saved": saved}
+
+
+@router.post("/reset-session", status_code=200)
+async def reset_session(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> dict:
+    result = await db.execute(
+        select(ChatSupervisorState).where(
+            ChatSupervisorState.patient_id == current_user.id,
+            ChatSupervisorState.thread_id == _DEFAULT_THREAD_ID,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is not None:
+        row.state_json = _reset_session_state(dict(row.state_json))
+    await db.commit()
+    return {"ok": True}
 
 
 @router.get("/pool/stats")

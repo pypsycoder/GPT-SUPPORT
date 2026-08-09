@@ -115,6 +115,41 @@
   gap: 8px;
 }
 
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- New Session Button ---- */
+.chat-new-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 999px;
+  padding: 5px 11px 5px 9px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #6b7280;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.chat-new-btn svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.chat-new-btn:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
 .chat-close-btn {
   width: 32px;
   height: 32px;
@@ -202,6 +237,31 @@
   flex: 1;
   height: 1px;
   background: #e5e7eb;
+}
+
+/* ---- Session Separator (Новый разговор) ---- */
+.chat-session-separator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 4px;
+  color: #6b7280;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.chat-session-separator::before,
+.chat-session-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #dbeafe;
+}
+
+.chat-session-separator span {
+  white-space: nowrap;
+  color: #3b82f6;
+  font-weight: 500;
 }
 
 /* ---- Message Time ---- */
@@ -445,4 +505,34 @@
 .chat-morning-btn:hover {
   background: #4f8ef7;
   color: #fff;
+}
+
+/* Education CTA */
+.chat-education-cta {
+  margin-top: 10px;
+}
+
+.chat-education-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 20px;
+  border: none;
+  background: #007aff;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 2px 6px rgba(0, 122, 255, 0.25);
+}
+
+.chat-education-cta-btn:hover {
+  background: #0066d6;
+}
+
+.chat-education-cta-btn:active {
+  transform: scale(0.97);
 }

@@ -21,6 +21,7 @@ from app.llm.langgraph_supervisor.models import (
     IntakeCard,
 )
 from app.llm.pool import pool
+from app.llm.supervisor.short_answers import is_education_confused
 from app.llm.technique_library import (
     format_interactive_step,
     format_technique_completion,
@@ -96,12 +97,17 @@ def _parse_field_block(text: str, required_fields: set[str]) -> dict[str, str]:
         cleaned = cleaned.replace(first_content, f"Поддержка: {first_content}", 1)
 
     fields: dict[str, str] = {}
+    last_key: str | None = None
     for line_number, raw_line in enumerate(cleaned.splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             continue
         if ":" not in line:
-            raise ValueError(f"line {line_number} is not a field entry")
+            # Allow continuation lines (e.g. multiline step_now with numbered list)
+            if last_key is None:
+                raise ValueError(f"line {line_number} is not a field entry")
+            fields[last_key] = fields[last_key] + "\n" + line
+            continue
         key, value = line.split(":", 1)
         key = key.strip()
         value = value.strip()
@@ -110,6 +116,7 @@ def _parse_field_block(text: str, required_fields: set[str]) -> dict[str, str]:
         if key in fields:
             raise ValueError(f"duplicate field: {key}")
         fields[key] = value
+        last_key = key
 
     missing = sorted(required_fields.difference(fields))
     if missing:
@@ -221,7 +228,9 @@ def build_intake_system_prompt(previous_error: str | None = None) -> str:
         # Fix 3: снижаем порог ready_to_delegate — достаточно одного из условий
         "Контекста достаточно, если понятно хотя бы одно из перечисленного:\n"
         "- какая эмоция, ощущение или симптом беспокоит пациента;\n"
-        "- есть хотя бы один конкретный триггер, обстоятельство или ситуация.\n"
+        "- есть хотя бы один конкретный триггер, обстоятельство или ситуация;\n"
+        "- запрос — явный фактический вопрос (можно ли, нельзя ли, что такое, почему, как, нормально ли, вредно ли, полезно ли, сколько) — он самодостаточен, эксперт ответит напрямую.\n"
+        "ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: если запрос является явным фактическим вопросом о питании, диализе, лекарствах, симптомах, активности или любой медицинской теме — ставь Готово к передаче: да немедленно. Не задавай уточняющих вопросов по фактическим запросам.\n"
         "Эксперт всегда может уточнить детали сам. Не держи пациента в фазе сбора контекста дольше необходимого.\n"
         "Ты не даешь coping, не даешь советы по существу, не выбираешь эксперта и не оказываешь поддержку.\n"
         "Верни только карточку, одно поле в строке, без JSON и без пояснений.\n"
@@ -242,6 +251,8 @@ def build_intake_system_prompt(previous_error: str | None = None) -> str:
         "Обоснование: <одна короткая строка>\n"
         "Правила:\n"
         # Fix 1: жёсткий лимит streak — при streak >= 2 с обозначенной проблемой всегда делегируй
+        "- ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: если education_grounding_available = да — образовательный контент по теме уже найден. "
+        "Фактический вопрос в этом случае ВСЕГДА Готово к передаче: да. Не уточняй: эксперт ответит по найденному контенту.\n"
         "- ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: если clarification_streak >= 2 и Проблема уже обозначена "
         "(не равна 'не обозначена'), ты ОБЯЗАН поставить Готово к передаче: да, "
         "Нужно уточнение: нет, Вопрос: нет. Эксперт справится с тем контекстом, который уже собран.\n"
@@ -281,6 +292,7 @@ def build_intake_system_prompt(previous_error: str | None = None) -> str:
 def build_intake_user_prompt(state: FirstModuleState) -> str:
     last_reply = str(state.current_state.last_bot_reply or "").strip()
     last_reply_line = f"- last_bot_reply: {last_reply}\n" if last_reply else ""
+    grounding_available = "да" if state.education_rag_grounding_items else "нет"
     return (
         "Последнее сообщение пользователя:\n"
         f"{state.user_message}\n\n"
@@ -290,6 +302,7 @@ def build_intake_user_prompt(state: FirstModuleState) -> str:
         f"- active_intake_context: {_active_intake_context_text(state)}\n"
         f"- pending_question: {_pending_question_text(state)}\n"
         f"- clarification_streak: {state.current_state.clarification_streak}\n"
+        f"- education_grounding_available: {grounding_available}\n"
         + last_reply_line +
         f"- signals: {', '.join(state.current_state.signals) or 'нет'}\n"
         f"- facts: {', '.join(state.current_state.facts) or 'нет'}\n"
@@ -773,26 +786,38 @@ def _build_education_retry_instruction(previous_error: str | None) -> str:
     return (
         "\nИсправь предыдущую ошибку и верни полную карточку education-эксперта заново.\n"
         f"Предыдущая ошибка: {previous_error}\n"
-        "Карточка содержит ровно 5 полей в строгом порядке: Объяснение, CTA тип, CTA заголовок, CTA lesson_code, Обоснование.\n"
+        "Карточка содержит ровно 7 полей в строгом порядке: Ответ, Вопрос, CTA тип, CTA заголовок, CTA lesson_code, План, Обоснование.\n"
         "CTA тип может быть только lesson или none.\n"
         "Если CTA тип = none, пиши CTA заголовок: нет и CTA lesson_code: нет.\n"
         "Если CTA тип = lesson, lesson_code должен совпадать с одним из доступных локальных материалов.\n"
+        "Нельзя одновременно: Вопрос != нет И CTA тип = lesson.\n"
+        "Вопрос — это предложение узнать больше («Хочешь узнать...?»), не quiz-вопрос о знаниях пациента.\n"
     )
 
 
 def build_education_expert_system_prompt(previous_error: str | None = None) -> str:
     return (
-        "Ты education-эксперт в русскоязычном боте поддержки пациента.\n"
-        "Твоя задача: коротко и простыми словами объяснить текущую тему, строго опираясь только на переданные локальные educational материалы.\n"
-        "Не диагностируй, не обещай медицинскую интерпретацию, не выходи за пределы найденных фрагментов.\n"
-        "Если подходящий урок есть, мягко предложи его как следующий шаг. В этой версии основной CTA только на lesson.\n"
-        "Верни только карточку ровно из 5 строк, одно поле в строке, без JSON и без пояснений.\n"
-        "Объяснение: <1-2 короткие фразы>\n"
+        "Ты education-эксперт в русскоязычном боте поддержки пациента на диализе.\n"
+        "Твоя задача: дать содержательный, понятный ответ на вопрос пациента, строго опираясь только на переданные локальные образовательные фрагменты.\n"
+        "Не диагностируй, не давай медицинских назначений, не выходи за пределы переданных фрагментов.\n"
+        "Стиль: 3-5 предложений простым языком без жаргона, эмпатично и конкретно. Не пиши «как уже было сказано» и не ссылайся на прошлые ходы.\n"
+        "Если пациент, вероятно, хочет узнать больше по смежной теме — предложи один вопрос как ПРИГЛАШЕНИЕ рассказать больше: «Хочешь узнать, что можно есть вместо?», «Интересно ли тебе, почему именно калий важен при диализе?».\n"
+        "ЗАПРЕТ: не задавай quiz-вопросы, которые проверяют знания пациента («Что является альтернативой?», «Что ты знаешь о...?», «Какой продукт...?»). Вопрос — это предложение рассказать больше, а не тест.\n"
+        "Если есть подходящий урок — мягко предложи его как следующий шаг.\n"
+        "Верни только карточку ровно из 7 строк, одно поле в строке, без JSON и без пояснений.\n"
+        "НАЧИНАЙ ОТВЕТ НЕМЕДЛЕННО с «Ответ:» — никакого вводного текста перед карточкой.\n"
+        "ПРАВИЛО подтверждённого интереса: если задача или пользовательский промпт содержат «⚠️ ВАЖНО» или «пациент подтвердил интерес» — ответь на указанный вопрос развёрнуто, поле «Вопрос» = нет.\n"
+        "Строго в этом порядке:\n"
+        "Ответ: <3-5 предложений — содержательный ответ строго по фрагментам>\n"
+        "Вопрос: <предложение узнать больше («Хочешь узнать...?») — НЕ quiz; или нет>\n"
         "CTA тип: <lesson|none>\n"
         "CTA заголовок: <название урока или нет>\n"
         "CTA lesson_code: <lesson_code или нет>\n"
+        "План: <одно предложение — что отвечать при следующем уточняющем вопросе по теме>\n"
         "Обоснование: <одна короткая строка>\n"
         "Если уверенного lesson CTA нет, используй CTA тип: none.\n"
+        "Нельзя: Вопрос != нет И CTA тип = lesson одновременно — выбери одно (либо вовлекаешь вопросом, либо направляешь в урок).\n"
+        "Если в «Предыдущий ответ бота» уже предложен конкретный урок — не предлагай тот же урок снова (CTA тип: none). Другой урок по новой теме — допустим.\n"
         + _build_education_retry_instruction(previous_error)
     )
 
@@ -800,46 +825,95 @@ def build_education_expert_system_prompt(previous_error: str | None = None) -> s
 def build_education_expert_user_prompt(state: FirstModuleState) -> str:
     intake = state.intake_card
     delegation = state.delegation_card
+    cs = state.current_state
     prompt = (
-        "Проблема пользователя:\n"
+        "Вопрос пользователя:\n"
+        f"{state.user_message}\n\n"
+        "Проблема / тема:\n"
         f"{intake.problem if intake else 'нет'}\n\n"
         "Контекст:\n"
         f"{intake.context if intake else 'контекст пока не раскрыт'}\n\n"
         "Задача эксперта:\n"
-        f"{delegation.task if delegation else 'нет'}\n\n"
-        "Доступные локальные материалы:\n"
+        f"{delegation.task if delegation else 'нет'}\n"
     )
+    if cs.education_session_active and cs.education_turn_count:
+        prompt += (
+            f"\nСтатус education-сессии: активна, ход {cs.education_turn_count}, тема «{cs.education_topic or 'не указана'}».\n"
+        )
+    pending_q = cs.pending_question
+    _user_msg = str(state.user_message or "").strip()
+    if (
+        pending_q is not None
+        and pending_q.reason == "expert"
+        and (pending_q.attempts or 0) >= 1
+        and not is_education_confused(_user_msg)
+    ):
+        prompt += (
+            f"\n⚠️ ВАЖНО: пациент подтвердил интерес к «{pending_q.question_text}». "
+            f"Ответь на ЭТОТ вопрос развёрнуто (3-5 предложений). "
+            f"Поле «Вопрос» в карточке — строго «нет» (пациент уже согласился, не повторяй вопрос).\n"
+        )
+    elif is_education_confused(_user_msg):
+        prompt += (
+            "\n⚠️ ВАЖНО: пациент не понял предыдущего объяснения. "
+            "Переформулируй то же самое другими словами, проще и конкретнее — желательно с примером из жизни. "
+            "Поле «Вопрос» в карточке — строго «нет» (не задавай новых вопросов, пока пациент не понял текущее).\n"
+        )
+    last_reply = str(cs.last_bot_reply or "").strip()
+    if last_reply:
+        prompt += (
+            f"\nПредыдущий ответ бота (не повторяй дословно, развивай тему или отвечай на новый вопрос):\n{last_reply}\n"
+        )
+    prompt += "\nДоступные локальные образовательные фрагменты:\n"
     grounding_items = [dict(item) for item in (state.education_rag_grounding_items or []) if isinstance(item, dict)]
     if not grounding_items:
         prompt += "нет\n"
-        return prompt
+        return prompt.rstrip()
 
-    for item in grounding_items[:3]:
+    for item in grounding_items[:5]:
         lesson_code = str(item.get("lesson_code") or "").strip() or "нет"
         lesson_title = str(item.get("lesson_title") or item.get("title") or "").strip() or "без названия"
-        chunk = _excerpt(str(item.get("chunk") or ""), limit=220)
-        prompt += f"- lesson_code={lesson_code}; title={lesson_title}; fragment={chunk}\n"
+        chunk = _excerpt(str(item.get("chunk") or ""), limit=450)
+        prompt += f"- lesson_code={lesson_code}; title={lesson_title};\n  fragment: {chunk}\n"
     return prompt.rstrip()
 
 
 def parse_education_expert_card(fields: dict[str, str], state: FirstModuleState) -> EducationExpertCard:
-    explanation = str(fields.get("Объяснение") or "").strip()
-    cta_type = str(fields.get("CTA тип") or "").strip().lower()
+    explanation = str(fields.get("Ответ") or fields.get("Объяснение") or "").strip()
+    follow_up = str(fields.get("Вопрос") or "нет").strip()
+    cta_type_raw = str(fields.get("CTA тип") or "").strip().lower()
+    # GigaChat (Russian LLM) may write "нет" meaning "none"
+    cta_type = "none" if cta_type_raw in {"нет", "нет.", "-", ""} else cta_type_raw
     cta_label_raw = str(fields.get("CTA заголовок") or "").strip()
     cta_lesson_code_raw = str(fields.get("CTA lesson_code") or "").strip()
+    session_plan = str(fields.get("План") or "").strip()
 
     if cta_type not in {"lesson", "none"}:
         raise ValueError("education CTA type must be lesson or none")
 
+    follow_up_set = follow_up.lower() not in {"", "нет"}
+    # Auto-degrade: can't have both a follow-up question and a lesson CTA
+    if follow_up_set and cta_type == "lesson":
+        logger.debug("[education_expert] follow_up + lesson CTA conflict — degrading CTA to none")
+        cta_type = "none"
+
     cta_label: str | None = None
     cta_target: dict[str, Any] | None = None
     if cta_type == "lesson":
-        cta_label, cta_target = _lookup_grounded_lesson_target(state, cta_lesson_code_raw)
-        if cta_label is None:
-            cta_label = cta_label_raw if cta_label_raw.lower() != "нет" else None
-    else:
-        if cta_label_raw.lower() not in {"", "нет"} or cta_lesson_code_raw.lower() not in {"", "нет"}:
-            raise ValueError("education CTA none must not include lesson reference")
+        try:
+            cta_label, cta_target = _lookup_grounded_lesson_target(state, cta_lesson_code_raw)
+        except ValueError as exc:
+            # lesson_code not found in current grounding — degrade to none
+            logger.debug("[education_expert] lesson lookup failed (%s) — degrading CTA to none", exc)
+            cta_type = "none"
+        else:
+            if cta_label is None:
+                cta_label = cta_label_raw if cta_label_raw.lower() != "нет" else None
+            if cta_target is None:
+                # _lookup_grounded_lesson_target returned (None, None) — lesson_code was empty/"нет"
+                logger.debug("[education_expert] lesson target is None — degrading CTA to none")
+                cta_type = "none"
+                cta_label = None
 
     card = EducationExpertCard(
         explanation=explanation,
@@ -847,6 +921,8 @@ def parse_education_expert_card(fields: dict[str, str], state: FirstModuleState)
         cta_label=cta_label,
         cta_target=cta_target,
         rationale=str(fields.get("Обоснование") or "").strip(),
+        follow_up=follow_up,
+        session_plan=session_plan,
     )
     validate_education_expert_card(card)
     return card
@@ -864,6 +940,9 @@ def validate_education_expert_card(card: EducationExpertCard) -> None:
             raise ValueError("education lesson CTA target is incomplete")
     elif card.cta_label is not None or card.cta_target is not None:
         raise ValueError("education none CTA must not include target")
+    follow_up_set = str(card.follow_up or "").strip().lower() not in {"", "нет"}
+    if follow_up_set and card.cta_type == "lesson":
+        raise ValueError("education expert: Вопрос и CTA lesson не могут быть выставлены одновременно")
 
 
 async def _call_structured_llm(
@@ -1143,7 +1222,7 @@ async def extract_education_expert_card(state: FirstModuleState) -> tuple[Educat
         try:
             fields = _parse_field_block(
                 raw_text,
-                {"Объяснение", "CTA тип", "CTA заголовок", "CTA lesson_code", "Обоснование"},
+                {"Ответ", "Вопрос", "CTA тип", "CTA заголовок", "CTA lesson_code", "Обоснование"},
             )
             card = parse_education_expert_card(fields, state)
             return card, _build_step_diagnostics(
@@ -1158,6 +1237,10 @@ async def extract_education_expert_card(state: FirstModuleState) -> tuple[Educat
             )
         except (TypeError, ValueError) as exc:
             previous_error = str(exc)
+            logger.warning(
+                "[education_expert] attempt=%d failed: %s\n=== RAW OUTPUT ===\n%s",
+                attempt, exc, raw_text,
+            )
             _append_failure(failures, attempt=attempt, error=exc, raw_text=raw_text)
 
     return None, _build_step_diagnostics(
@@ -1172,14 +1255,30 @@ async def extract_education_expert_card(state: FirstModuleState) -> tuple[Educat
     )
 
 
-def build_intake_reply(card: IntakeCard, *, is_first_turn: bool = True) -> str:
+_DISTRESS_MARKERS = (
+    "тревог", "страх", "боюсь", "боится", "боюс", "грустн", "плохо", "плох",
+    "депресс", "устал", "тяжел", "не могу", "трудно", "сложно", "беспокоит",
+    "переживаю", "волнуюсь", "страдаю", "болит", "боль", "мучает", "мучаюсь",
+    "паник", "ужас", "одинок", "одиноко", "злост", "злюсь", "обидно", "обижен",
+    "не сплю", "не сплё", "слабост", "слабею", "устал", "выгор",
+)
+
+
+def _has_emotional_distress(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _DISTRESS_MARKERS)
+
+
+def build_intake_reply(card: IntakeCard, *, is_first_turn: bool = True, user_message: str = "") -> str:
     if card.question in {"", "нет"}:
         return ""
     if card.problem == "не обозначена" and is_first_turn:
         return f"Привет. {card.question}"
     if card.problem == "не обозначена":
         return card.question
-    return f"Сочувствую. {card.question}"
+    if _has_emotional_distress(user_message) or _has_emotional_distress(card.problem):
+        return f"Сочувствую. {card.question}"
+    return card.question
 
 
 _TECHNIQUE_ID_PREFIX = re.compile(r"^\[p\d+\]\s*")
@@ -1202,9 +1301,12 @@ def build_emotional_reply(card: EmotionalExpertCard) -> str:
 
 def build_education_reply(card: EducationExpertCard) -> str:
     parts = [card.explanation]
-    if card.cta_type == "lesson" and card.cta_label:
+    follow = str(card.follow_up or "").strip()
+    if follow and follow.lower() != "нет":
+        parts.append(follow)
+    elif card.cta_type == "lesson" and card.cta_label:
         parts.append(f"Если хочешь, можно посмотреть урок «{card.cta_label}».")
-    return " ".join(part.strip() for part in parts if str(part or "").strip()).strip()
+    return "\n".join(part.strip() for part in parts if str(part or "").strip()).strip()
 
 
 def build_finish_reply(user_message: str) -> str:

@@ -113,6 +113,89 @@ def is_unknown_reason_answer(text: str) -> bool:
     return False
 
 
+_EDUCATION_CLOSE_EXACT = frozenset({
+    "нет", "неа", "не надо", "не хочу", "не интересно", "неинтересно",
+    "хватит", "достаточно", "спасибо", "спс", "благодарю",
+    "ладно", "ладно спасибо", "ок спасибо", "окей спасибо",
+    "не нужно", "ненужно", "не надо спасибо",
+    "пока", "всё", "все",
+    "больше не надо", "больше не нужно",
+    "не хочу знать", "не хочу больше",
+})
+
+_EDUCATION_NEUTRAL_ACK_EXACT = frozenset({
+    "понятно", "ясно", "ок", "окей",
+    "понял", "поняла",
+    "понял спасибо", "поняла спасибо",
+    "всё понятно", "все понятно",
+    "всё ясно", "все ясно",
+    "ясно спасибо", "понятно спасибо",
+    "принял", "приняла",
+    "усвоил", "усвоила",
+})
+
+_EDUCATION_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def _normalize_edu(text: str) -> str:
+    """Normalize for education intent detection: lowercase + strip punctuation + collapse spaces."""
+    lower = " ".join(str(text or "").lower().strip().split())
+    return _EDUCATION_PUNCT_RE.sub("", lower).strip()
+
+
+def is_education_close_intent(text: str) -> bool:
+    """True если пользователь явно отказывается продолжать education-ветку."""
+    normalized = _normalize_edu(text)
+    if not normalized or len(normalized) > 50:
+        return False
+    return normalized in _EDUCATION_CLOSE_EXACT
+
+
+_EDUCATION_CONFUSED_EXACT = frozenset({
+    "не понял", "не поняла", "не понимаю", "не понятно", "непонятно",
+    "объясни", "объясни проще", "объясни по-другому", "объясни иначе",
+    "можешь проще", "можешь объяснить", "можешь пояснить",
+    "поясни", "расскажи проще", "как это", "что это значит", "что значит",
+    "не совсем понял", "не совсем поняла", "не очень понял", "не очень поняла",
+    "что имеешь в виду", "что ты имеешь в виду",
+    "сложно", "слишком сложно", "не очень понятно",
+})
+
+_EDUCATION_CONFUSED_PREFIXES = (
+    "не понял",
+    "не поняла",
+    "не понимаю",
+    "объясни",
+    "поясни",
+    "можешь объяснить",
+    "можешь проще",
+    "не совсем понял",
+    "не совсем поняла",
+)
+
+
+def is_education_confused(text: str) -> bool:
+    """True если пациент не понял объяснения и просит переформулировать."""
+    normalized = _normalize_edu(text)
+    if not normalized or len(normalized) > 80:
+        return False
+    if normalized in _EDUCATION_CONFUSED_EXACT:
+        return True
+    return any(normalized.startswith(p) for p in _EDUCATION_CONFUSED_PREFIXES)
+
+
+def is_education_neutral_ack(text: str) -> bool:
+    """True если пользователь нейтрально подтверждает что понял — без намерения продолжать.
+
+    Используется только когда есть pending_question.reason == 'expert', т.е. бот предложил
+    конкретный follow-up вопрос ("Хочешь узнать...?") и пациент ответил "понятно"/"ясно".
+    """
+    normalized = _normalize_edu(text)
+    if not normalized or len(normalized) > 40:
+        return False
+    return normalized in _EDUCATION_NEUTRAL_ACK_EXACT
+
+
 def try_parse_pending_answer(text: str, pending_question: PendingQuestion | None) -> dict[str, Any] | None:
     if pending_question is None:
         return None

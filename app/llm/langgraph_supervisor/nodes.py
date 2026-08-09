@@ -30,7 +30,12 @@ from app.llm.langgraph_supervisor.policy import (
     validate_emotional_expert_card,
     validate_intake_card,
 )
-from app.llm.supervisor.short_answers import is_unknown_reason_answer
+from app.llm.supervisor.short_answers import (
+    is_education_close_intent,
+    is_education_confused,
+    is_education_neutral_ack,
+    is_unknown_reason_answer,
+)
 from app.llm.technique_library import get_technique_by_id
 
 _MAX_CLARIFICATION_STREAK = 2
@@ -72,6 +77,35 @@ def _should_route_to_emotional_expert(state: FirstModuleState) -> bool:
     if state.current_state.last_expert_strategy == ExpertStrategy.CLOSE.value:
         return False
     return True
+
+
+def _should_close_education_session(state: FirstModuleState) -> bool:
+    """True если пациент явно закрывает education-ветку (отказ или нейтральное подтверждение)."""
+    cs = state.current_state
+    if not cs.education_session_active:
+        return False
+    if "education" not in cs.last_selected_agents:
+        return False
+    msg = str(state.user_message or "").strip()
+    if is_education_close_intent(msg):
+        return True
+    # Neutral acks ("понял", "ясно", "ок") close the session regardless of pending state.
+    # The only exception: don't close if there's an intake pending question
+    # (patient is mid-clarification for a different topic).
+    if is_education_neutral_ack(msg):
+        pending_q = cs.pending_question
+        if pending_q is None or pending_q.reason == "expert":
+            return True
+    return False
+
+
+def _should_route_to_education_expert(state: FirstModuleState) -> bool:
+    """True если education-сессия активна и есть новые RAG-данные для ответа."""
+    if not state.current_state.education_session_active:
+        return False
+    if "education" not in state.current_state.last_selected_agents:
+        return False
+    return bool(state.education_rag_grounding_items)
 
 
 def _delegation_targets(state: FirstModuleState, expert: DelegationExpert) -> bool:
@@ -203,6 +237,41 @@ async def intake_analyze_node(state: FirstModuleState) -> FirstModuleState:
         }
         return state
 
+    if _should_close_education_session(state):
+        problem = str(state.current_state.education_topic or state.current_state.goal or "").strip() or _UNDEFINED_PROBLEM
+        state.intake_card = IntakeCard(
+            problem=problem,
+            context="пользователь завершил education-сессию",
+            needs_clarification=BinaryChoice.NO,
+            question="нет",
+            ready_to_delegate=BinaryChoice.NO,
+            rationale="пользователь отклонил продолжение — education-сессия закрывается",
+        )
+        state.diagnostics["intake"] = {
+            "card": state.intake_card.to_dict(),
+            "llm": {"education_close_bypass": True},
+        }
+        return state
+
+    if _should_route_to_education_expert(state):
+        problem = str(state.current_state.education_topic or state.current_state.goal or "").strip() or _UNDEFINED_PROBLEM
+        state.intake_card = IntakeCard(
+            problem=problem,
+            context=_merge_expert_follow_up_context(
+                state.current_state.slots.get("intake_context"),
+                state.user_message,
+            ),
+            needs_clarification=BinaryChoice.NO,
+            question="нет",
+            ready_to_delegate=BinaryChoice.YES,
+            rationale="education-сессия активна — уточняющий вопрос передаётся education-эксперту напрямую",
+        )
+        state.diagnostics["intake"] = {
+            "card": state.intake_card.to_dict(),
+            "llm": {"synthetic_expert_follow_up": True, "expert": "education"},
+        }
+        return state
+
     card, step_diagnostics = await extract_intake_card(state)
     card, normalized = _normalize_unknown_reason_intake_card(state, card)
     card, context_restored = _restore_dropped_context(state, card)
@@ -283,7 +352,9 @@ def intake_execute_node(state: FirstModuleState) -> FirstModuleState:
         state.execution_kind = ExecutionKind.ASK
         state.user_question = card.question
         state.final_reply = build_intake_reply(
-            card, is_first_turn=not bool(state.current_state.last_bot_reply)
+            card,
+            is_first_turn=not bool(state.current_state.last_bot_reply),
+            user_message=state.user_message,
         )
         return state
 
@@ -310,6 +381,42 @@ async def delegation_analyze_node(state: FirstModuleState) -> FirstModuleState:
         state.diagnostics["delegation"] = {
             "card": state.delegation_card.to_dict(),
             "llm": {"synthetic_expert_follow_up": True},
+        }
+        return state
+
+    if _should_route_to_education_expert(state):
+        topic = str(state.current_state.education_topic or "").strip() or "продолжить тему"
+        pending_q = state.current_state.pending_question
+        _msg = str(state.user_message or "").strip()
+        if (
+            pending_q is not None
+            and pending_q.reason == "expert"
+            and pending_q.question_text
+            and (pending_q.attempts or 0) >= 1
+            and not is_education_confused(_msg)
+        ):
+            # Patient said "да"/"давай" to the follow-up — must answer it, not ask it again
+            task = (
+                f"Пациент подтвердил интерес к «{pending_q.question_text}» — "
+                f"дать развёрнутый ответ на этот вопрос, опираясь на локальные материалы. "
+                f"Вопрос: нет (не повторять)."
+            )
+        elif is_education_confused(_msg):
+            task = (
+                f"Пациент не понял объяснения по теме «{topic}» — "
+                f"переформулировать то же самое проще и конкретнее, желательно с примером. "
+                f"Вопрос: нет (не задавать новых вопросов пока пациент не понял текущее)."
+            )
+        else:
+            task = f"ответить на уточняющий вопрос по теме «{topic}», опираясь на локальные образовательные материалы"
+        state.delegation_card = DelegationCard(
+            expert=DelegationExpert.EDUCATION,
+            task=task,
+            rationale="education-сессия активна, запрос идёт напрямую к education-эксперту",
+        )
+        state.diagnostics["delegation"] = {
+            "card": state.delegation_card.to_dict(),
+            "llm": {"synthetic_expert_follow_up": True, "expert": "education"},
         }
         return state
 
@@ -452,7 +559,8 @@ def finalize_reply_node(state: FirstModuleState) -> FirstModuleState:
             state.needs_clarification = state.expert_card.needs_more_info is BinaryChoice.YES
         elif isinstance(state.expert_card, EducationExpertCard):
             state.final_reply = build_education_reply(state.expert_card)
-            state.needs_clarification = False
+            follow = str(state.expert_card.follow_up or "").strip().lower()
+            state.needs_clarification = follow not in {"", "нет"}
     if not state.final_reply:
         state.final_reply = build_finish_reply(state.user_message)
     return state

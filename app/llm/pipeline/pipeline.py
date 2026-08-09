@@ -170,6 +170,7 @@ class LLMPipeline:
             supervisor_state=dict(context.supervisor_state or {}) or None,
             supervisor_state_delta=dict(context.supervisor_turn.state_delta) if context.supervisor_turn else {},
             diagnostics=context.diagnostics,
+            education_cta=context.supervisor_turn.education_cta if context.supervisor_turn else None,
         )
 
     async def _log_to_database(

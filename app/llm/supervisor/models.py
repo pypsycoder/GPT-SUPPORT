@@ -65,6 +65,10 @@ class CurrentState:
     branch_type: str | None = None
     branch_turns: int = 0
     branch_return_intent: str | None = None
+    # Education session tracking
+    education_session_active: bool = False
+    education_topic: str | None = None
+    education_turn_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,6 +99,9 @@ class CurrentState:
             "branch_type": self.branch_type,
             "branch_turns": int(self.branch_turns),
             "branch_return_intent": self.branch_return_intent,
+            "education_session_active": bool(self.education_session_active),
+            "education_topic": self.education_topic,
+            "education_turn_count": int(self.education_turn_count),
         }
 
     @classmethod
@@ -175,6 +182,13 @@ class CurrentState:
                 if payload.get("branch_return_intent") is not None
                 else None
             ),
+            education_session_active=bool(payload.get("education_session_active")),
+            education_topic=(
+                str(payload.get("education_topic")).strip()
+                if payload.get("education_topic") is not None
+                else None
+            ),
+            education_turn_count=int(payload.get("education_turn_count") or 0),
         )
 
 
@@ -238,6 +252,7 @@ class SupervisorTurnResult:
     used_pending_answer: bool = False
     needs_clarification: bool = False
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    education_cta: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -249,6 +264,7 @@ class SupervisorTurnResult:
             "used_pending_answer": self.used_pending_answer,
             "needs_clarification": self.needs_clarification,
             "diagnostics": dict(self.diagnostics),
+            "education_cta": dict(self.education_cta) if self.education_cta else None,
         }
 
     @classmethod
