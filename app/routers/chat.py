@@ -1,14 +1,10 @@
 """
-Chat HTTP Router — эндпоинты для взаимодействия пациента с LLM-ассистентом.
-
-POST /api/chat/message    — отправить сообщение, получить ответ
-GET  /api/chat/history/{patient_id} — история сообщений
-GET  /api/chat/pool/stats — статус пула аккаунтов (для диагностики)
+Chat HTTP router for patient <-> LLM interaction.
 """
 
 from __future__ import annotations
 
-import time
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,29 +13,59 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.llm.agent import generate_response
-from app.llm.errors import LLMConfigurationError
-from app.llm.memory import st_memory_store
+from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import pool
 from app.llm.router import classify_request
-from app.models.llm import ChatMessage
+from app.models.llm import ChatMessage, ChatSupervisorState
 from app.users.models import User
 from core.db.session import get_async_session
 
 router = APIRouter()
+_llm_pipeline = LLMPipeline()
+_DEFAULT_THREAD_ID = "default"
+_SESSION_TIMEOUT_HOURS = 8
+
+# Fields that belong to the current expert session — cleared on reset.
+# Accumulated patient context (facts, signals, risk_flags, domain) is kept.
+_SESSION_RESET_FIELDS: dict = {
+    "goal": None,
+    "slots": {},
+    "pending_question": None,
+    "last_selected_agents": [],
+    "needs_clarification": False,
+    "clarification_streak": 0,
+    "last_clarification_reason": None,
+    "last_goal_status": None,
+    "last_bot_reply": None,
+    "last_expert_effectiveness": None,
+    "last_expert_strategy": None,
+    "current_technique_id": None,
+    "current_technique_turns": 0,
+    "current_step_index": 0,
+    "last_expert_step": None,
+    "recent_technique_ids": [],
+    "anchor_goal": None,
+    "session_plan": None,
+    "on_branch": False,
+    "branch_type": None,
+    "branch_turns": 0,
+    "branch_return_intent": None,
+    "education_session_active": False,
+    "education_topic": None,
+    "education_turn_count": 0,
+}
 
 
-# ---------------------------------------------------------------------------
-# Pydantic schemas
-# ---------------------------------------------------------------------------
+def _reset_session_state(state: dict | None) -> dict:
+    result = dict(state or {})
+    result.update(_SESSION_RESET_FIELDS)
+    return result
 
 
 class MessageRequest(BaseModel):
     patient_id: int
     message: str = Field(..., min_length=1, max_length=4000)
     source: str = Field(default="text", description="text | button | system")
-    session_id: Optional[str] = None
-    thread_id: Optional[str] = None
 
 
 class MessageResponse(BaseModel):
@@ -49,6 +75,7 @@ class MessageResponse(BaseModel):
     domain: Optional[str]
     model: str
     pending_vitals: Optional[list] = None
+    education_cta: Optional[dict] = None
 
 
 class ChatMessageOut(BaseModel):
@@ -59,15 +86,59 @@ class ChatMessageOut(BaseModel):
     model_used: Optional[str]
     domain: Optional[str]
     request_type: Optional[str]
-    buttons_json: Optional[list] = None
     created_at: str
 
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
 
-# ---------------------------------------------------------------------------
-# POST /message
-# ---------------------------------------------------------------------------
+async def _read_supervisor_state(db: AsyncSession, patient_id: int) -> dict | None:
+    result = await db.execute(
+        select(ChatSupervisorState.state_json, ChatSupervisorState.updated_at).where(
+            ChatSupervisorState.patient_id == patient_id,
+            ChatSupervisorState.thread_id == _DEFAULT_THREAD_ID,
+        )
+    )
+    row = result.first()
+    if row is None:
+        return None
+    state_json, updated_at = row
+    state = dict(state_json) if isinstance(state_json, dict) else None
+    if state is not None and updated_at is not None:
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        elapsed_hours = (datetime.now(tz=timezone.utc) - updated_at).total_seconds() / 3600
+        if elapsed_hours >= _SESSION_TIMEOUT_HOURS:
+            return _reset_session_state(state)
+    return state
+
+
+async def _write_supervisor_state(
+    db: AsyncSession,
+    *,
+    patient_id: int,
+    supervisor_state: dict | None,
+) -> None:
+    if not supervisor_state:
+        return
+
+    result = await db.execute(
+        select(ChatSupervisorState).where(
+            ChatSupervisorState.patient_id == patient_id,
+            ChatSupervisorState.thread_id == _DEFAULT_THREAD_ID,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        db.add(
+            ChatSupervisorState(
+                patient_id=patient_id,
+                thread_id=_DEFAULT_THREAD_ID,
+                state_json=dict(supervisor_state),
+            )
+        )
+    else:
+        row.state_json = dict(supervisor_state)
+
 
 @router.post("/message", response_model=MessageResponse)
 async def send_message(
@@ -75,102 +146,68 @@ async def send_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> MessageResponse:
-    """
-    Принимает сообщение от пациента, возвращает ответ LLM-ассистента.
-    Сохраняет оба сообщения (user + assistant) в chat_messages.
-    """
-    # Проверяем, что пациент запрашивает свой чат (или это admin)
     if current_user.id != body.patient_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к чату другого пациента",
         )
 
-    wall_start = time.monotonic()
-
-    # 1. Классифицируем запрос
     router_result = classify_request(body.message, body.source)
-    session_id = (body.session_id or f"patient-{body.patient_id}-default").strip()
-    thread_id = (body.thread_id or "main").strip()
-
-    # 2. Собираем дневной контекст для LLM (если есть — подставится в system prompt)
-    from app.llm.morning_service import get_daily_context_for_llm
-    daily_ctx = await get_daily_context_for_llm(body.patient_id, db)
-    st_memory = st_memory_store.read(
-        patient_id=body.patient_id,
-        session_id=session_id,
-        thread_id=thread_id,
-    )
-
-    # 3. Генерируем ответ (с логированием в llm_request_logs)
-    try:
-        llm_result = await generate_response(
+    supervisor_state = await _read_supervisor_state(db, body.patient_id)
+    llm_response = await _llm_pipeline.process(
+        LLMRequest(
             patient_id=body.patient_id,
             user_input=body.message,
+            source=body.source,
+            supervisor_state=supervisor_state,
             router_result=router_result,
-            context={
-                "daily_context": daily_ctx,
-                "session_id": session_id,
-                "thread_id": thread_id,
-                "st_memory": st_memory,
-            },
             db=db,
+            thread_id=_DEFAULT_THREAD_ID,
         )
-    except LLMConfigurationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Запрошенный tier модели сейчас не настроен на сервере",
-        ) from exc
-    st_memory_store.write(
-        patient_id=body.patient_id,
-        session_id=session_id,
-        thread_id=thread_id,
-        updates=list(llm_result.get("pending_st_memory") or []),
     )
+    tokens_total = llm_response.tokens_input + llm_response.tokens_output
 
-    elapsed_ms = int((time.monotonic() - wall_start) * 1000)
-    tokens_total = llm_result["tokens_input"] + llm_result["tokens_output"]
-
-    # 3. Сохраняем сообщение пользователя
-    user_msg = ChatMessage(
-        patient_id=body.patient_id,
-        role="user",
-        content=body.message,
-        tokens_used=0,
-        model_used=None,
-        domain=llm_result["domain"],
-        request_type=router_result.request_type.value,
+    db.add(
+        ChatMessage(
+            patient_id=body.patient_id,
+            thread_id=_DEFAULT_THREAD_ID,
+            role="user",
+            content=body.message,
+            tokens_used=0,
+            model_used=None,
+            domain=llm_response.domain,
+            request_type=router_result.request_type.value,
+        )
     )
-    db.add(user_msg)
-
-    # 4. Сохраняем ответ ассистента (непрочитанным, пока пользователь не откроет чат)
-    assistant_msg = ChatMessage(
-        patient_id=body.patient_id,
-        role="assistant",
-        content=llm_result["response"],
-        tokens_used=tokens_total,
-        model_used=llm_result["model"],
-        domain=llm_result["domain"],
-        request_type=router_result.request_type.value,
-        is_read=False,
+    db.add(
+        ChatMessage(
+            patient_id=body.patient_id,
+            thread_id=_DEFAULT_THREAD_ID,
+            role="assistant",
+            content=llm_response.response,
+            tokens_used=tokens_total,
+            model_used=llm_response.model,
+            domain=llm_response.domain,
+            request_type=router_result.request_type.value,
+        )
     )
-    db.add(assistant_msg)
-
+    await _write_supervisor_state(
+        db,
+        patient_id=body.patient_id,
+        supervisor_state=llm_response.supervisor_state,
+    )
     await db.commit()
 
     return MessageResponse(
-        response=llm_result["response"],
+        response=llm_response.response,
         tokens_used=tokens_total,
-        response_time_ms=elapsed_ms,
-        domain=llm_result["domain"],
-        model=llm_result["model"],
-        pending_vitals=llm_result.get("pending_vitals"),
+        response_time_ms=llm_response.response_time_ms,
+        domain=llm_response.domain,
+        model=llm_response.model,
+        pending_vitals=llm_response.pending_vitals,
+        education_cta=llm_response.education_cta,
     )
 
-
-# ---------------------------------------------------------------------------
-# GET /history/{patient_id}
-# ---------------------------------------------------------------------------
 
 @router.get("/history/{patient_id}", response_model=list[ChatMessageOut])
 async def get_history(
@@ -179,19 +216,11 @@ async def get_history(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> list[ChatMessageOut]:
-    """
-    Возвращает последние N сообщений чата пациента (user + assistant),
-    отсортированных по created_at ASC.
-    """
     if current_user.id != patient_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к истории другого пациента",
         )
-
-    # Генерируем утреннее сообщение на лету, если cron ещё не отработал
-    from app.llm.morning_service import ensure_morning_message
-    await ensure_morning_message(patient_id, db)
 
     result = await db.execute(
         select(ChatMessage)
@@ -199,10 +228,7 @@ async def get_history(
         .order_by(ChatMessage.created_at.desc())
         .limit(limit)
     )
-    messages = result.scalars().all()
-
-    # Разворачиваем в хронологический порядок
-    messages = list(reversed(messages))
+    messages = list(reversed(result.scalars().all()))
 
     return [
         ChatMessageOut(
@@ -213,16 +239,10 @@ async def get_history(
             model_used=m.model_used,
             domain=m.domain,
             request_type=m.request_type,
-            buttons_json=m.buttons_json,
             created_at=m.created_at.isoformat(),
         )
         for m in messages
     ]
-
-
-# ---------------------------------------------------------------------------
-# POST /confirm-vitals
-# ---------------------------------------------------------------------------
 
 
 class ConfirmVitalsRequest(BaseModel):
@@ -236,15 +256,11 @@ async def confirm_vitals(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> dict:
-    """
-    Записывает витальные показатели в БД после подтверждения пациентом.
-    Если confirmed=False — ничего не делает.
-    """
     if not body.confirmed:
         return {"saved": 0}
 
-    from app.vitals.models import BPMeasurement, PulseMeasurement, WeightMeasurement, WaterIntake
     from app.llm.parser import normalize_bp, normalize_pulse
+    from app.vitals.models import BPMeasurement, PulseMeasurement, WaterIntake, WeightMeasurement
 
     saved = 0
     for v in body.vitals:
@@ -274,42 +290,24 @@ async def confirm_vitals(
     return {"saved": saved}
 
 
-# ---------------------------------------------------------------------------
-# POST /mark-read  — пометить все непрочитанные сообщения ассистента прочитанными
-# ---------------------------------------------------------------------------
-
-
-from sqlalchemy import update as sa_update  # noqa: E402
-
-
-@router.post("/mark-read", status_code=200)
-async def mark_messages_read(
+@router.post("/reset-session", status_code=200)
+async def reset_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
-) -> None:
-    """
-    Помечает все непрочитанные сообщения ассистента пациента как прочитанные.
-    Вызывается chat.js при открытии drawer.
-    """
-    await db.execute(
-        sa_update(ChatMessage)
-        .where(
-            ChatMessage.patient_id == current_user.id,
-            ChatMessage.role == "assistant",
-            ChatMessage.is_read.is_(False),
+) -> dict:
+    result = await db.execute(
+        select(ChatSupervisorState).where(
+            ChatSupervisorState.patient_id == current_user.id,
+            ChatSupervisorState.thread_id == _DEFAULT_THREAD_ID,
         )
-        .values(is_read=True)
     )
+    row = result.scalar_one_or_none()
+    if row is not None:
+        row.state_json = _reset_session_state(dict(row.state_json))
     await db.commit()
+    return {"ok": True}
 
-
-# ---------------------------------------------------------------------------
-# GET /pool/stats (диагностика)
-# ---------------------------------------------------------------------------
 
 @router.get("/pool/stats")
-async def get_pool_stats(
-    current_user: User = Depends(get_current_user),
-) -> dict:
-    """Возвращает статус пула аккаунтов GigaChat (для мониторинга)."""
+async def get_pool_stats(current_user: User = Depends(get_current_user)) -> dict:
     return pool.get_stats()

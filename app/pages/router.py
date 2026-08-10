@@ -76,6 +76,12 @@ async def serve_researcher_chat_debug():
 #   Пациент — session-based страницы (/patient/...)
 # ============================================
 
+@router.get("/researcher/chat-debug", include_in_schema=False)
+async def serve_researcher_chat_debug():
+    """Researcher debug chat page."""
+    return FileResponse(FRONTEND_DIR / "researcher" / "chat_debug.html")
+
+
 @router.get("/patient/home", include_in_schema=False)
 async def serve_patient_home():
     """Главная страница пациента (session-based)."""

@@ -122,15 +122,18 @@ async def parse_patient_message(
         При ошибке парсинга → пустой dict {}.
         Если все поля пусты → добавляет needs_clarification=True.
     """
-    from app.llm.pool import pool
+    from app.llm.pool import pool, session_key
 
     prompt = PARSER_PROMPT.replace("{text}", text)
     messages = [{"role": "user", "content": prompt}]
     system = "Ты медицинский парсер. Отвечай только валидным JSON."
+    session_id = session_key(patient_id, "default")
 
     try:
-        client = await pool.get_available("lite")
-        raw_text, _, _, _ = await client.call(messages, system)
+        client = await pool.get_available("lite", sticky_key=session_id)
+        raw_text, _, _, _ = await client.call(
+            messages, system, step="parser", patient_id=patient_id, session_id=session_id
+        )
     except (LLMTransportError, LLMResponseError) as exc:
         logger.warning("[parser] LLM call failed: %s", exc)
         return {}

@@ -7,29 +7,12 @@ from typing import Any
 from app.llm.supervisor.models import CurrentState
 from app.llm.supervisor.short_answers import normalize_short_answer
 
-_CORRECTION_MARKERS = (
-    "точнее",
-    "вернее",
-    "исправлю",
-    "я про",
-    "не совсем",
-    "не это",
-)
-_META_MESSAGES = {"спасибо", "ок", "понял", "поняла", "хорошо", "ладно", "ясно", "понятно"}
+_CORRECTION_MARKERS = ("точнее", "вернее", "исправлю", "я про", "не совсем", "не это", )
+_META_MESSAGES = { "спасибо", "ок", "окей", "понял", "поняла", "хорошо", "ладно", "ясно", "понятно", "угу", "ага", "да", }
 _INFORM_MARKERS = ("почему", "что это", "объясни", "объяснить", "нормально ли", "что со мной")
 _PLAN_MARKERS = ("что делать", "как", "план", "следующий шаг", "с чего начать", "как быть")
 _SUPPORT_MARKERS = ("плохо", "тяжело", "тревожно", "страшно", "поддерж", "помоги", "не справляюсь")
-_HEALTH_MARKERS = (
-    "диализ",
-    "давление",
-    "симптом",
-    "боль",
-    "таблет",
-    "лекар",
-    "фистул",
-    "анализ",
-    "почки",
-)
+_HEALTH_MARKERS = ( "диализ", "давление", "симптом", "боль", "таблет", "лекар", "фистул", "анализ", "почки", )
 _ROUTINE_MARKERS = ("режим", "рутина", "дела", "день", "сон", "расписание", "вечер", "утро")
 
 
@@ -73,7 +56,7 @@ def _extract_goal(lowered: str, intent: str) -> str | None:
     if intent == "support":
         if "трев" in lowered or "страш" in lowered:
             return "снизить напряжение"
-        if "сон" in lowered:
+        if "сон" in lowered or "не спал" in lowered:
             return "разобраться с самочувствием"
         if "помоги" in lowered:
             return "получить поддержку"
@@ -84,7 +67,7 @@ def _detect_signals(lowered: str, domain: str, intent: str) -> list[str]:
     signals: list[str] = []
     if "трев" in lowered or "страш" in lowered:
         signals.append("distress")
-    if "плохо" in lowered or "тяжело" in lowered:
+    if "плохо" in lowered or "тяжело" in lowered or "не спал" in lowered:
         signals.append("emotional_pain")
     if "диализ" in lowered:
         signals.append("dialysis_context")

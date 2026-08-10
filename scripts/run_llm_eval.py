@@ -233,7 +233,7 @@ def _detect_issues(response_text: str, diagnostics: dict, case: EvalCase) -> lis
     issues: list[str] = []
     prompt_diag = diagnostics.get("prompt", {})
 
-    if case.expected_policy and prompt_diag.get("selected_policy") != case.expected_policy:
+    if case.expected_policy and prompt_diag.get("selected_policy") and prompt_diag.get("selected_policy") != case.expected_policy:
         issues.append("wrong_policy")
 
     checks = {
@@ -282,13 +282,66 @@ def _json_dump(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
+_SUPERVISOR_STEPS = ("intake", "delegation", "expert")
+
+
+def _supervisor_llm_steps(supervisor: dict) -> list[dict]:
+    """Диагностика LLM по каждому узлу графа (intake / delegation / expert)."""
+    steps = []
+    for name in _SUPERVISOR_STEPS:
+        llm = ((supervisor.get(name) or {}).get("llm") or {})
+        if llm:
+            steps.append(llm)
+    return steps
+
+
+def _supervisor_parse_mode(supervisor: dict) -> str:
+    """field_block (легаси) | structured (response_format json_schema)."""
+    modes = {str(llm.get("parse_mode") or "field_block") for llm in _supervisor_llm_steps(supervisor)}
+    if not modes:
+        return "-"
+    return ", ".join(sorted(modes))
+
+
+def _supervisor_parse_metric(supervisor: dict, key: str) -> int:
+    """Сумма счётчика по узлам хода: попытки парса и починки схемы."""
+    return sum(int(llm.get(key) or 0) for llm in _supervisor_llm_steps(supervisor))
+
+
+def _normalize_runtime_diagnostics(diagnostics: dict, *, router_result, response) -> dict:
+    normalized = dict(diagnostics or {})
+    normalized.setdefault(
+        "classify",
+        {
+            "request_type": router_result.request_type.value,
+            "router_domain": router_result.domain_hint,
+            "effective_domain": router_result.domain_hint,
+        },
+    )
+    normalized.setdefault("parser", {"mood": None, "domain_hints": []})
+    normalized.setdefault("prompt", {})
+    normalized.setdefault("patient_context", {"rag": {}, "rag_context": []})
+    normalized.setdefault(
+        "llm_call",
+        {
+            "latency_ms": response.response_time_ms,
+            "tokens_input": response.tokens_input,
+            "tokens_output": response.tokens_output,
+            "account_id": response.account_id,
+        },
+    )
+    normalized.setdefault(
+        "summary",
+        {
+            "total_stage_latency_ms": normalized.get("total_latency_ms", response.response_time_ms),
+            "fallback_points": [],
+        },
+    )
+    return normalized
+
+
 def _extract_case_timeline_rows(item: dict) -> list[dict[str, object]]:
     diagnostics = item["diagnostics"]
-    orchestration = diagnostics.get("orchestration", {})
-    route = orchestration.get("route") or {}
-    critic = orchestration.get("critic") or {}
-    trace_items = orchestration.get("agent_trace") or []
-    shadow_validation = diagnostics.get("shadow_validation", {})
     rows: list[dict[str, object]] = []
     step_no = 1
 
@@ -328,180 +381,72 @@ def _extract_case_timeline_rows(item: dict) -> list[dict[str, object]]:
         )
         step_no += 1
 
-    prompt_diag = diagnostics.get("prompt", {})
-    patient_context_diag = diagnostics.get("patient_context", {})
-    rag_diag = patient_context_diag.get("rag", {})
-    rag_context_items = list(patient_context_diag.get("rag_context") or [])
-    add_row(
-        step_label="prompt",
-        actor="prompt_builder",
-        status="ok",
-        latency_ms=0,
-        prompt_chars=int(prompt_diag.get("system_prompt_chars", 0)),
-        reasons=list(prompt_diag.get("policy_reasons") or []),
-        selected_context_sections=list(prompt_diag.get("included_sections") or []),
-        details={
-            "selected_policy": prompt_diag.get("selected_policy"),
-            "summary_prompt_items": prompt_diag.get("summary_prompt_items"),
-            "history_messages": prompt_diag.get("history_messages"),
-            "rag_context_items": prompt_diag.get("rag_context_items"),
-        },
-    )
-
-    if rag_context_items or rag_diag.get("attempted"):
+    for stage in diagnostics.get("stages", []):
         add_row(
-            step_label="rag_retrieval",
-            actor="rag",
-            status="hit" if rag_context_items else ("error" if rag_diag.get("error") else "empty"),
-            latency_ms=int(rag_diag.get("latency_ms", 0) or 0),
-            selected_context_sections=["rag_context"],
+            step_label=str(stage.get("name") or "stage"),
+            actor="pipeline",
+            status=str(stage.get("status") or "unknown"),
+            latency_ms=int(stage.get("latency_ms", 0) or 0),
+            warnings=[str(stage.get("error"))] if stage.get("error") else [],
+            details=stage,
+        )
+
+    supervisor = diagnostics.get("supervisor", {})
+    if supervisor:
+        add_row(
+            step_label="supervisor_graph",
+            actor="supervisor",
+            status=str(supervisor.get("execution_kind") or "ok"),
+            latency_ms=int(supervisor.get("latency_ms", 0) or 0),
+            reasons=list(supervisor.get("selected_agents") or []),
             details={
-                "backend": rag_diag.get("backend"),
-                "hit_count": rag_diag.get("hit_count", 0),
-                "error": rag_diag.get("error"),
-                "items": rag_context_items,
+                "graph_path": supervisor.get("graph_path") or [],
+                "needs_clarification": supervisor.get("needs_clarification"),
+                "state_delta": supervisor.get("state_delta") or {},
+                "llm_totals": supervisor.get("llm_totals") or {},
+                "education_grounding": supervisor.get("education_grounding") or {},
             },
         )
 
-    if orchestration.get("enabled"):
+    memory = diagnostics.get("memory", {})
+    if memory:
         add_row(
-            step_label="orchestrator",
-            actor="router",
-            status="ok",
-            latency_ms=int(next((t.get("latency_ms", 0) for t in trace_items if t.get("stage") == "router"), 0)),
-            reasons=list(route.get("routing_reasons") or []),
-            warnings=list(route.get("risk_flags") or []),
-            selected_context_sections=["patient_summary_prompt"],
-            details=route,
-        )
-
-        specialist_traces = [t for t in trace_items if t.get("stage") in {"specialist", "specialist_probe"}]
-        for index, trace in enumerate(specialist_traces, start=1):
-            add_row(
-                step_label=f"agent_{index}",
-                actor=str(trace.get("agent_name", f"agent_{index}")),
-                status=str(trace.get("status", "ok")),
-                latency_ms=int(trace.get("latency_ms", 0) or 0),
-                prompt_chars=int(trace.get("prompt_chars", 0) or 0),
-                reasons=list(trace.get("reasons") or []),
-                warnings=list(trace.get("warnings") or []),
-                selected_context_sections=list(trace.get("selected_context_sections") or []),
-                details=trace.get("normalized_output") or {},
-            )
-
-        composer_trace = next((t for t in trace_items if t.get("stage") == "composer"), None)
-        if composer_trace:
-            add_row(
-                step_label="composer",
-                actor="composer",
-                status=str(composer_trace.get("status", "ok")),
-                latency_ms=int(composer_trace.get("latency_ms", 0) or 0),
-                prompt_chars=int(composer_trace.get("prompt_chars", 0) or 0),
-                reasons=list(composer_trace.get("reasons") or []),
-                warnings=list(composer_trace.get("warnings") or []),
-                selected_context_sections=list(composer_trace.get("selected_context_sections") or []),
-                details=composer_trace.get("normalized_output") or {},
-            )
-
-    llm_call = diagnostics.get("llm_call", {})
-    add_row(
-        step_label="generation",
-        actor="llm_call",
-        status=str(llm_call.get("status", "pending")),
-        latency_ms=int(llm_call.get("latency_ms", 0)),
-        tokens_input=int(llm_call.get("tokens_input", 0)),
-        tokens_output=int(llm_call.get("tokens_output", 0)),
-        prompt_chars=int(prompt_diag.get("system_prompt_chars", 0)),
-        selected_context_sections=list(prompt_diag.get("included_sections") or []),
-        details={
-            "account_id": llm_call.get("account_id"),
-            "response_chars": llm_call.get("response_chars"),
-            "failure_stage": llm_call.get("failure_stage"),
-        },
-    )
-
-    critic_trace = next((t for t in trace_items if t.get("stage") == "critic"), None)
-    if critic_trace:
-        add_row(
-            step_label="critic",
-            actor="critic",
-            status=str(critic.get("status", critic_trace.get("status", "ok"))),
-            latency_ms=int(critic_trace.get("latency_ms", 0) or 0),
-            reasons=list(critic.get("violations") or critic_trace.get("reasons") or []),
-            warnings=list(critic.get("route_feedback") or critic_trace.get("warnings") or []),
-            selected_context_sections=list(critic_trace.get("selected_context_sections") or []),
-            details=critic or critic_trace.get("normalized_output") or {},
-        )
-
-    if shadow_validation.get("enabled"):
-        add_row(
-            step_label="shadow_validator",
-            actor="legacy_rules",
-            status="triggered" if shadow_validation.get("triggered") else "pass",
-            reasons=list(shadow_validation.get("reasons") or []),
-            warnings=list(shadow_validation.get("legacy_only_reasons") or []),
-            details={
-                "matches_critic": shadow_validation.get("matches_critic"),
-                "critic_status": shadow_validation.get("critic_status"),
-                "critic_violations": shadow_validation.get("critic_violations") or [],
-                "critic_only_reasons": shadow_validation.get("critic_only_reasons") or [],
-            },
-        )
-
-    rewrite = diagnostics.get("rewrite", {})
-    if rewrite.get("attempted"):
-        add_row(
-            step_label="rewrite",
-            actor="rewrite",
-            status=str(rewrite.get("status", "ok")),
-            latency_ms=int(rewrite.get("latency_ms", 0)),
-            tokens_input=int(rewrite.get("tokens_input", 0)),
-            tokens_output=int(rewrite.get("tokens_output", 0)),
-            reasons=list(rewrite.get("reasons") or []),
-            details={
-                "attempts": rewrite.get("attempts", 0),
-                "initial_response_chars": rewrite.get("initial_response_chars", 0),
-                "final_response_chars": rewrite.get("final_response_chars", 0),
-                "final_response_source": rewrite.get("final_response_source", "initial"),
-            },
-        )
-
-        post_validation = list(rewrite.get("post_validation_reasons") or [])
-        add_row(
-            step_label="critic_after_rewrite",
-            actor="critic",
-            status="pass" if not post_validation else "rewrite",
-            reasons=post_validation,
-            details={"post_validation_reasons": post_validation},
+            step_label="memory",
+            actor="memory_write",
+            status=str(memory.get("status") or "ok"),
+            details=memory,
         )
 
     return rows
 
 
 async def _run_eval_cases(cases: list[EvalCase], patient_id: int, source: str) -> list[dict]:
-    from app.llm.agent import generate_response
+    from app.llm.pipeline import LLMPipeline, LLMRequest
     from app.llm.router import ModelTier, classify_request
     from core.db.session import async_session_factory
 
     override_model_tier: str | None = getattr(_run_eval_cases, "_override_model_tier", None)
-    orchestration_mode: str = getattr(_run_eval_cases, "_orchestration_mode", "llm_full")
+    pipeline = LLMPipeline()
     results: list[dict] = []
     for case in cases:
         router_result = classify_request(case.text, source)
         if override_model_tier:
             router_result = replace(router_result, model_tier=ModelTier(override_model_tier))
         async with async_session_factory() as session:
-            result = await generate_response(
-                patient_id=patient_id,
-                user_input=case.text,
-                router_result=router_result,
-                context={"orchestration_mode": orchestration_mode},
-                db=session,
+            result = await pipeline.process(
+                LLMRequest(
+                    patient_id=patient_id,
+                    user_input=case.text,
+                    source=source,
+                    router_result=router_result,
+                    strict_model_tier=bool(override_model_tier),
+                    db=session,
+                )
             )
             await session.rollback()
 
-        diagnostics = result["diagnostics"]
-        issues = _detect_issues(result["response"], diagnostics, case)
+        diagnostics = _normalize_runtime_diagnostics(result.diagnostics, router_result=router_result, response=result)
+        issues = _detect_issues(result.response, diagnostics, case)
         results.append(
             {
                 "case_id": case.case_id,
@@ -512,14 +457,44 @@ async def _run_eval_cases(cases: list[EvalCase], patient_id: int, source: str) -
                 "model_tier": router_result.model_tier.value,
                 "status": _status_from_issues(issues),
                 "issues": issues,
-                "response": result["response"],
-                "tokens_input": result["tokens_input"],
-                "tokens_output": result["tokens_output"],
-                "response_time_ms": result["response_time_ms"],
+                "response": result.response,
+                "tokens_input": result.tokens_input,
+                "tokens_output": result.tokens_output,
+                "response_time_ms": result.response_time_ms,
                 "diagnostics": diagnostics,
             }
         )
     return results
+
+
+def _parse_summary_rows(results: list[dict]) -> list[tuple[str, object]]:
+    """Метрики шага 3: доля успешных парсов карточек и доля repair-ретраев.
+
+    Один «парс» — один вызов узла графа. Успешным считается узел, который отдал
+    карточку (``final_status == success``); ``repair_attempts`` — починки схемы
+    внутри ``GigaChatClient.structured()``, целевая доля < 2%.
+    """
+    steps = [
+        llm
+        for item in results
+        for llm in _supervisor_llm_steps(item["diagnostics"].get("supervisor") or {})
+    ]
+    if not steps:
+        return [("Card parse steps", 0)]
+
+    attempts = sum(int(llm.get("attempts_total") or 0) for llm in steps)
+    repairs = sum(int(llm.get("repair_attempts") or 0) for llm in steps)
+    succeeded = sum(1 for llm in steps if llm.get("final_status") == "success")
+    modes = sorted({str(llm.get("parse_mode") or "field_block") for llm in steps})
+
+    return [
+        ("Card parse mode", ", ".join(modes)),
+        ("Card parse steps", len(steps)),
+        ("Card parse success rate", round(succeeded / len(steps), 4)),
+        ("Card parse attempts (incl. retries)", attempts),
+        ("Card repair attempts", repairs),
+        ("Card repair rate", round(repairs / attempts, 4) if attempts else 0.0),
+    ]
 
 
 def _build_summary_sheet(ws, results: list[dict], generated_at: str, patient_id: int, *, title: str = "Summary") -> None:
@@ -547,6 +522,7 @@ def _build_summary_sheet(ws, results: list[dict], generated_at: str, patient_id:
         ("Avg tokens_input", round(_safe_mean([int(item["tokens_input"]) for item in results]), 1)),
         ("Avg tokens_output", round(_safe_mean([int(item["tokens_output"]) for item in results]), 1)),
     ]
+    rows.extend(_parse_summary_rows(results))
     for row in rows:
         ws.append(list(row))
 
@@ -585,20 +561,13 @@ def _build_cases_sheet(ws, results: list[dict], *, title: str = "Cases") -> None
         "effective_domain",
         "parser_mood",
         "parser_domain_hints",
-        "orch_enabled",
-        "orch_primary_agent",
-        "orch_secondary_agents",
-        "orch_selected_agents",
-        "orch_route_reasons",
-        "critic_status",
-        "critic_violations",
-        "critic_route_feedback",
-        "shadow_enabled",
-        "shadow_triggered",
-        "shadow_reasons",
-        "shadow_matches_critic",
-        "shadow_legacy_only_reasons",
-        "shadow_critic_only_reasons",
+        "supervisor_execution",
+        "supervisor_selected_agents",
+        "supervisor_needs_clarification",
+        "graph_path",
+        "parse_mode",
+        "parse_attempts",
+        "repair_attempts",
         "response",
         "tokens_input",
         "tokens_output",
@@ -614,10 +583,7 @@ def _build_cases_sheet(ws, results: list[dict], *, title: str = "Cases") -> None
     ws.append(headers)
     for item in results:
         diagnostics = item["diagnostics"]
-        orchestration = diagnostics.get("orchestration", {})
-        route = orchestration.get("route") or {}
-        critic = orchestration.get("critic") or {}
-        shadow_validation = diagnostics.get("shadow_validation", {})
+        supervisor = diagnostics.get("supervisor", {})
         ws.append(
             [
                 item["case_id"],
@@ -632,20 +598,13 @@ def _build_cases_sheet(ws, results: list[dict], *, title: str = "Cases") -> None
                 diagnostics["classify"].get("effective_domain"),
                 diagnostics["parser"].get("mood"),
                 ", ".join(diagnostics["parser"].get("domain_hints") or []),
-                orchestration.get("enabled", False),
-                route.get("primary_agent", "-"),
-                ", ".join(route.get("secondary_agents") or []),
-                ", ".join(route.get("selected_agents") or []),
-                ", ".join(route.get("routing_reasons") or []),
-                critic.get("status", "-"),
-                ", ".join(critic.get("violations") or []),
-                ", ".join(critic.get("route_feedback") or []),
-                shadow_validation.get("enabled", False),
-                shadow_validation.get("triggered", False),
-                ", ".join(shadow_validation.get("reasons") or []),
-                shadow_validation.get("matches_critic"),
-                ", ".join(shadow_validation.get("legacy_only_reasons") or []),
-                ", ".join(shadow_validation.get("critic_only_reasons") or []),
+                supervisor.get("execution_kind", "-"),
+                ", ".join(supervisor.get("selected_agents") or []),
+                supervisor.get("needs_clarification", False),
+                " > ".join(supervisor.get("graph_path") or []),
+                _supervisor_parse_mode(supervisor),
+                _supervisor_parse_metric(supervisor, "attempts_total"),
+                _supervisor_parse_metric(supervisor, "repair_attempts"),
                 item["response"],
                 item["tokens_input"],
                 item["tokens_output"],
@@ -673,86 +632,6 @@ def _build_cases_sheet(ws, results: list[dict], *, title: str = "Cases") -> None
     ws.auto_filter.ref = ws.dimensions
     ws.freeze_panes = "A2"
     _autosize_columns(ws)
-
-
-def _build_orchestration_sheet(ws, results: list[dict], *, title: str = "Orchestration") -> None:
-    ws.title = title
-    headers = [
-        "case_id",
-        "model_tier",
-        "status",
-        "primary_agent",
-        "selected_agents",
-        "routing_reasons",
-        "risk_flags",
-        "critic_status",
-        "critic_violations",
-        "critic_route_feedback",
-        "shadow_triggered",
-        "shadow_reasons",
-        "shadow_matches_critic",
-        "shadow_legacy_only_reasons",
-        "shadow_critic_only_reasons",
-        "trace_stage",
-        "trace_agent",
-        "trace_status",
-        "trace_decision",
-        "trace_reasons",
-        "trace_warnings",
-        "trace_selected_context_sections",
-        "trace_latency_ms",
-        "trace_input_summary",
-        "trace_normalized_output_json",
-    ]
-    ws.append(headers)
-    for item in results:
-        diagnostics = item["diagnostics"]
-        orchestration = diagnostics.get("orchestration", {})
-        route = orchestration.get("route") or {}
-        critic = orchestration.get("critic") or {}
-        shadow_validation = diagnostics.get("shadow_validation", {})
-        trace_items = orchestration.get("agent_trace") or [{}]
-        for trace in trace_items:
-            ws.append(
-                [
-                    item["case_id"],
-                    item.get("model_tier", "-"),
-                    item["status"],
-                    route.get("primary_agent", "-"),
-                    ", ".join(route.get("selected_agents") or []),
-                    ", ".join(route.get("routing_reasons") or []),
-                    ", ".join(route.get("risk_flags") or []),
-                    critic.get("status", "-"),
-                    ", ".join(critic.get("violations") or []),
-                    ", ".join(critic.get("route_feedback") or []),
-                    shadow_validation.get("triggered", False),
-                    ", ".join(shadow_validation.get("reasons") or []),
-                    shadow_validation.get("matches_critic"),
-                    ", ".join(shadow_validation.get("legacy_only_reasons") or []),
-                    ", ".join(shadow_validation.get("critic_only_reasons") or []),
-                    trace.get("stage", "-"),
-                    trace.get("agent_name", "-"),
-                    trace.get("status", "-"),
-                    trace.get("decision", "-"),
-                    ", ".join(trace.get("reasons") or []),
-                    ", ".join(trace.get("warnings") or []),
-                    ", ".join(trace.get("selected_context_sections") or []),
-                    trace.get("latency_ms", 0),
-                    trace.get("input_summary", ""),
-                    _json_dump(trace.get("normalized_output") or {}),
-                ]
-            )
-
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
-
-    ws.auto_filter.ref = ws.dimensions
-    ws.freeze_panes = "A2"
-    _autosize_columns(ws)
-
 
 def _build_timeline_sheet(ws, results: list[dict], *, title: str = "Timeline") -> None:
     ws.title = title
@@ -803,25 +682,16 @@ def _build_diagnostics_sheet(ws, results: list[dict], *, title: str = "Diagnosti
             "fallback_points",
             "available_sections",
             "included_sections",
-            "orch_enabled",
-            "orch_selected_agents",
-            "orch_primary_agent",
-        "critic_status",
-        "critic_violations",
-        "shadow_enabled",
-        "shadow_triggered",
-        "shadow_reasons",
-        "shadow_matches_critic",
-        "agent_trace_count",
-        "diagnostics_json",
+            "supervisor_execution",
+            "supervisor_selected_agents",
+            "supervisor_needs_clarification",
+            "graph_path",
+            "diagnostics_json",
         ]
     )
     for item in results:
         diagnostics = item["diagnostics"]
-        orchestration = diagnostics.get("orchestration", {})
-        route = orchestration.get("route") or {}
-        critic = orchestration.get("critic") or {}
-        shadow_validation = diagnostics.get("shadow_validation", {})
+        supervisor = diagnostics.get("supervisor", {})
         ws.append(
             [
                 item["case_id"],
@@ -830,16 +700,10 @@ def _build_diagnostics_sheet(ws, results: list[dict], *, title: str = "Diagnosti
                 ", ".join(diagnostics["summary"].get("fallback_points") or []),
                 ", ".join(diagnostics["prompt"].get("available_sections") or []),
                 ", ".join(diagnostics["prompt"].get("included_sections") or []),
-                orchestration.get("enabled", False),
-                ", ".join(route.get("selected_agents") or []),
-                route.get("primary_agent", "-"),
-                critic.get("status", "-"),
-                ", ".join(critic.get("violations") or []),
-                shadow_validation.get("enabled", False),
-                shadow_validation.get("triggered", False),
-                ", ".join(shadow_validation.get("reasons") or []),
-                shadow_validation.get("matches_critic"),
-                len(orchestration.get("agent_trace") or []),
+                supervisor.get("execution_kind", "-"),
+                ", ".join(supervisor.get("selected_agents") or []),
+                supervisor.get("needs_clarification", False),
+                " > ".join(supervisor.get("graph_path") or []),
                 _json_dump(diagnostics),
             ]
         )
@@ -899,14 +763,12 @@ def _write_workbook(results: list[dict] | dict[str, list[dict]], output_path: Pa
             _build_summary_sheet(wb.create_sheet(), tier_results, generated_at, patient_id, title=f"Summary_{suffix}")
             _build_cases_sheet(wb.create_sheet(), tier_results, title=f"Cases_{suffix}")
             _build_timeline_sheet(wb.create_sheet(), tier_results, title=f"Timeline_{suffix}")
-            _build_orchestration_sheet(wb.create_sheet(), tier_results, title=f"Orch_{suffix}")
             _build_diagnostics_sheet(wb.create_sheet(), tier_results, title=f"Diag_{suffix}")
     else:
         summary_ws = wb.active
         _build_summary_sheet(summary_ws, results, generated_at, patient_id)
         _build_cases_sheet(wb.create_sheet(), results)
         _build_timeline_sheet(wb.create_sheet(), results)
-        _build_orchestration_sheet(wb.create_sheet(), results)
         _build_diagnostics_sheet(wb.create_sheet(), results)
     wb.save(output_path)
 
@@ -945,10 +807,7 @@ def _build_markdown_report(results: list[dict] | dict[str, list[dict]], *, gener
         )
         for item in run_results:
             diagnostics = item["diagnostics"]
-            orchestration = diagnostics.get("orchestration", {})
-            route = orchestration.get("route") or {}
-            critic = orchestration.get("critic") or {}
-            shadow_validation = diagnostics.get("shadow_validation", {})
+            supervisor = diagnostics.get("supervisor", {})
             rag_context_items = list(diagnostics.get("patient_context", {}).get("rag_context") or [])
             rag_backend = diagnostics.get("patient_context", {}).get("rag", {}).get("backend")
             lines.extend(
@@ -961,14 +820,10 @@ def _build_markdown_report(results: list[dict] | dict[str, list[dict]], *, gener
                     f"- Expected policy: {item['expected_policy'] or '-'}",
                     f"- Selected policy: {diagnostics['prompt'].get('selected_policy', '-')}",
                     f"- Issues: {', '.join(item['issues']) or '-'}",
-                    f"- Orchestration mode: {orchestration.get('mode', 'disabled')}",
-                    f"- Selected agents: {', '.join(route.get('selected_agents') or []) or '-'}",
-                    f"- Primary agent: {route.get('primary_agent', '-')}",
-                    f"- Critic status: {critic.get('status', '-')}",
-                    f"- Shadow validator triggered: {shadow_validation.get('triggered', False)}",
-                    f"- Shadow validator reasons: {', '.join(shadow_validation.get('reasons') or []) or '-'}",
-                    f"- Shadow matches critic: {shadow_validation.get('matches_critic')}",
-                    f"- Rewrite attempted: {diagnostics.get('rewrite', {}).get('attempted', False)}",
+                    f"- Supervisor execution: {supervisor.get('execution_kind', '-')}",
+                    f"- Selected agents: {', '.join(supervisor.get('selected_agents') or []) or '-'}",
+                    f"- Needs clarification: {supervisor.get('needs_clarification', False)}",
+                    f"- Graph path: {' > '.join(supervisor.get('graph_path') or []) or '-'}",
                     "",
                     "**RAG Context**",
                     "",
@@ -1040,7 +895,7 @@ def _build_json_payload(
         for tier_name, tier_results in results.items():
             statuses = Counter(item["status"] for item in tier_results)
             issues = Counter(issue for item in tier_results for issue in item["issues"])
-            policies = Counter(item["diagnostics"]["prompt"].get("selected_policy", "unknown") for item in tier_results)
+            policies = Counter(item["diagnostics"].get("prompt", {}).get("selected_policy", "unknown") for item in tier_results)
             runs_payload[tier_name] = {
                 "summary": {
                     "statuses": dict(statuses),
@@ -1073,7 +928,7 @@ def _build_json_payload(
 
     statuses = Counter(item["status"] for item in results)
     issues = Counter(issue for item in results for issue in item["issues"])
-    policies = Counter(item["diagnostics"]["prompt"].get("selected_policy", "unknown") for item in results)
+    policies = Counter(item["diagnostics"].get("prompt", {}).get("selected_policy", "unknown") for item in results)
 
     return {
         "meta": {
@@ -1113,13 +968,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--source", type=str, default="text", choices=["text", "button", "system"], help="Router source.")
     parser.add_argument("--override-model-tier", type=str, default=None, choices=["lite", "pro", "max"], help="Force one model tier for all eval cases.")
     parser.add_argument("--compare-model-tiers", nargs="+", choices=["lite", "pro", "max"], help="Run the same eval set on multiple model tiers and build a comparison report.")
-    parser.add_argument(
-        "--orchestration-mode",
-        type=str,
-        default="llm_full",
-        choices=["specialist_rag", "llm_full", "disabled"],
-        help="Choose orchestration mode for eval runs.",
-    )
     parser.add_argument("--case-id", type=str, default=None, help="Run only one eval case by id.")
     parser.add_argument("--output", type=Path, default=None, help="Optional output .xlsx path.")
     return parser.parse_args()
@@ -1144,12 +992,10 @@ async def _main() -> None:
         runs: dict[str, list[dict]] = {}
         for tier_name in args.compare_model_tiers:
             _run_eval_cases._override_model_tier = tier_name
-            _run_eval_cases._orchestration_mode = args.orchestration_mode
             runs[tier_name] = await _run_eval_cases(cases, patient_id=args.patient_id, source=args.source)
         results_for_output: list[dict] | dict[str, list[dict]] = runs
     else:
         _run_eval_cases._override_model_tier = args.override_model_tier
-        _run_eval_cases._orchestration_mode = args.orchestration_mode
         results_for_output = await _run_eval_cases(cases, patient_id=args.patient_id, source=args.source)
 
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

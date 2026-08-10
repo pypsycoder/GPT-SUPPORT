@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -39,6 +40,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
+if os.getenv("LLM_DEBUG", "").lower() in ("1", "true", "yes"):
+    logging.getLogger("gpt-support-llm.expert").setLevel(logging.DEBUG)
+    logger.info("LLM_DEBUG enabled — expert prompt/response logging is ON")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -47,11 +51,13 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     from app.llm.http import aclose_shared_http_clients, get_shared_http_client
+    from app.llm.technique_library import refresh_technique_cache
 
     # Warm up shared HTTP transports for provider calls to avoid recreating clients per request.
     get_shared_http_client("oauth")
     get_shared_http_client("chat")
     get_shared_http_client("embeddings")
+    await refresh_technique_cache()
     logger.info("GPT Support API started.")
     try:
         yield

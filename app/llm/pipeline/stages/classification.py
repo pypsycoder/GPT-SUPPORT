@@ -34,7 +34,7 @@ class ClassificationStage(PipelineStage):
         started = time.monotonic()
         
         # Классификация запроса
-        context.classification = classify_request(
+        context.classification = context.request.router_result or classify_request(
             text=context.request.user_input,
             source=context.request.source
         )

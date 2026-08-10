@@ -14,7 +14,6 @@ from app.llm.supervisor.models import (
     PendingQuestion,
     SupervisorTurnResult,
 )
-from app.llm.supervisor.orchestrator import SupervisorOrchestrator
 from app.llm.supervisor.short_answers import normalize_short_answer, try_parse_pending_answer
 from app.llm.supervisor.state_merge import merge_state_delta
 
@@ -40,8 +39,6 @@ class SupervisorDecision:
 
 
 class Supervisor:
-    """Compatibility shim for older imports."""
-
     def analyze(
         self,
         user_input: str,

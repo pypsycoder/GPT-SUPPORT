@@ -21,6 +21,10 @@ def test_detects_meta_message():
     assert detect_message_type("спасибо", CurrentState()) == "meta_message"
 
 
+def test_detects_ugu_as_meta_message_without_pending_question():
+    assert detect_message_type("угу", CurrentState(goal="разобраться с самочувствием")) == "meta_message"
+
+
 def test_classifies_health_inform_message():
     result = classify_message("Объясни, почему перед диализом так тревожно", CurrentState())
 

@@ -3,33 +3,152 @@ from __future__ import annotations
 from typing import Any
 
 
-def _as_list(value: Any) -> list:
+def _as_list(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
     return []
 
 
-def _append(items: list[str], text: str | None) -> None:
-    if text:
-        items.append(text)
+def _format_stage(stage: dict[str, Any]) -> str:
+    name = str(stage.get("name") or "unknown")
+    status = str(stage.get("status") or "unknown")
+    latency_ms = stage.get("latency_ms")
+    if latency_ms is None:
+        return f"{name}: {status}."
+    return f"{name}: {status}, {int(latency_ms)} мс."
+
+
+# Узлы intake/delegation умеют собирать карточку без обращения к LLM, когда
+# сессия эксперта уже активна (bypass в nodes.py). Такая диагностика не содержит
+# статистики попыток — без явной строки узел просто пропадал из трейса, и это
+# читалось как «вывод графа отвалился».
+_BYPASS_MARKERS: dict[str, str] = {
+    "synthetic_expert_follow_up": "карточка собрана без вызова LLM (сессия эксперта активна)",
+    "education_close_bypass": "закрытие education-сессии без вызова LLM",
+}
+
+
+def _bypass_reason(llm: dict[str, Any]) -> str | None:
+    for marker, reason in _BYPASS_MARKERS.items():
+        if llm.get(marker):
+            expert = str(llm.get("expert") or "").strip()
+            return f"{reason}, эксперт: {expert}" if expert else reason
+    return None
+
+
+def _append_llm_attempts(items: list[str], label: str, llm: dict[str, Any] | None) -> None:
+    llm = dict(llm or {})
+    if not llm:
+        return
+
+    bypass_reason = _bypass_reason(llm)
+    if bypass_reason:
+        items.append(f"{label}: пропущен — {bypass_reason}.")
+        return
+
+    succeeded_on_attempt = llm.get("succeeded_on_attempt")
+    attempts_total = int(llm.get("attempts_total") or 0)
+    failures = _as_list(llm.get("failures"))
+    retry_count = len(failures)
+
+    if succeeded_on_attempt:
+        items.append(f"{label}: success on attempt {int(succeeded_on_attempt)}.")
+        if retry_count:
+            items.append(f"{label}: retries before success = {retry_count}.")
+    elif llm.get("final_status") == "failed_after_retries":
+        items.append(f"{label} failed after {attempts_total or 3} attempts.")
+
+    for failure in failures:
+        attempt = failure.get("attempt")
+        error_type = str(failure.get("error_type") or "Error").strip()
+        error_message = str(failure.get("error_message") or "").strip()
+        raw_excerpt = str(failure.get("raw_excerpt") or "").strip()
+        line = f"{label} retry"
+        if attempt:
+            line += f" #{attempt}"
+        line += f": {error_type}"
+        if error_message:
+            line += f" - {error_message}"
+        if raw_excerpt:
+            line += f" | raw: {raw_excerpt}"
+        line += "."
+        items.append(line)
 
 
 def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]]:
     diagnostics = diagnostics or {}
     sections: list[dict[str, Any]] = []
 
-    classify = diagnostics.get("classify") or {}
-    classify_items: list[str] = []
-    request_type = classify.get("request_type")
-    if request_type:
-        classify_items.append(f"Оркестратор определил тип сообщения: {request_type}.")
-    domain = classify.get("effective_domain") or classify.get("domain_hint")
-    if domain:
-        classify_items.append(f"Основная тема запроса: {domain}.")
-    if classify.get("red_flags"):
-        classify_items.append("В запросе замечены сигналы безопасности, их проверили отдельно.")
-    if classify_items:
-        sections.append({"title": "Понимание запроса", "items": classify_items})
+    supervisor = diagnostics.get("supervisor") or {}
+    supervisor_items: list[str] = []
+    if supervisor:
+        if supervisor.get("enabled"):
+            message_type = supervisor.get("message_type")
+            if message_type:
+                supervisor_items.append(f"Supervisor определил тип хода: {message_type}.")
+
+            graph_path = _as_list(supervisor.get("graph_path"))
+            if graph_path:
+                supervisor_items.append("Graph path: " + " -> ".join(str(item) for item in graph_path) + ".")
+
+            intake = supervisor.get("intake") or {}
+            intake_card = intake.get("card") or {}
+            _append_llm_attempts(supervisor_items, "Intake analysis", intake.get("llm"))
+            if intake_card.get("problem"):
+                supervisor_items.append(f"Проблема: {intake_card['problem']}.")
+            if intake_card.get("needs_clarification"):
+                supervisor_items.append(f"Нужно уточнение: {intake_card['needs_clarification']}.")
+            if intake_card.get("ready_to_delegate"):
+                supervisor_items.append(f"Готово к передаче: {intake_card['ready_to_delegate']}.")
+
+            delegation = supervisor.get("delegation") or {}
+            delegation_card = delegation.get("card") or {}
+            _append_llm_attempts(supervisor_items, "Delegation analysis", delegation.get("llm"))
+            if delegation_card.get("expert"):
+                supervisor_items.append(f"Эксперт: {delegation_card['expert']}.")
+            if delegation_card.get("task"):
+                supervisor_items.append(f"Задача эксперта: {delegation_card['task']}.")
+
+            expert = supervisor.get("expert") or {}
+            expert_card = expert.get("card") or {}
+            _append_llm_attempts(supervisor_items, "Expert", expert.get("llm"))
+            if expert_card.get("explanation"):
+                supervisor_items.append(f"Объяснение: {expert_card['explanation']}.")
+            if expert_card.get("step_now"):
+                supervisor_items.append(f"Шаг сейчас: {expert_card['step_now']}.")
+            if expert_card.get("cta_label"):
+                supervisor_items.append(f"CTA: {expert_card['cta_label']}.")
+
+            selected_agents = [str(item) for item in _as_list(supervisor.get("selected_agents")) if str(item).strip()]
+            if selected_agents:
+                supervisor_items.append("Подключенные expert-агенты: " + ", ".join(selected_agents) + ".")
+        else:
+            reason = str(supervisor.get("reason") or "disabled")
+            supervisor_items.append(f"Supervisor-path не использовался: {reason}.")
+
+    if supervisor_items:
+        sections.append({"title": "Supervisor", "items": supervisor_items})
+
+    pipeline_items: list[str] = []
+    stages = _as_list(diagnostics.get("stages"))
+    if stages:
+        stage_names = [str(stage.get("name") or "unknown") for stage in stages]
+        if stage_names:
+            pipeline_items.append("Этапы pipeline: " + " -> ".join(stage_names) + ".")
+
+        errors = [stage for stage in stages if str(stage.get("status") or "") == "error"]
+        if errors:
+            pipeline_items.append("На этапе возникла ошибка: " + "; ".join(_format_stage(stage) for stage in errors[:2]))
+
+    response_info = diagnostics.get("response") or {}
+    response_source = str(response_info.get("source") or "").strip()
+    if response_source == "supervisor":
+        pipeline_items.append("Финальный ответ сформирован supervisor graph v2.")
+    elif response_source:
+        pipeline_items.append(f"Финальный ответ сформирован через {response_source}.")
+
+    if pipeline_items:
+        sections.append({"title": "Пайплайн", "items": pipeline_items})
 
     memory = diagnostics.get("memory") or {}
     memory_items: list[str] = []
@@ -38,84 +157,12 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
     lt_count = int(reads.get("lt_count") or 0)
     if st_count or lt_count:
         memory_items.append(f"Прочитано из памяти: ST {st_count}, LT {lt_count}.")
-    continuation = memory.get("continuation") or {}
-    if continuation.get("used"):
-        if continuation.get("session_constraint"):
-            memory_items.append(
-                f"Продолжили предыдущую ветку с учетом ограничения: {continuation['session_constraint']}."
-            )
-        else:
-            memory_items.append("Короткий follow-up был понят как продолжение предыдущей ветки.")
     for item in _as_list(memory.get("proposed_st_entries")):
         key = str(item.get("key") or "").strip()
         value = str(item.get("value") or "").strip()
         if key and value:
             memory_items.append(f"В ST-memory записали: {key} = {value}.")
-    for item in _as_list(memory.get("proposed_lt_entries")):
-        key = str(item.get("key") or "").strip()
-        value = str(item.get("value") or "").strip()
-        if key and value:
-            memory_items.append(f"В LT-memory предложили записать: {key} = {value}.")
     if memory_items:
         sections.append({"title": "Память", "items": memory_items})
-
-    prompt = diagnostics.get("prompt") or {}
-    prompt_items: list[str] = []
-    selected_policy = prompt.get("selected_policy")
-    if selected_policy:
-        prompt_items.append(f"Выбран стиль ответа: {selected_policy}.")
-    policy_reasons = _as_list(prompt.get("policy_reasons"))
-    if policy_reasons:
-        prompt_items.append("Причины выбора: " + ", ".join(str(x) for x in policy_reasons[:4]) + ".")
-    if prompt_items:
-        sections.append({"title": "Политика ответа", "items": prompt_items})
-
-    orchestration = diagnostics.get("orchestration") or {}
-    orchestration_items: list[str] = []
-    if orchestration.get("enabled"):
-        mode = orchestration.get("mode")
-        route = orchestration.get("route") or {}
-        selected_agents = _as_list(route.get("selected_agents"))
-        primary_agent = route.get("primary_agent")
-        if mode:
-            orchestration_items.append(f"Режим оркестрации: {mode}.")
-        if selected_agents:
-            orchestration_items.append(
-                "Подключенные агенты: " + ", ".join(str(x) for x in selected_agents) + "."
-            )
-        if primary_agent:
-            orchestration_items.append(f"Главный агент для ответа: {primary_agent}.")
-        for specialist in _as_list(orchestration.get("specialists")):
-            agent = str(specialist.get("agent") or "").strip()
-            draft = str(specialist.get("draft") or "").strip()
-            actions = _as_list(specialist.get("recommended_actions"))
-            cta_type = str(specialist.get("cta_type") or "").strip()
-            parts: list[str] = []
-            if draft:
-                parts.append(f"черновик: {draft}")
-            if actions:
-                parts.append("действия: " + ", ".join(str(x) for x in actions[:2]))
-            if cta_type and cta_type != "none":
-                parts.append(f"CTA: {cta_type}")
-            if agent and parts:
-                orchestration_items.append(f"Агент {agent}: " + "; ".join(parts) + ".")
-        rewrite = orchestration.get("rewrite") or {}
-        if rewrite.get("applied"):
-            orchestration_items.append("Критик попросил переписать ответ перед финальной отправкой.")
-    if orchestration_items:
-        sections.append({"title": "Агенты", "items": orchestration_items})
-
-    llm_call = diagnostics.get("llm_call") or {}
-    llm_items: list[str] = []
-    if llm_call.get("model"):
-        llm_items.append(f"Модель: {llm_call['model']}.")
-    if llm_call.get("tokens_input") is not None and llm_call.get("tokens_output") is not None:
-        llm_items.append(
-            f"Токены: input {int(llm_call.get('tokens_input') or 0)}, output {int(llm_call.get('tokens_output') or 0)}."
-        )
-    if llm_call.get("latency_ms") is not None:
-        llm_items.append(f"Время вызова модели: {int(llm_call.get('latency_ms') or 0)} мс.")
-    if llm_items:
-        sections.append({"title": "Модель", "items": llm_items})
 
     return sections

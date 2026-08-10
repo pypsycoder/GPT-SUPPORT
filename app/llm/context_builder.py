@@ -15,8 +15,9 @@ from __future__ import annotations
 import logging
 import re
 import time
-from decimal import Decimal
 from datetime import datetime, timedelta
+from decimal import Decimal
+from functools import partial
 
 from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
@@ -329,7 +330,18 @@ async def _build_rag_grounding_items(
 
     from app.education.models import LessonProgress, LessonTest, LessonTestResult, Practice
 
-    lesson_ids = sorted({int(module["lesson_id"]) for module in modules})
+    valid_modules: list[dict[str, object]] = []
+    for module in modules:
+        try:
+            int(module["lesson_id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        valid_modules.append(module)
+
+    if not valid_modules:
+        return []
+
+    lesson_ids = sorted({int(module["lesson_id"]) for module in valid_modules})
 
     progress_result = await db.execute(
         select(LessonProgress).where(
@@ -392,7 +404,7 @@ async def _build_rag_grounding_items(
         }
 
     grounding_items: list[dict[str, object]] = []
-    for index, module in enumerate(modules):
+    for index, module in enumerate(valid_modules):
         lesson_id = int(module["lesson_id"])
         progress = progress_by_lesson_id.get(lesson_id)
         practice = practice_by_lesson_id.get(lesson_id)
@@ -751,13 +763,26 @@ async def _get_last_scale_scores(patient_id: int, db: AsyncSession) -> list[str]
     return lines
 
 
-async def _get_chat_history(patient_id: int, db: AsyncSession) -> list[dict]:
-    """Последние 5 сообщений из llm.chat_messages."""
+DEFAULT_THREAD_ID = "default"
+
+
+async def _get_chat_history(
+    patient_id: int, db: AsyncSession, thread_id: str = DEFAULT_THREAD_ID
+) -> list[dict]:
+    """Последние 5 сообщений треда из llm.chat_messages.
+
+    Фильтр по треду обязателен: история попадает в окно диалога промпта, и без
+    него песочница исследователя подмешивала бы модели продовую переписку
+    пациента из другого треда — и наоборот.
+    """
     from app.models.llm import ChatMessage
 
     result = await db.execute(
         select(ChatMessage)
-        .where(ChatMessage.patient_id == patient_id)
+        .where(
+            ChatMessage.patient_id == patient_id,
+            ChatMessage.thread_id == (thread_id or DEFAULT_THREAD_ID),
+        )
         .order_by(ChatMessage.created_at.desc())
         .limit(5)
     )
@@ -771,14 +796,14 @@ async def _get_chat_history(patient_id: int, db: AsyncSession) -> list[dict]:
 
 
 async def build_context(
-    patient_id: int, db: AsyncSession, query: str = ""
+    patient_id: int, db: AsyncSession, query: str = "", thread_id: str = DEFAULT_THREAD_ID
 ) -> dict:
-    bundle = await build_context_bundle(patient_id, db, query=query)
+    bundle = await build_context_bundle(patient_id, db, query=query, thread_id=thread_id)
     return bundle["context"]
 
 
 async def build_context_bundle(
-    patient_id: int, db: AsyncSession, query: str = ""
+    patient_id: int, db: AsyncSession, query: str = "", thread_id: str = DEFAULT_THREAD_ID
 ) -> dict:
     """
     Собирает данные пациента из БД.
@@ -804,7 +829,7 @@ async def build_context_bundle(
         "recent_water": _get_recent_water,
         "routine_summary": _get_routine_summary,
         "practices_summary": _get_practices_summary,
-        "chat_history": _get_chat_history,
+        "chat_history": partial(_get_chat_history, thread_id=thread_id),
     }
 
     context: dict = {}

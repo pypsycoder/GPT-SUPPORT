@@ -1,0 +1,205 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e4]:
+      - generic [ref=e6]: 🩺 GPT Health Support
+      - generic [ref=e7]:
+        - button "🐛 Bug report" [ref=e8] [cursor=pointer]
+        - button "⚙️" [ref=e9] [cursor=pointer]
+    - generic [ref=e10]:
+      - navigation [ref=e13]:
+        - generic [ref=e14]:
+          - button "Свернуть или развернуть меню" [ref=e15] [cursor=pointer]:
+            - img [ref=e16]
+          - generic [ref=e21]: Мой кабинет
+        - generic [ref=e22]: Навигация
+        - generic [ref=e23]:
+          - button "🏠 Главная Краткий обзор дня" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: 🏠
+            - generic [ref=e26]:
+              - generic [ref=e27]: Главная
+              - generic [ref=e28]: Краткий обзор дня
+          - button "📊 1 Показатели АД, пульс, вес" [ref=e29] [cursor=pointer]:
+            - generic [ref=e30]:
+              - text: 📊
+              - generic: "1"
+            - generic [ref=e31]:
+              - generic [ref=e32]: Показатели
+              - generic [ref=e33]: АД, пульс, вес
+          - button "😴 1 Оценка сна Рутинный трекер сна" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]:
+              - text: 😴
+              - generic: "1"
+            - generic [ref=e36]:
+              - generic [ref=e37]: Оценка сна
+              - generic [ref=e38]: Рутинный трекер сна
+          - button "📅 1 Распорядок дня План и верификация" [ref=e39] [cursor=pointer]:
+            - generic [ref=e40]:
+              - text: 📅
+              - generic: "1"
+            - generic [ref=e41]:
+              - generic [ref=e42]: Распорядок дня
+              - generic [ref=e43]: План и верификация
+          - button "💊 3 Препараты Назначения и приёмы" [ref=e44] [cursor=pointer]:
+            - generic [ref=e45]:
+              - text: 💊
+              - generic: "3"
+            - generic [ref=e46]:
+              - generic [ref=e47]: Препараты
+              - generic [ref=e48]: Назначения и приёмы
+          - button "📈 Шкалы Настроение, приверженность" [ref=e49] [cursor=pointer]:
+            - generic [ref=e50]: 📈
+            - generic [ref=e51]:
+              - generic [ref=e52]: Шкалы
+              - generic [ref=e53]: Настроение, приверженность
+          - button "🎓 9+ Обучение Стресс, копинг и др." [ref=e54] [cursor=pointer]:
+            - generic [ref=e55]:
+              - text: 🎓
+              - generic: 9+
+            - generic [ref=e56]:
+              - generic [ref=e57]: Обучение
+              - generic [ref=e58]: Стресс, копинг и др.
+          - button "🤖 Ассистент Вопросы и поддержка" [ref=e59] [cursor=pointer]:
+            - generic [ref=e60]: 🤖
+            - generic [ref=e61]:
+              - generic [ref=e62]: Ассистент
+              - generic [ref=e63]: Вопросы и поддержка
+          - button "👤 Профиль Личные данные и настройки" [ref=e64] [cursor=pointer]:
+            - generic [ref=e65]: 👤
+            - generic [ref=e66]:
+              - generic [ref=e67]: Профиль
+              - generic [ref=e68]: Личные данные и настройки
+      - main [ref=e69]:
+        - generic [ref=e70]:
+          - generic [ref=e71]: 🏠 Главная
+          - generic [ref=e72]: Краткая сводка за неделю
+        - generic [ref=e74]:
+          - generic [ref=e75] [cursor=pointer]:
+            - generic [ref=e76]:
+              - generic [ref=e77]:
+                - generic [ref=e78]: АД
+                - heading "Артериальное давление" [level=2] [ref=e79]
+              - generic [ref=e80]: 4 мар.
+            - generic [ref=e81]:
+              - generic [ref=e82]: 140 / 90
+              - generic [ref=e83]: За 7 дней
+            - generic [ref=e84]:
+              - img [ref=e86]:
+                - generic "120/80 • 10 февр."
+                - generic "130/90 • 25 февр."
+                - generic "110/70 • 25 февр."
+                - generic "132/92 • 27 февр."
+                - generic "120/80 • 27 февр."
+                - generic "135/85 • 27 февр."
+                - generic "130/80 • 2 мар."
+                - generic "130/90 • 3 мар."
+                - generic "140/90 • 4 мар."
+              - generic [ref=e89]:
+                - generic: "120"
+                - generic: "80"
+          - generic [ref=e90] [cursor=pointer]:
+            - generic [ref=e92]:
+              - generic [ref=e93]: Scales
+              - heading "Психологические шкалы" [level=2] [ref=e94]
+            - combobox [ref=e96]:
+              - option "Шкала тревоги и депрессии HADS" [selected]
+              - option "КОП-25 А1 — Приверженность лечению"
+              - option "Питтсбургский опросник качества сна (PSQI)"
+              - option "Шкала воспринимаемого стресса ШВС-10"
+              - option "Опросник способов совладающего поведения (WCQ, Лазарус)"
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - generic [ref=e99]: "20"
+                - generic [ref=e100]: "Тревога: Пограничная зона (9 баллов), депрессия: Клинически значимые симптомы (11 баллов)"
+              - generic [ref=e101]:
+                - generic "22 • 8 февр." [ref=e102]
+                - generic "27 • 8 февр." [ref=e103]
+                - generic "26 • 8 февр." [ref=e104]
+                - generic "20 • 25 февр." [ref=e105]
+          - generic [ref=e106] [cursor=pointer]:
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - generic [ref=e109]: Пульс
+                - heading "Пульс" [level=2] [ref=e110]
+              - generic [ref=e111]: 4 мар.
+            - generic [ref=e112]:
+              - generic [ref=e113]:
+                - generic [ref=e114]: 76 уд/мин
+                - generic [ref=e115]: Снижение
+              - generic [ref=e116]:
+                - generic "72 • 25 февр." [ref=e117]
+                - generic "85 • 25 февр." [ref=e118]
+                - generic "99 • 27 февр." [ref=e119]
+                - generic "71 • 27 февр." [ref=e120]
+                - generic "72 • 27 февр." [ref=e121]
+                - generic "75 • 3 мар." [ref=e122]
+                - generic "76 • 4 мар." [ref=e123]
+          - generic [ref=e124] [cursor=pointer]:
+            - generic [ref=e125]:
+              - generic [ref=e126]:
+                - generic [ref=e127]: Вес
+                - heading "Вес" [level=2] [ref=e128]
+              - generic [ref=e129]: 4 мар.
+            - generic [ref=e130]:
+              - generic [ref=e131]:
+                - generic [ref=e132]: 65.5 кг
+                - generic [ref=e133]: Стабильно
+              - generic [ref=e134]:
+                - generic "65 • 8 февр." [ref=e135]
+                - generic "65.5 • 9 февр." [ref=e136]
+                - generic "67 • 9 февр." [ref=e137]
+                - generic "65 • 3 мар." [ref=e138]
+                - generic "65.5 • 4 мар." [ref=e139]
+          - generic [ref=e140] [cursor=pointer]:
+            - generic [ref=e141]:
+              - generic [ref=e142]:
+                - generic [ref=e143]: Вода
+                - heading "Вода" [level=2] [ref=e144]
+              - generic [ref=e145]: 4 мар.
+            - generic [ref=e146]:
+              - generic [ref=e147]:
+                - generic [ref=e148]: 0 мл
+                - generic [ref=e149]: Нет данных за сегодня
+              - generic [ref=e150]:
+                - generic "400 мл • 8 февр. (3 порций)" [ref=e152]:
+                  - generic "100 мл" [ref=e153]
+                  - generic "200 мл" [ref=e154]
+                  - generic "100 мл" [ref=e155]
+                - generic "600 мл • 9 февр. (3 порций)" [ref=e157]:
+                  - generic "300 мл" [ref=e158]
+                  - generic "100 мл" [ref=e159]
+                  - generic "200 мл" [ref=e160]
+                - generic "600 мл • 10 февр. (3 порций)" [ref=e162]:
+                  - generic "300 мл" [ref=e163]
+                  - generic "100 мл" [ref=e164]
+                  - generic "200 мл" [ref=e165]
+                - generic "100 мл • 13 февр. (1 порций)" [ref=e167]:
+                  - generic "100 мл" [ref=e168]
+                - generic "350 мл • 25 февр. (2 порций)" [ref=e170]:
+                  - generic "100 мл" [ref=e171]
+                  - generic "250 мл" [ref=e172]
+                - generic "200 мл • 4 мар. (1 порций)" [ref=e174]:
+                  - generic "200 мл" [ref=e175]
+          - generic [ref=e176] [cursor=pointer]:
+            - generic [ref=e178]:
+              - generic [ref=e179]: Edu
+              - heading "Обучение" [level=2] [ref=e180]
+            - generic [ref=e181]:
+              - generic [ref=e185]: 41% завершено
+              - generic [ref=e186]:
+                - generic [ref=e187]: 🧠 Когнитивные способности
+                - generic [ref=e188]: Прочитать урок
+  - dialog "Чат поддержки" [ref=e189]:
+    - generic [ref=e190]:
+      - generic [ref=e191]: 🤖 Поддержка
+      - button "Закрыть чат" [ref=e192] [cursor=pointer]: ×
+    - generic [ref=e194]:
+      - button "Как я себя чувствую" [ref=e195] [cursor=pointer]
+      - button "Сон" [ref=e196] [cursor=pointer]
+      - button "Таблетки" [ref=e197] [cursor=pointer]
+      - button "Давление" [ref=e198] [cursor=pointer]
+      - button "Настроение" [ref=e199] [cursor=pointer]
+    - generic [ref=e200]:
+      - textbox "Сообщение" [ref=e201]:
+        - /placeholder: Напишите сообщение...
+      - button "Отправить" [ref=e202] [cursor=pointer]:
+        - img [ref=e203]

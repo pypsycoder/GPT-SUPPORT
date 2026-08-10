@@ -4,7 +4,8 @@ SQLAlchemy ORM модели для LLM-модуля.
 Схема: llm
 Таблицы:
   - chat_messages        — история сообщений пациента и ассистента
-  - llm_request_logs     — технический лог каждого запроса к GigaChat API
+  - llm_request_logs     — технический лог каждого запроса к GigaChat API (агрегат на ход пайплайна)
+  - llm_call_log         — сырой лог каждого вызова GigaChat API (телеметрия кэша, см. TOKEN_OPTIMIZATION_PLAN)
 """
 
 from __future__ import annotations
@@ -30,6 +31,17 @@ class ChatMessage(Base):
         sa.ForeignKey("users.users.id", ondelete="CASCADE", name="fk_cm_patient_id"),
         nullable=False,
         index=True,
+    )
+
+    thread_id: Mapped[str] = mapped_column(
+        sa.String(64),
+        nullable=False,
+        server_default="default",
+        index=True,
+        comment=(
+            "Тред диалога: 'default' — чат пациента, 'debug-*' — песочница исследователя. "
+            "Окно диалога в промпте собирается только по своему треду"
+        ),
     )
 
     role: Mapped[str] = mapped_column(
@@ -73,6 +85,49 @@ class ChatMessage(Base):
         return (
             f"<ChatMessage id={self.id} patient={self.patient_id} role={self.role}>"
         )
+
+
+class ChatSupervisorState(Base):
+    """Current supervisor state for the single patient chat."""
+
+    __tablename__ = "chat_supervisor_states"
+    __table_args__ = (
+        sa.UniqueConstraint("patient_id", "thread_id", name="uq_css_patient_thread"),
+        {"schema": "llm"},
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+
+    patient_id: Mapped[int] = mapped_column(
+        sa.Integer,
+        sa.ForeignKey("users.users.id", ondelete="CASCADE", name="fk_css_patient_id"),
+        nullable=False,
+        index=True,
+    )
+
+    thread_id: Mapped[str] = mapped_column(
+        sa.String(80),
+        nullable=False,
+        server_default="default",
+    )
+
+    state_json: Mapped[dict] = mapped_column(sa.JSON, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime,
+        nullable=False,
+        server_default=sa.text("NOW()"),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime,
+        nullable=False,
+        server_default=sa.text("NOW()"),
+        onupdate=datetime.utcnow,
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChatSupervisorState id={self.id} patient={self.patient_id} thread={self.thread_id}>"
 
 
 class LLMRequestLog(Base):
@@ -138,4 +193,91 @@ class LLMRequestLog(Base):
         return (
             f"<LLMRequestLog id={self.id} account={self.account_id} "
             f"tier={self.model_tier} success={self.success}>"
+        )
+
+
+class LLMCallLog(Base):
+    """Сырой лог каждого вызова GigaChat API — для расчёта cache_hit и оплачиваемых токенов.
+
+    В отличие от ``LLMRequestLog`` (один агрегат на весь ход пайплайна),
+    здесь одна строка на один фактический HTTP-вызов ``GigaChatClient.call()``.
+    """
+
+    __tablename__ = "llm_call_log"
+    __table_args__ = {"schema": "llm"}
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+
+    patient_id: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        sa.ForeignKey("users.users.id", ondelete="SET NULL", name="fk_lcl_patient_id"),
+        nullable=True,
+    )
+
+    step: Mapped[str | None] = mapped_column(
+        sa.String(40),
+        nullable=True,
+        comment="parser | supervisor | router | summarizer | ...",
+    )
+
+    session_key: Mapped[str | None] = mapped_column(
+        sa.String(120),
+        nullable=True,
+        comment="Значение заголовка X-Session-ID: f'p{patient_id}-{thread_id}'",
+    )
+
+    prefix_fp: Mapped[str | None] = mapped_column(
+        sa.String(32),
+        nullable=True,
+        comment=(
+            "PromptLayers.prefix_fingerprint() — отпечаток стабильной части промпта "
+            "(system+profile+summary). Меняется чаще ожидаемого = утечка в префикс"
+        ),
+    )
+
+    account_id: Mapped[str] = mapped_column(sa.String(20), nullable=False)
+
+    model: Mapped[str] = mapped_column(sa.String(60), nullable=False)
+
+    prompt_tokens: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default="0"
+    )
+
+    completion_tokens: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default="0"
+    )
+
+    precached_tokens: Mapped[int] = mapped_column(
+        sa.Integer,
+        nullable=False,
+        server_default="0",
+        comment="usage.precached_prompt_tokens — токены, взятые из серверного кэша GigaChat",
+    )
+
+    total_tokens: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default="0"
+    )
+
+    latency_ms: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default="0"
+    )
+
+    finish_reason: Mapped[str | None] = mapped_column(sa.String(40), nullable=True)
+
+    ok: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default="true"
+    )
+
+    error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime,
+        nullable=False,
+        server_default=sa.text("NOW()"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<LLMCallLog id={self.id} account={self.account_id} step={self.step} "
+            f"precached={self.precached_tokens}>"
         )

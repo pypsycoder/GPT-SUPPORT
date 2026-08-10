@@ -1,22 +1,15 @@
 """
-LLM Pipeline - модульная архитектура для обработки запросов.
+Current LLM pipeline exports.
 
-Разбивает монолитную generate_response() на независимые stages:
-1. Safety & Classification
-2. Context & Memory
-3. Intake & Clarification
-4. Orchestration
-5. Validation & Rewrite
-6. Memory Write
+Runtime path:
+1. Boundary Guard
+2. Classification
+3. Supervisor Graph v2
+4. Memory Write
 """
 
-from app.llm.pipeline.types import (
-    LLMRequest,
-    LLMResponse,
-    PipelineContext,
-    PipelineStage,
-)
 from app.llm.pipeline.pipeline import LLMPipeline
+from app.llm.pipeline.types import LLMRequest, LLMResponse, PipelineContext, PipelineStage
 
 __all__ = [
     "LLMRequest",

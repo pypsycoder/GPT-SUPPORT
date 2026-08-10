@@ -2,6 +2,7 @@
 
 import json
 
+from app.llm.langgraph_supervisor.models import EducationExpertCard
 from app.llm.supervisor import CurrentState, ExpertResult, ExpertTask, PendingQuestion, SupervisorTurnResult
 
 
@@ -19,15 +20,20 @@ def test_current_state_roundtrip_is_json_compatible():
             question_text="Насколько тяжело сейчас по шкале от 0 до 10?",
             expected_kind="scale_0_10",
             attempts=1,
+            reason="distress_scale",
         ),
         last_selected_agents=["emotional_support"],
         needs_clarification=True,
+        clarification_streak=2,
+        last_clarification_reason="generic_distress",
+        last_goal_status="resolved",
     )
 
     payload = state.to_dict()
     dumped = json.dumps(payload, ensure_ascii=False)
 
     assert "before_dialysis" in dumped
+    assert '"clarification_streak": 2' in dumped
     assert CurrentState.from_dict(payload).to_dict() == payload
 
 
@@ -47,7 +53,7 @@ def test_expert_models_roundtrip():
     )
     turn = SupervisorTurnResult(
         reply="Сделай один шаг.",
-        state_delta={"goal": "получить следующий шаг"},
+        state_delta={"goal_set": "получить следующий шаг"},
         updated_state=CurrentState(goal="получить следующий шаг"),
         message_type="full_message",
         selected_agents=["planning"],
@@ -59,3 +65,15 @@ def test_expert_models_roundtrip():
     assert ExpertTask.from_dict(task.to_dict()).to_dict() == task.to_dict()
     assert ExpertResult.from_dict(result.to_dict()).to_dict() == result.to_dict()
     assert SupervisorTurnResult.from_dict(turn.to_dict()).to_dict() == turn.to_dict()
+
+
+def test_education_expert_card_roundtrip():
+    card = EducationExpertCard(
+        explanation="Короткое объяснение.",
+        cta_type="lesson",
+        cta_label="Понятный урок",
+        cta_target={"lesson_id": 5, "lesson_code": "05_simple_lesson"},
+        rationale="Есть прямой локальный материал.",
+    )
+
+    assert EducationExpertCard.from_dict(card.to_dict()).to_dict() == card.to_dict()

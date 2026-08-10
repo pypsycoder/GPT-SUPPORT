@@ -8,7 +8,6 @@ from typing import Any
 from app.llm.supervisor.models import CurrentState
 
 
-# merge_state_delta
 def merge_state_delta(current_state: CurrentState, delta: dict[str, Any] | None) -> CurrentState:
     payload = current_state.to_dict()
 

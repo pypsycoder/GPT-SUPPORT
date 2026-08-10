@@ -58,6 +58,26 @@ async def _run_proactive_job() -> None:
     await asyncio.gather(*(_process(pid) for pid in patient_ids))
 
 
+async def _run_motivator_job() -> None:
+    from app.llm.motivator import deliver_motivator_messages
+    from core.db.engine import async_session_maker
+
+    patient_ids = await _get_active_patient_ids()
+    logger.info("[scheduler] motivator job: %d patients", len(patient_ids))
+
+    sem = asyncio.Semaphore(_CONCURRENCY)
+
+    async def _process(patient_id: int) -> None:
+        async with sem:
+            async with async_session_maker() as db:
+                try:
+                    await deliver_motivator_messages(patient_id, db)
+                except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
+                    logger.error("[scheduler] motivator patient=%d failed: %s", patient_id, exc)
+
+    await asyncio.gather(*(_process(pid) for pid in patient_ids))
+
+
 async def _run_morning_job() -> None:
     from app.llm.morning_service import deliver_morning_message
     from core.db.engine import async_session_maker
@@ -114,6 +134,14 @@ def start_scheduler() -> None:
         hour=20,
         minute=0,
         id="proactive_evening",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _run_motivator_job,
+        trigger="cron",
+        hour=19,
+        minute=0,
+        id="motivator_check",
         replace_existing=True,
     )
     _scheduler.start()

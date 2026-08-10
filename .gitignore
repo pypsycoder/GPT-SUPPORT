@@ -94,8 +94,4 @@ instance/
 config.yaml
 settings_local.py
 nul
-
-# 📈 LLM evaluation artifacts
-LLM_test/reports/*.xlsx
-LLM_test/reports/*.json
-LLM_test/reports/*.md
+LLM_test/

@@ -1,83 +1,268 @@
-"""Tests for pipeline integration with the stateful supervisor MVP."""
-
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
-from app.llm.agent_v2 import generate_response_v2
-from app.llm.pipeline import LLMPipeline, LLMRequest
+from app.llm.langgraph_supervisor import engine as graph_engine
+from app.llm.langgraph_supervisor.models import (
+    BinaryChoice,
+    DelegationCard,
+    DelegationExpert,
+    EducationExpertCard,
+    EmotionalExpertCard,
+    IntakeCard,
+)
+from app.llm.pipeline.pipeline import LLMPipeline
+from app.llm.pipeline.types import LLMRequest
 from app.llm.router import ModelTier, RequestType, RouterResult
+from app.llm.supervisor.models import CurrentState
+
+
+@pytest.fixture(autouse=True)
+def _disable_compiled_graph(monkeypatch):
+    monkeypatch.setattr(graph_engine, "_COMPILED_GRAPH", False)
 
 
 @pytest.mark.asyncio
-async def test_pipeline_returns_supervisor_response_for_normal_text():
-    pipeline = LLMPipeline()
-    request = LLMRequest(
-        patient_id=1,
-        user_input="Что делать перед диализом, мне тревожно",
-        source="text",
-        db=None,
+async def test_pipeline_greeting_opens_intake_without_legacy_router_fields(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            IntakeCard(
+                problem="не обозначена",
+                context="пользователь начал разговор",
+                needs_clarification=BinaryChoice.YES,
+                question="Что хотел бы обсудить?",
+                ready_to_delegate=BinaryChoice.NO,
+                rationale="Нужен открывающий вопрос.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+
+    response = await LLMPipeline().process(
+        LLMRequest(
+            patient_id=1,
+            user_input="привет",
+            source="text",
+        )
     )
 
-    response = await pipeline.process(request)
-
-    assert response.response
-    assert response.account_id == "SUPERVISOR"
-    assert response.supervisor_state is not None
-    assert response.supervisor_state_delta
-    assert response.diagnostics["supervisor"]["enabled"] is True
-    assert response.diagnostics["patient_context"]["skipped"] is True
-    assert response.diagnostics["orchestration"]["skipped"] is True
+    assert response.response == "Привет. Что хотел бы обсудить?"
+    assert response.supervisor_state["pending_question"]["question_text"] == "Что хотел бы обсудить?"
+    assert response.supervisor_state["needs_clarification"] is True
+    assert response.diagnostics["supervisor"]["intake"]["card"]["problem"] == "не обозначена"
+    assert [stage["name"] for stage in response.diagnostics["stages"]] == [
+        "boundary_guard",
+        "classification",
+        "supervisor",
+        "memory_write",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_pipeline_handles_pending_question_short_answer():
-    pipeline = LLMPipeline()
-    request = LLMRequest(
-        patient_id=1,
-        user_input="7",
-        source="text",
-        supervisor_state={
-            "domain": "health",
-            "intent": "support",
-            "goal": "получить поддержку",
-            "pending_question": {
-                "slot_name": "distress_level",
-                "question_text": "Насколько тяжело сейчас по шкале от 0 до 10?",
-                "expected_kind": "scale_0_10",
-                "attempts": 1,
-            },
-        },
-        db=None,
+async def test_pipeline_negative_affect_asks_single_question_without_coping(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            IntakeCard(
+                problem="грусть",
+                context="причина пока не названа",
+                needs_clarification=BinaryChoice.YES,
+                question="От чего тебе грустно?",
+                ready_to_delegate=BinaryChoice.NO,
+                rationale="Нужен один уточняющий вопрос.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+
+    response = await LLMPipeline().process(
+        LLMRequest(
+            patient_id=1,
+            user_input="мне грустно",
+            source="text",
+        )
     )
 
-    response = await pipeline.process(request)
+    assert response.response == "Сочувствую. От чего тебе грустно?"
+    assert "вдох" not in response.response.lower()
+    assert "выдох" not in response.response.lower()
+    assert response.supervisor_state["pending_question"]["question_text"] == "От чего тебе грустно?"
 
-    assert response.supervisor_state["slots"]["distress_level"] == 7
+
+@pytest.mark.asyncio
+async def test_pipeline_uses_emotional_expert_after_delegation(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            IntakeCard(
+                problem="страх перед диализом",
+                context="предстоящий диализ",
+                needs_clarification=BinaryChoice.NO,
+                question="нет",
+                ready_to_delegate=BinaryChoice.YES,
+                rationale="Контекста уже достаточно.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    async def fake_extract_delegation_card(state):
+        return (
+            DelegationCard(
+                expert=DelegationExpert.EMOTIONAL_SUPPORT,
+                task="помочь справиться со страхом перед процедурой",
+                rationale="Нужна эмоциональная поддержка.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    async def fake_extract_expert_card(state):
+        return (
+            EmotionalExpertCard(
+                support="Я рядом.",
+                step_now="Попробуй назвать, что в предстоящем диализе пугает сильнее всего.",
+                follow_up="нет",
+                needs_more_info=BinaryChoice.NO,
+                rationale="Сначала поддержка, потом один шаг.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_delegation_card", fake_extract_delegation_card)
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_emotional_expert_card", fake_extract_expert_card)
+
+    response = await LLMPipeline().process(
+        LLMRequest(
+            patient_id=1,
+            user_input="боюсь диализа",
+            source="text",
+            supervisor_state=CurrentState().to_dict(),
+        )
+    )
+
+    assert response.response == "Я рядом. Попробуй назвать, что в предстоящем диализе пугает сильнее всего."
     assert response.supervisor_state["pending_question"] is None
-    assert response.diagnostics["supervisor"]["used_pending_answer"] is True
+    assert response.supervisor_state["last_selected_agents"] == ["emotional_support"]
+    assert response.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "эмоциональная_поддержка"
+    assert response.diagnostics["supervisor"]["expert"]["card"]["support"] == "Я рядом."
 
 
 @pytest.mark.asyncio
-async def test_generate_response_v2_preserves_old_contract_and_exposes_state():
-    db = AsyncMock()
-    db.add = MagicMock()
-    db.flush = AsyncMock()
+async def test_pipeline_uses_education_expert_after_delegation(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            IntakeCard(
+                problem="не понимаю, почему после диализа такая слабость",
+                context="после диализа бывает слабость, пользователь хочет понять, что это может значить",
+                needs_clarification=BinaryChoice.NO,
+                question="нет",
+                ready_to_delegate=BinaryChoice.YES,
+                rationale="Контекста достаточно для передачи дальше.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
 
-    result = await generate_response_v2(
-        patient_id=1,
-        user_input="Мне очень тяжело",
-        router_result=RouterResult(
-            request_type=RequestType.SIMPLE,
-            model_tier=ModelTier.PRO,
-            domain_hint=None,
-            priority=1,
-        ),
-        context={"source": "text"},
-        db=db,
+    async def fake_extract_delegation_card(state):
+        return (
+            DelegationCard(
+                expert=DelegationExpert.EDUCATION,
+                task="коротко объяснить тему простыми словами и предложить релевантный урок",
+                rationale="Есть локальный educational grounding и явный запрос на объяснение.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    async def fake_extract_education_card(state):
+        return (
+            EducationExpertCard(
+                explanation="После диализа слабость может ощущаться сильнее из-за самой нагрузки процедуры и восстановления после нее.",
+                cta_type="lesson",
+                cta_label="Слабость после диализа",
+                cta_target={"lesson_id": 7, "lesson_code": "07_post_dialysis_fatigue"},
+                rationale="Есть прямой lesson match в локальном контенте.",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_delegation_card", fake_extract_delegation_card)
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_education_expert_card", fake_extract_education_card)
+
+    response = await LLMPipeline().process(
+        LLMRequest(
+            patient_id=1,
+            user_input="объясни, почему после диализа такая слабость",
+            source="text",
+            supervisor_state=CurrentState().to_dict(),
+        )
     )
 
-    assert "response" in result
-    assert "supervisor_state" in result
-    assert "supervisor_state_delta" in result
-    assert result["account_id"] == "SUPERVISOR"
+    assert response.response == (
+        "После диализа слабость может ощущаться сильнее из-за самой нагрузки процедуры и восстановления после нее. "
+        "Если хочешь, можно посмотреть урок «Слабость после диализа»."
+    )
+    assert response.supervisor_state["pending_question"] is None
+    assert response.supervisor_state["last_selected_agents"] == ["education"]
+    assert response.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "education"
+    assert response.diagnostics["supervisor"]["expert"]["card"]["cta_target"]["lesson_code"] == "07_post_dialysis_fatigue"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_raises_if_intake_analysis_fails_after_retries(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            None,
+            {
+                "attempts_total": 3,
+                "succeeded_on_attempt": None,
+                "final_status": "failed_after_retries",
+                "failures": [{"attempt": 1, "error_message": "missing required fields"}],
+            },
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+
+    with pytest.raises(Exception) as exc_info:
+        await LLMPipeline().process(
+            LLMRequest(
+                patient_id=1,
+                user_input="мне тревожно",
+                source="text",
+            )
+        )
+
+    assert "supervisor intake analysis failed after 3 attempts" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_pipeline_keeps_safety_requests_on_current_runtime(monkeypatch):
+    async def fake_extract_intake_card(state):
+        return (
+            IntakeCard(
+                problem="кризис",
+                context="пользователь говорит, что ему очень плохо",
+                needs_clarification=BinaryChoice.NO,
+                question="нет",
+                ready_to_delegate=BinaryChoice.NO,
+                rationale="нужно завершить ответом без уточнений",
+            ),
+            {"final_status": "success", "succeeded_on_attempt": 1},
+        )
+
+    monkeypatch.setattr("app.llm.langgraph_supervisor.nodes.extract_intake_card", fake_extract_intake_card)
+
+    response = await LLMPipeline().process(
+        LLMRequest(
+            patient_id=1,
+            user_input="мне очень плохо",
+            source="text",
+            router_result=RouterResult(
+                request_type=RequestType.SAFETY,
+                model_tier=ModelTier.PRO,
+                domain_hint="emotion",
+                priority=3,
+            ),
+        )
+    )
+
+    assert response.response.startswith("Я рядом.")
+    assert "8-800-2000-122" in response.response
+    assert response.diagnostics["supervisor"]["request_type"] == "safety"
