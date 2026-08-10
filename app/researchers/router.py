@@ -531,6 +531,7 @@ async def researcher_chat_debug_message(
                 strict_model_tier=bool(body.forced_model_tier),
                 db=session,
                 patient_gender=str(patient.gender).strip() if patient.gender else None,
+                thread_id=thread_id,
             )
         )
     except LLMConfigurationError as exc:
@@ -591,6 +592,7 @@ async def researcher_chat_debug_message(
         session.add(
             ChatMessage(
                 patient_id=body.patient_id,
+                thread_id=thread_id,
                 role="user",
                 content=body.message,
                 tokens_used=0,
@@ -602,6 +604,7 @@ async def researcher_chat_debug_message(
         session.add(
             ChatMessage(
                 patient_id=body.patient_id,
+                thread_id=thread_id,
                 role="assistant",
                 content=llm_response.response,
                 tokens_used=llm_response.tokens_input + llm_response.tokens_output,

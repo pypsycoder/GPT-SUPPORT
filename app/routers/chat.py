@@ -162,6 +162,7 @@ async def send_message(
             supervisor_state=supervisor_state,
             router_result=router_result,
             db=db,
+            thread_id=_DEFAULT_THREAD_ID,
         )
     )
     tokens_total = llm_response.tokens_input + llm_response.tokens_output
@@ -169,6 +170,7 @@ async def send_message(
     db.add(
         ChatMessage(
             patient_id=body.patient_id,
+            thread_id=_DEFAULT_THREAD_ID,
             role="user",
             content=body.message,
             tokens_used=0,
@@ -180,6 +182,7 @@ async def send_message(
     db.add(
         ChatMessage(
             patient_id=body.patient_id,
+            thread_id=_DEFAULT_THREAD_ID,
             role="assistant",
             content=llm_response.response,
             tokens_used=tokens_total,

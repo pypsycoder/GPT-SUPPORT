@@ -2,6 +2,7 @@ import pytest
 
 from app.llm.langgraph_supervisor.models import BinaryChoice, DelegationCard, DelegationExpert, FirstModuleState, IntakeCard
 from app.llm.langgraph_supervisor.policy import (
+    LLMCallResult,
     build_delegation_user_prompt,
     build_emotional_expert_system_prompt,
     build_emotional_expert_user_prompt,
@@ -102,12 +103,15 @@ def test_delegation_prompt_mentions_local_education_grounding():
 @pytest.mark.asyncio
 async def test_extract_delegation_card_rejects_education_without_grounding(monkeypatch):
     async def fake_call_structured_llm(**kwargs):
-        return (
-            "Эксперт: education\nЗадача: коротко объяснить тему\nОбоснование: нужен educational expert",
-            "A1",
-            10,
-            5,
-            20,
+        return LLMCallResult(
+            raw_text=(
+                "Эксперт: education\nЗадача: коротко объяснить тему\n"
+                "Обоснование: нужен educational expert"
+            ),
+            account_id="A1",
+            tokens_in=10,
+            tokens_out=5,
+            latency_ms=20,
         )
 
     monkeypatch.setattr("app.llm.langgraph_supervisor.policy._MAX_ATTEMPTS", 1)

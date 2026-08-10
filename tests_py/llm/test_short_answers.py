@@ -1,7 +1,13 @@
 """Tests for short answer handling."""
 
+import pytest
+
 from app.llm.supervisor import PendingQuestion, try_parse_pending_answer
-from app.llm.supervisor.short_answers import is_unknown_reason_answer, normalize_short_answer
+from app.llm.supervisor.short_answers import (
+    is_education_neutral_ack,
+    is_unknown_reason_answer,
+    normalize_short_answer,
+)
 
 
 def test_normalize_short_answer_cases():
@@ -71,3 +77,22 @@ def test_try_parse_pending_answer_accepts_free_text():
     assert parsed["slot_name"] == "goal"
     assert parsed["slot_value"] == "предстоящий диализ"
     assert parsed["answer_kind"] == "free_text"
+
+
+@pytest.mark.parametrize("text", ["круто", "супер", "класс", "Отлично!", "здорово", "хорошо"])
+def test_approving_reactions_count_as_neutral_ack(text):
+    """Одобрение без запроса продолжения закрывает education-сессию."""
+    assert is_education_neutral_ack(text) is True
+
+
+@pytest.mark.parametrize("text", ["понятно", "ясно", "ок", "понял спасибо"])
+def test_existing_neutral_acks_still_work(text):
+    assert is_education_neutral_ack(text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["а что ещё?", "расскажи больше", "круто, а что с калием?", "не понял", "почему так"],
+)
+def test_requests_to_continue_are_not_neutral_acks(text):
+    assert is_education_neutral_ack(text) is False

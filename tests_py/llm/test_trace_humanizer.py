@@ -141,3 +141,61 @@ def test_human_trace_shows_education_expert_details():
     assert "Эксперт: education." in supervisor_section["items"]
     assert "Объяснение: Слабость после диализа может ощущаться заметнее в день процедуры.." in supervisor_section["items"]
     assert "CTA: Слабость после диализа." in supervisor_section["items"]
+
+
+def _supervisor_items(supervisor: dict) -> list[str]:
+    trace = build_human_trace({"supervisor": supervisor})
+    return next(section for section in trace if section["title"] == "Supervisor")["items"]
+
+
+def test_human_trace_reports_education_bypass_instead_of_silence():
+    """Bypass-узлы не вызывают LLM — раньше они молча пропадали из трейса."""
+    items = _supervisor_items(
+        {
+            "enabled": True,
+            "message_type": "full_message",
+            "graph_path": ["intake_analyze", "delegation_analyze", "invoke_education_expert"],
+            "intake": {
+                "card": {"problem": "постоянная усталость"},
+                "llm": {"synthetic_expert_follow_up": True, "expert": "education"},
+            },
+            "delegation": {
+                "card": {"expert": "education", "task": "ответить на уточняющий вопрос"},
+                "llm": {"synthetic_expert_follow_up": True, "expert": "education"},
+            },
+            "expert": {"card": {"explanation": "Усталость частое явление"}, "llm": {"succeeded_on_attempt": 1}},
+        }
+    )
+
+    assert "Intake analysis: пропущен — карточка собрана без вызова LLM (сессия эксперта активна), эксперт: education." in items
+    assert "Delegation analysis: пропущен — карточка собрана без вызова LLM (сессия эксперта активна), эксперт: education." in items
+    assert "Expert: success on attempt 1." in items
+
+
+def test_human_trace_reports_education_close_bypass():
+    items = _supervisor_items(
+        {
+            "enabled": True,
+            "intake": {"card": {}, "llm": {"education_close_bypass": True}},
+        }
+    )
+
+    assert "Intake analysis: пропущен — закрытие education-сессии без вызова LLM." in items
+
+
+def test_human_trace_keeps_attempt_lines_for_real_llm_calls():
+    items = _supervisor_items(
+        {
+            "enabled": True,
+            "intake": {
+                "card": {},
+                "llm": {
+                    "succeeded_on_attempt": 2,
+                    "failures": [{"attempt": 1, "error_type": "ValueError", "error_message": "missing field"}],
+                },
+            },
+        }
+    )
+
+    assert "Intake analysis: success on attempt 2." in items
+    assert "Intake analysis: retries before success = 1." in items

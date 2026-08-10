@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
-from app.llm.errors import LLMConfigurationError
+from pydantic import BaseModel
+
+from app.llm.errors import LLMConfigurationError, LLMResponseError
 
 logger = logging.getLogger("gpt-support-llm.expert")
+from app.llm.langgraph_supervisor import schemas
 from app.llm.langgraph_supervisor.models import (
     BinaryChoice,
     DelegationCard,
@@ -20,6 +24,7 @@ from app.llm.langgraph_supervisor.models import (
     FirstModuleState,
     IntakeCard,
 )
+from app.llm import prompt_assembly, structured
 from app.llm.pool import pool
 from app.llm.supervisor.short_answers import is_education_confused
 from app.llm.technique_library import (
@@ -158,6 +163,8 @@ def _build_step_diagnostics(
     tokens_input: int,
     tokens_output: int,
     latency_ms: int,
+    parse_mode: str = "field_block",
+    repair_attempts: int = 0,
 ) -> dict[str, Any]:
     return {
         "attempts_total": attempts_total,
@@ -169,6 +176,10 @@ def _build_step_diagnostics(
         "tokens_input": tokens_input,
         "tokens_output": tokens_output,
         "latency_ms": latency_ms,
+        # parse_mode: field_block (легаси) | structured (response_format json_schema).
+        # repair_attempts — счётчик починок схемы, целевая доля < 2% вызовов.
+        "parse_mode": parse_mode,
+        "repair_attempts": repair_attempts,
     }
 
 
@@ -188,6 +199,33 @@ def _current_goal_text(state: FirstModuleState) -> str:
 def _active_intake_context_text(state: FirstModuleState) -> str:
     text = str(state.current_state.slots.get("intake_context") or "").strip()
     return text or "нет"
+
+
+def _structured_mode(model_tier: str | None = None) -> bool:
+    """Отдаёт ли модель карточку JSON-ом по схеме вместо строк «поле: значение».
+
+    Без тира отвечает только по флагу окружения — так системные промпты можно
+    собирать и проверять в отрыве от пула. С тиром учитывает, держит ли модель
+    схему вообще (см. ``structured.UNSUPPORTED_TIERS``).
+    """
+    if model_tier is None:
+        return structured.structured_enabled()
+    return structured.structured_enabled_for_tier(model_tier)
+
+
+def _json_format_instruction(field_names: str) -> str:
+    """Формат-блок для структурного режима.
+
+    Схема уже гарантирует состав полей и допустимые значения, поэтому здесь
+    остаётся только напомнить про порядок и запрет пояснений.
+    """
+    return (
+        "Верни ОДИН JSON-объект строго по переданной схеме, без markdown и без пояснений.\n"
+        f"Ключи объекта: {field_names}.\n"
+        "Все ключи обязательны. Значения — строками на русском языке.\n"
+        "Строки ниже вида «Поле: <...>» описывают НАЗНАЧЕНИЕ полей, а не формат вывода — "
+        "выводи их как значения ключей JSON.\n"
+    )
 
 
 def _build_intake_retry_instruction(previous_error: str | None) -> str:
@@ -211,7 +249,11 @@ def _build_intake_retry_instruction(previous_error: str | None) -> str:
     )
 
 
-def build_intake_system_prompt(previous_error: str | None = None) -> str:
+def build_intake_system_prompt(
+    previous_error: str | None = None,
+    *,
+    model_tier: str | None = None,
+) -> str:
     return (
         "Роль: Ты intake-узел русскоязычного бота поддержки пациента.\n"
         "Твоя задача:\n"
@@ -233,16 +275,24 @@ def build_intake_system_prompt(previous_error: str | None = None) -> str:
         "ОБЯЗАТЕЛЬНОЕ ПРАВИЛО: если запрос является явным фактическим вопросом о питании, диализе, лекарствах, симптомах, активности или любой медицинской теме — ставь Готово к передаче: да немедленно. Не задавай уточняющих вопросов по фактическим запросам.\n"
         "Эксперт всегда может уточнить детали сам. Не держи пациента в фазе сбора контекста дольше необходимого.\n"
         "Ты не даешь coping, не даешь советы по существу, не выбираешь эксперта и не оказываешь поддержку.\n"
-        "Верни только карточку, одно поле в строке, без JSON и без пояснений.\n"
-        "Строк РОВНО 6 — не останавливайся после 4-й. Поле 'Обоснование' — последнее, шестое, оно обязательно.\n"
-        "Строго соблюдай этот порядок строк:\n"
-        "Проблема: ...\n"
-        "Контекст: ...\n"
-        "Готово к передаче: ...\n"
-        "Нужно уточнение: ...\n"
-        "Вопрос: ...\n"
-        "Обоснование: ...\n"
-        "Поля:\n"
+        + (
+            _json_format_instruction(
+                "Проблема, Контекст, Готово к передаче, Нужно уточнение, Вопрос, Обоснование"
+            )
+            if _structured_mode(model_tier)
+            else (
+                "Верни только карточку, одно поле в строке, без JSON и без пояснений.\n"
+                "Строк РОВНО 6 — не останавливайся после 4-й. Поле 'Обоснование' — последнее, шестое, оно обязательно.\n"
+                "Строго соблюдай этот порядок строк:\n"
+                "Проблема: ...\n"
+                "Контекст: ...\n"
+                "Готово к передаче: ...\n"
+                "Нужно уточнение: ...\n"
+                "Вопрос: ...\n"
+                "Обоснование: ...\n"
+            )
+        )
+        + "Поля:\n"
         "Проблема: <кратко или 'не обозначена'>\n"
         "Контекст: <собери 2-3 коротких утверждения (только факты и обстоятельства), полезные для передачи дальше эксперту, или 'контекст пока не раскрыт'>\n"
         "Готово к передаче: <да|нет>\n"
@@ -353,14 +403,22 @@ def _build_delegation_retry_instruction(previous_error: str | None) -> str:
     )
 
 
-def build_delegation_system_prompt(previous_error: str | None = None) -> str:
+def build_delegation_system_prompt(
+    previous_error: str | None = None,
+    *,
+    model_tier: str | None = None,
+) -> str:
     return (
         "Ты delegation-узел русскоязычного бота поддержки пациента.\n"
         "Тебе уже переданы проблема и контекст. "
         "Твоя задача: выбрать одного эксперта и кратко сформулировать задачу для него.\n"
         "Не задавай вопрос пользователю и не давай помощь по существу.\n"
-        "Верни только карточку, одно поле в строке:\n"
-        "Эксперт: <эмоциональная_поддержка|education>\n"
+        + (
+            _json_format_instruction("Эксперт, Задача, Обоснование")
+            if _structured_mode(model_tier)
+            else "Верни только карточку, одно поле в строке:\n"
+        )
+        + "Эксперт: <эмоциональная_поддержка|education>\n"
         "Задача: <что должен сделать эксперт>\n"
         "Обоснование: <одна короткая строка>\n"
         "Выбирай education, только если есть локальный educational grounding и запрос требует короткого объяснения по теме.\n"
@@ -438,7 +496,11 @@ def _build_expert_retry_instruction(previous_error: str | None) -> str:
     )
 
 
-def build_emotional_expert_system_prompt(previous_error: str | None = None) -> str:
+def build_emotional_expert_system_prompt(
+    previous_error: str | None = None,
+    *,
+    model_tier: str | None = None,
+) -> str:
     return (
         "Ты эксперт эмоциональной поддержки пациента на гемодиализе. "
         "Только психологическая помощь — без медицинских оценок, советов и направлений к врачу.\n"
@@ -523,8 +585,16 @@ def build_emotional_expert_system_prompt(previous_error: str | None = None) -> s
         "\n"
         "Если сейчас уже активна ветка (СТАТУС ВЕТКИ в промпте): продолжи или закрой её, не открывай новую.\n"
         "\n"
-        "## Формат — 11 строк строго в этом порядке, без JSON\n"
-        "Поддержка: <3–5 слов>\n"
+        + (
+            "## Формат — JSON по схеме\n"
+            + _json_format_instruction(
+                "Поддержка, Оценка, Стратегия, Режим, Шаг сейчас, Вопрос пациенту, "
+                "Ветка, Тип ветки, Возврат к протоколу, План на следующий ход, Обоснование"
+            )
+            if _structured_mode(model_tier)
+            else "## Формат — 11 строк строго в этом порядке, без JSON\n"
+        )
+        + "Поддержка: <3–5 слов>\n"
         "Оценка: хорошо | частично | не_помогло | нет_данных\n"
         "Стратегия: углубить | сменить_подход | завершить | продолжить\n"
         "Режим: уточнить | интервенция\n"
@@ -795,7 +865,11 @@ def _build_education_retry_instruction(previous_error: str | None) -> str:
     )
 
 
-def build_education_expert_system_prompt(previous_error: str | None = None) -> str:
+def build_education_expert_system_prompt(
+    previous_error: str | None = None,
+    *,
+    model_tier: str | None = None,
+) -> str:
     return (
         "Ты education-эксперт в русскоязычном боте поддержки пациента на диализе.\n"
         "Твоя задача: дать содержательный, понятный ответ на вопрос пациента, строго опираясь только на переданные локальные образовательные фрагменты.\n"
@@ -804,9 +878,17 @@ def build_education_expert_system_prompt(previous_error: str | None = None) -> s
         "Если пациент, вероятно, хочет узнать больше по смежной теме — предложи один вопрос как ПРИГЛАШЕНИЕ рассказать больше: «Хочешь узнать, что можно есть вместо?», «Интересно ли тебе, почему именно калий важен при диализе?».\n"
         "ЗАПРЕТ: не задавай quiz-вопросы, которые проверяют знания пациента («Что является альтернативой?», «Что ты знаешь о...?», «Какой продукт...?»). Вопрос — это предложение рассказать больше, а не тест.\n"
         "Если есть подходящий урок — мягко предложи его как следующий шаг.\n"
-        "Верни только карточку ровно из 7 строк, одно поле в строке, без JSON и без пояснений.\n"
-        "НАЧИНАЙ ОТВЕТ НЕМЕДЛЕННО с «Ответ:» — никакого вводного текста перед карточкой.\n"
-        "ПРАВИЛО подтверждённого интереса: если задача или пользовательский промпт содержат «⚠️ ВАЖНО» или «пациент подтвердил интерес» — ответь на указанный вопрос развёрнуто, поле «Вопрос» = нет.\n"
+        + (
+            _json_format_instruction(
+                "Ответ, Вопрос, CTA тип, CTA заголовок, CTA lesson_code, План, Обоснование"
+            )
+            if _structured_mode(model_tier)
+            else (
+                "Верни только карточку ровно из 7 строк, одно поле в строке, без JSON и без пояснений.\n"
+                "НАЧИНАЙ ОТВЕТ НЕМЕДЛЕННО с «Ответ:» — никакого вводного текста перед карточкой.\n"
+            )
+        )
+        + "ПРАВИЛО подтверждённого интереса: если задача или пользовательский промпт содержат «⚠️ ВАЖНО» или «пациент подтвердил интерес» — ответь на указанный вопрос развёрнуто, поле «Вопрос» = нет.\n"
         "Строго в этом порядке:\n"
         "Ответ: <3-5 предложений — содержательный ответ строго по фрагментам>\n"
         "Вопрос: <предложение узнать больше («Хочешь узнать...?») — НЕ quiz; или нет>\n"
@@ -945,6 +1027,65 @@ def validate_education_expert_card(card: EducationExpertCard) -> None:
         raise ValueError("education expert: Вопрос и CTA lesson не могут быть выставлены одновременно")
 
 
+def build_prompt_layers(
+    state: FirstModuleState,
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    repair_instruction: str = "",
+) -> prompt_assembly.PromptLayers:
+    """Собирает слои промпта узла графа.
+
+    [0] system   — константный промпт узла БЕЗ repair-инструкции;
+    [1] profile  — паспорт пациента (context_builder), считается раз на ход;
+    [2] summary  — якорная цель сессии (ставится один раз);
+    [3] window   — история чата, дописывается только в конец;
+    [4] volatile — пользовательский промпт узла (RAG, техники, состояние хода,
+                   текущая реплика) и repair-инструкция после неудачного парса.
+    """
+    volatile_text = user_prompt
+    if repair_instruction:
+        volatile_text = f"{user_prompt}\n{repair_instruction}"
+    return prompt_assembly.PromptLayers(
+        system=system_prompt,
+        profile=state.profile_block,
+        summary=prompt_assembly.build_summary_layer(anchor_goal=state.current_state.anchor_goal),
+        window=prompt_assembly.window_from_history(
+            state.history,
+            exclude_last_user_message=state.user_message,
+        ),
+        volatile=[prompt_assembly.Turn(role="user", content=volatile_text)],
+    )
+
+
+@dataclass(slots=True)
+class LLMCallResult:
+    """Результат одного вызова узла графа.
+
+    ``fields`` заполнен только в структурном режиме — это тот же словарь с
+    русскими ключами, который в текстовом режиме отдаёт ``_parse_field_block``.
+    """
+
+    raw_text: str
+    account_id: str
+    tokens_in: int = 0
+    tokens_out: int = 0
+    latency_ms: int = 0
+    fields: dict[str, str] | None = None
+    parse_error: str | None = None
+    parse_mode: str = "field_block"
+    repair_attempts: int = 0
+
+
+def _fields_from_result(result: LLMCallResult, required_fields: set[str]) -> dict[str, str]:
+    """Достаёт словарь полей карточки вне зависимости от режима вывода."""
+    if result.parse_mode == "structured":
+        if result.parse_error:
+            raise ValueError(result.parse_error)
+        return dict(result.fields or {})
+    return _parse_field_block(result.raw_text, required_fields)
+
+
 async def _call_structured_llm(
     *,
     system_prompt: str,
@@ -952,18 +1093,102 @@ async def _call_structured_llm(
     model_tier: str,
     strict_model_tier: bool,
     temperature: float,
-) -> tuple[str, str, int, int, int]:
+    session_id: str | None = None,
+    repair_instruction: str = "",
+    state: FirstModuleState | None = None,
+    schema: type[BaseModel] | None = None,
+) -> LLMCallResult:
+    # session_id — ключ треда (p{patient_id}-{thread_id}). Он же ключ
+    # sticky-роутинга аккаунта: кэш GigaChat живёт в контуре аккаунта, поэтому
+    # отпечаток в ключ роутинга не входит — иначе узлы одного треда разъехались
+    # бы по разным аккаунтам.
+    thread_key = session_id
+    use_structured = schema is not None and structured.structured_enabled_for_tier(model_tier)
+    if schema is not None and structured.structured_enabled() and not use_structured:
+        logger.debug(
+            "[structured] тир %s не держит схему — откат на текстовую карточку", model_tier
+        )
+
+    if state is not None and prompt_assembly.layers_enabled():
+        layers = build_prompt_layers(
+            state,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            repair_instruction=repair_instruction,
+        )
+        prefix_fp: str | None = layers.prefix_fingerprint()
+        system_message = layers.system
+        messages = layers.tail_messages()
+        # Отпечаток в ключе кэша: у каждого узла свой системный промпт, значит
+        # своя кэш-дорожка внутри треда. Смена стабильной части = новый ключ.
+        cache_key = prompt_assembly.with_fingerprint(thread_key or "", prefix_fp) or None
+        state.prefix_fingerprints.append(prefix_fp)
+    else:
+        prefix_fp = None
+        # Легаси-путь: repair-инструкция дописывалась в конец системного промпта.
+        system_message = f"{system_prompt}{repair_instruction}"
+        messages = [{"role": "user", "content": user_prompt}]
+        cache_key = thread_key
+
     try:
-        client = await pool.get_available(model_tier, allow_fallback=not strict_model_tier)
+        client = await pool.get_available(
+            model_tier, allow_fallback=not strict_model_tier, sticky_key=thread_key
+        )
     except LLMConfigurationError:
         raise
 
+    patient_id = state.patient_id if state is not None else None
+
+    if use_structured:
+        try:
+            result = await client.structured(
+                messages,
+                system_message,
+                schema,
+                temperature=temperature,
+                step="supervisor",
+                patient_id=patient_id,
+                session_id=cache_key,
+                prefix_fp=prefix_fp,
+            )
+        except LLMResponseError as exc:
+            # Схема не сошлась даже после repair — отдаём наверх как ошибку
+            # парса, ретраем занимается вызывающий extract_*_card.
+            logger.warning("[structured] %s failed: %s", schema.__name__, exc)
+            return LLMCallResult(
+                raw_text="",
+                account_id=client.account_id,
+                parse_error=str(exc),
+                parse_mode="structured",
+                repair_attempts=1,
+            )
+        return LLMCallResult(
+            raw_text=result.raw_text,
+            account_id=client.account_id,
+            tokens_in=int(result.tokens_in or 0),
+            tokens_out=int(result.tokens_out or 0),
+            latency_ms=int(result.latency_ms or 0),
+            fields=schemas.fields_from_model(result.parsed),
+            parse_mode="structured",
+            repair_attempts=int(result.repair_attempts or 0),
+        )
+
     text, tokens_in, tokens_out, latency_ms = await client.call(
-        [{"role": "user", "content": user_prompt}],
-        system_prompt,
+        messages,
+        system_message,
         temperature=temperature,
+        step="supervisor",
+        patient_id=patient_id,
+        session_id=cache_key,
+        prefix_fp=prefix_fp,
     )
-    return str(text or ""), client.account_id, int(tokens_in or 0), int(tokens_out or 0), int(latency_ms or 0)
+    return LLMCallResult(
+        raw_text=str(text or ""),
+        account_id=client.account_id,
+        tokens_in=int(tokens_in or 0),
+        tokens_out=int(tokens_out or 0),
+        latency_ms=int(latency_ms or 0),
+    )
 
 
 async def extract_intake_card(state: FirstModuleState) -> tuple[IntakeCard | None, dict[str, Any]]:
@@ -974,28 +1199,38 @@ async def extract_intake_card(state: FirstModuleState) -> tuple[IntakeCard | Non
     total_latency_ms = 0
     last_account_id = ""
 
+    parse_mode = "field_block"
+    repair_attempts = 0
+
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        raw_text, account_id, tokens_in, tokens_out, latency_ms = await _call_structured_llm(
-            system_prompt=build_intake_system_prompt(previous_error),
+        result = await _call_structured_llm(
+            system_prompt=build_intake_system_prompt(model_tier=state.model_tier),
+            repair_instruction=_build_intake_retry_instruction(previous_error),
             user_prompt=build_intake_user_prompt(state),
             model_tier=state.model_tier,
             strict_model_tier=state.strict_model_tier,
             temperature=_ANALYSIS_TEMPERATURE,
+            session_id=state.session_id,
+            state=state,
+            schema=schemas.IntakeCardSchema,
         )
-        last_account_id = account_id
-        total_tokens_in += tokens_in
-        total_tokens_out += tokens_out
-        total_latency_ms += latency_ms
+        raw_text = result.raw_text
+        last_account_id = result.account_id
+        parse_mode = result.parse_mode
+        repair_attempts += result.repair_attempts
+        total_tokens_in += result.tokens_in
+        total_tokens_out += result.tokens_out
+        total_latency_ms += result.latency_ms
         state.register_llm_call(
-            account_id=account_id,
+            account_id=result.account_id,
             actual_model_tier=state.model_tier,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            latency_ms=latency_ms,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            latency_ms=result.latency_ms,
         )
         try:
-            fields = _parse_field_block(
-                raw_text,
+            fields = _fields_from_result(
+                result,
                 {"Проблема", "Контекст", "Нужно уточнение", "Вопрос", "Готово к передаче", "Обоснование"},
             )
             return parse_intake_card(fields), _build_step_diagnostics(
@@ -1007,6 +1242,8 @@ async def extract_intake_card(state: FirstModuleState) -> tuple[IntakeCard | Non
                 tokens_input=total_tokens_in,
                 tokens_output=total_tokens_out,
                 latency_ms=total_latency_ms,
+                parse_mode=parse_mode,
+                repair_attempts=repair_attempts,
             )
         except (TypeError, ValueError) as exc:
             previous_error = str(exc)
@@ -1021,6 +1258,8 @@ async def extract_intake_card(state: FirstModuleState) -> tuple[IntakeCard | Non
         tokens_input=total_tokens_in,
         tokens_output=total_tokens_out,
         latency_ms=total_latency_ms,
+        parse_mode=parse_mode,
+        repair_attempts=repair_attempts,
     )
 
 
@@ -1032,27 +1271,37 @@ async def extract_delegation_card(state: FirstModuleState) -> tuple[DelegationCa
     total_latency_ms = 0
     last_account_id = ""
 
+    parse_mode = "field_block"
+    repair_attempts = 0
+
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        raw_text, account_id, tokens_in, tokens_out, latency_ms = await _call_structured_llm(
-            system_prompt=build_delegation_system_prompt(previous_error),
+        result = await _call_structured_llm(
+            system_prompt=build_delegation_system_prompt(model_tier=state.model_tier),
+            repair_instruction=_build_delegation_retry_instruction(previous_error),
             user_prompt=build_delegation_user_prompt(state),
             model_tier=state.model_tier,
             strict_model_tier=state.strict_model_tier,
             temperature=_ANALYSIS_TEMPERATURE,
+            session_id=state.session_id,
+            state=state,
+            schema=schemas.DelegationCardSchema,
         )
-        last_account_id = account_id
-        total_tokens_in += tokens_in
-        total_tokens_out += tokens_out
-        total_latency_ms += latency_ms
+        raw_text = result.raw_text
+        last_account_id = result.account_id
+        parse_mode = result.parse_mode
+        repair_attempts += result.repair_attempts
+        total_tokens_in += result.tokens_in
+        total_tokens_out += result.tokens_out
+        total_latency_ms += result.latency_ms
         state.register_llm_call(
-            account_id=account_id,
+            account_id=result.account_id,
             actual_model_tier=state.model_tier,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            latency_ms=latency_ms,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            latency_ms=result.latency_ms,
         )
         try:
-            fields = _parse_field_block(raw_text, {"Эксперт", "Задача", "Обоснование"})
+            fields = _fields_from_result(result, {"Эксперт", "Задача", "Обоснование"})
             card = parse_delegation_card(fields)
             if _context_has_unknown_reason(getattr(state.intake_card, "context", None)):
                 card = _normalize_unknown_reason_delegation_card(card)
@@ -1067,6 +1316,8 @@ async def extract_delegation_card(state: FirstModuleState) -> tuple[DelegationCa
                 tokens_input=total_tokens_in,
                 tokens_output=total_tokens_out,
                 latency_ms=total_latency_ms,
+                parse_mode=parse_mode,
+                repair_attempts=repair_attempts,
             )
         except (TypeError, ValueError) as exc:
             previous_error = str(exc)
@@ -1081,6 +1332,8 @@ async def extract_delegation_card(state: FirstModuleState) -> tuple[DelegationCa
         tokens_input=total_tokens_in,
         tokens_output=total_tokens_out,
         latency_ms=total_latency_ms,
+        parse_mode=parse_mode,
+        repair_attempts=repair_attempts,
     )
 
 
@@ -1098,9 +1351,12 @@ async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[Emotio
     total_tokens_out = 0
     total_latency_ms = 0
     last_account_id = ""
+    parse_mode = "field_block"
+    repair_attempts = 0
 
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        sys_prompt = build_emotional_expert_system_prompt(previous_error)
+        sys_prompt = build_emotional_expert_system_prompt(model_tier=state.model_tier)
+        repair_instruction = _build_expert_retry_instruction(previous_error)
         user_prompt = build_emotional_expert_user_prompt(state)
         logger.debug(
             "[expert_call] attempt=%d | force_intervene=%s | pending_q_attempts=%s\n"
@@ -1112,31 +1368,38 @@ async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[Emotio
             sys_prompt[:400],
             user_prompt,
         )
-        raw_text, account_id, tokens_in, tokens_out, latency_ms = await _call_structured_llm(
+        result = await _call_structured_llm(
             system_prompt=sys_prompt,
+            repair_instruction=repair_instruction,
             user_prompt=user_prompt,
             model_tier=state.model_tier,
             strict_model_tier=state.strict_model_tier,
             temperature=_EXPERT_TEMPERATURE,
+            session_id=state.session_id,
+            state=state,
+            schema=schemas.EmotionalExpertCardSchema,
         )
+        raw_text = result.raw_text
         logger.debug(
             "[expert_raw] attempt=%d | tokens_in=%d | tokens_out=%d\n%s",
-            attempt, tokens_in, tokens_out, raw_text,
+            attempt, result.tokens_in, result.tokens_out, raw_text,
         )
-        last_account_id = account_id
-        total_tokens_in += tokens_in
-        total_tokens_out += tokens_out
-        total_latency_ms += latency_ms
+        last_account_id = result.account_id
+        parse_mode = result.parse_mode
+        repair_attempts += result.repair_attempts
+        total_tokens_in += result.tokens_in
+        total_tokens_out += result.tokens_out
+        total_latency_ms += result.latency_ms
         state.register_llm_call(
-            account_id=account_id,
+            account_id=result.account_id,
             actual_model_tier=state.model_tier,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            latency_ms=latency_ms,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            latency_ms=result.latency_ms,
         )
         try:
-            fields = _parse_field_block(
-                raw_text,
+            fields = _fields_from_result(
+                result,
                 # "Вопрос пациенту" and "Обоснование" default gracefully when absent
                 {"Поддержка", "Оценка", "Стратегия", "Режим", "Шаг сейчас"},
             )
@@ -1166,6 +1429,8 @@ async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[Emotio
                 tokens_input=total_tokens_in,
                 tokens_output=total_tokens_out,
                 latency_ms=total_latency_ms,
+                parse_mode=parse_mode,
+                repair_attempts=repair_attempts,
             )
         except (TypeError, ValueError) as exc:
             previous_error = str(exc)
@@ -1181,6 +1446,8 @@ async def extract_emotional_expert_card(state: FirstModuleState) -> tuple[Emotio
         tokens_input=total_tokens_in,
         tokens_output=total_tokens_out,
         latency_ms=total_latency_ms,
+        parse_mode=parse_mode,
+        repair_attempts=repair_attempts,
     )
 
 
@@ -1200,28 +1467,38 @@ async def extract_education_expert_card(state: FirstModuleState) -> tuple[Educat
     total_latency_ms = 0
     last_account_id = ""
 
+    parse_mode = "field_block"
+    repair_attempts = 0
+
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        raw_text, account_id, tokens_in, tokens_out, latency_ms = await _call_structured_llm(
-            system_prompt=build_education_expert_system_prompt(previous_error),
+        result = await _call_structured_llm(
+            system_prompt=build_education_expert_system_prompt(model_tier=state.model_tier),
+            repair_instruction=_build_education_retry_instruction(previous_error),
             user_prompt=build_education_expert_user_prompt(state),
             model_tier=state.model_tier,
             strict_model_tier=state.strict_model_tier,
             temperature=_EXPERT_TEMPERATURE,
+            session_id=state.session_id,
+            state=state,
+            schema=schemas.EducationExpertCardSchema,
         )
-        last_account_id = account_id
-        total_tokens_in += tokens_in
-        total_tokens_out += tokens_out
-        total_latency_ms += latency_ms
+        raw_text = result.raw_text
+        last_account_id = result.account_id
+        parse_mode = result.parse_mode
+        repair_attempts += result.repair_attempts
+        total_tokens_in += result.tokens_in
+        total_tokens_out += result.tokens_out
+        total_latency_ms += result.latency_ms
         state.register_llm_call(
-            account_id=account_id,
+            account_id=result.account_id,
             actual_model_tier=state.model_tier,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            latency_ms=latency_ms,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            latency_ms=result.latency_ms,
         )
         try:
-            fields = _parse_field_block(
-                raw_text,
+            fields = _fields_from_result(
+                result,
                 {"Ответ", "Вопрос", "CTA тип", "CTA заголовок", "CTA lesson_code", "Обоснование"},
             )
             card = parse_education_expert_card(fields, state)
@@ -1234,6 +1511,8 @@ async def extract_education_expert_card(state: FirstModuleState) -> tuple[Educat
                 tokens_input=total_tokens_in,
                 tokens_output=total_tokens_out,
                 latency_ms=total_latency_ms,
+                parse_mode=parse_mode,
+                repair_attempts=repair_attempts,
             )
         except (TypeError, ValueError) as exc:
             previous_error = str(exc)
@@ -1252,6 +1531,8 @@ async def extract_education_expert_card(state: FirstModuleState) -> tuple[Educat
         tokens_input=total_tokens_in,
         tokens_output=total_tokens_out,
         latency_ms=total_latency_ms,
+        parse_mode=parse_mode,
+        repair_attempts=repair_attempts,
     )
 
 
@@ -1284,11 +1565,21 @@ def build_intake_reply(card: IntakeCard, *, is_first_turn: bool = True, user_mes
 _TECHNIQUE_ID_PREFIX = re.compile(r"^\[p\d+\]\s*")
 
 
+# Промпт просит писать «Поддержка: —» (длинное тире), но модель возвращает любой
+# из прочерков, а иногда с точкой. Раньше фильтр ловил только «—», и в ответ
+# пациенту утекал голый дефис.
+_EMPTY_SUPPORT_MARKERS = frozenset({"—", "-", "–", "‒", "―", "--", "—.", "-.", "нет"})
+
+
+def _is_placeholder(text: str) -> bool:
+    return text.strip().strip(".").lower() in _EMPTY_SUPPORT_MARKERS
+
+
 def build_emotional_reply(card: EmotionalExpertCard) -> str:
     step = _TECHNIQUE_ID_PREFIX.sub("", str(card.step_now or "")).strip()
     support = str(card.support or "").strip()
     parts = []
-    if support and support != "—":
+    if support and not _is_placeholder(support):
         parts.append(support)
     if step and step.lower() != "нет":
         parts.append(step)

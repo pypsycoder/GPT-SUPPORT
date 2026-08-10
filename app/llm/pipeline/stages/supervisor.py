@@ -7,9 +7,12 @@ import re
 import time
 from typing import Any
 
+from app.llm import agent, prompt_assembly
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
+from app.llm.pool import session_key
+from app.llm.router import RequestType
 from app.llm.langgraph_supervisor.models import EducationExpertCard, EmotionalExpertCard, ExpertStrategy
 from app.llm.technique_library import get_technique_by_id
 from app.llm.pipeline.types import PipelineContext, PipelineStage
@@ -305,9 +308,14 @@ async def _load_education_grounding(
     context: PipelineContext,
     *,
     query_override: str | None = None,
-) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[str], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Возвращает (education view, grounding items, диагностика, сырой контекст пациента).
+
+    Сырой контекст нужен послойной сборке промпта: из него строятся стабильные
+    слои [1] профиль и [3] окно диалога.
+    """
     if context.request.db is None:
-        return [], [], {"enabled": False, "reason": "db_unavailable"}
+        return [], [], {"enabled": False, "reason": "db_unavailable"}, {}
 
     query = query_override or context.request.user_input
     try:
@@ -315,10 +323,11 @@ async def _load_education_grounding(
             context.request.patient_id,
             context.request.db,
             query,
+            thread_id=context.request.thread_id,
         )
     except Exception as exc:
         logger.warning("[supervisor] education grounding failed patient=%d: %s", context.request.patient_id, exc)
-        return [], [], {"enabled": False, "reason": "grounding_error", "error": str(exc)}
+        return [], [], {"enabled": False, "reason": "grounding_error", "error": str(exc)}, {}
 
     context_payload = dict(bundle.get("context") or {})
     rag_views = dict(context_payload.get("rag_views") or {})
@@ -332,7 +341,184 @@ async def _load_education_grounding(
         "grounding_count": len(grounding_items),
         "rag": dict((bundle.get("diagnostics") or {}).get("rag") or {}),
     }
-    return education_view, grounding_items, diagnostics
+    return education_view, grounding_items, diagnostics, context_payload
+
+
+def _single_agent_applicable(context: PipelineContext) -> bool:
+    """Идёт ли этот ход по одноагентной ветке.
+
+    SAFETY остаётся на старой ветке по требованию брифа: кризисный путь уже
+    обвешан проверками (BoundaryGuardStage, max-тир), и схлопывать его до
+    накопления статистики нельзя.
+    """
+    if not agent.single_agent_enabled():
+        return False
+    if context.classification is None:
+        return False
+    return context.classification.request_type is not RequestType.SAFETY
+
+
+def _agent_intent_to_agents(intent: str) -> list[str]:
+    """Намерение агента → список агентов в терминах старой ветки, для сравнимости."""
+    mapping = {
+        "emotional_support": ["emotional_support"],
+        "education": ["education"],
+        "safety": ["safety"],
+        "smalltalk": [],
+    }
+    return list(mapping.get(intent, []))
+
+
+async def _run_single_agent(
+    context: PipelineContext,
+    *,
+    current_state: CurrentState,
+    message_type: str,
+    model_tier: str,
+    strict_model_tier: bool,
+    patient_context: dict[str, Any],
+    education_rag_context: list[str],
+    education_grounding_diagnostics: dict[str, Any],
+    started: float,
+) -> PipelineContext | None:
+    """Один структурный вызов вместо intake → delegation → expert.
+
+    Возвращает ``None``, если агент не смог отдать карточку, — тогда стадия
+    доигрывает старой веткой, и пациент не остаётся без ответа.
+    """
+    request = context.request
+    profile_block = prompt_assembly.build_profile_layer(patient_context)
+    history_turns = [
+        {"role": item["role"], "content": item["content"]}
+        for item in (patient_context.get("chat_history") or [])
+        if isinstance(item, dict) and item.get("role") and item.get("content")
+    ]
+
+    technique_state = agent.TechniqueState(
+        current_id=current_state.current_technique_id,
+        step_index=int(current_state.current_step_index or 0),
+        turns=int(current_state.current_technique_turns or 0),
+        recent_ids=list(current_state.recent_technique_ids or []),
+    )
+    layers = agent.build_layers(
+        user_message=request.user_input,
+        profile_block=profile_block,
+        history=history_turns,
+        rag_fragments=education_rag_context,
+        patient_gender=request.patient_gender,
+        last_bot_reply=current_state.last_bot_reply,
+        session_goal=current_state.goal,
+        anchor_goal=current_state.anchor_goal,
+        technique_state=technique_state,
+        technique_context=str(current_state.slots.get("intake_context") or ""),
+    )
+    run = await agent.Agent(
+        model_tier=model_tier, strict_model_tier=strict_model_tier
+    ).run(
+        layers,
+        patient_id=request.patient_id,
+        thread_key=session_key(request.patient_id, request.thread_id),
+    )
+
+    if not run.ok or run.reply is None:
+        logger.warning(
+            "[single_agent] patient=%d не отдал карточку (%s) — доигрываю старой веткой",
+            request.patient_id,
+            run.error,
+        )
+        context.diagnostics["single_agent_fallback"] = {"error": run.error}
+        return None
+
+    reply_card = run.reply
+    updated_state = CurrentState.from_dict(current_state.to_dict())
+    updated_state.last_bot_reply = reply_card.reply.strip() or None
+    updated_state.last_selected_agents = _agent_intent_to_agents(reply_card.intent)
+    updated_state.needs_clarification = False
+    updated_state.pending_question = None
+    updated_state.clarification_streak = 0
+    if updated_state.anchor_goal is None and reply_card.intent != "smalltalk":
+        updated_state.anchor_goal = current_state.goal
+
+    # Прогресс по технике — по явному полю схемы, а не по префиксу [pNN] в тексте.
+    advanced = agent.advance_technique(technique_state, reply_card.technique_id)
+    updated_state.current_technique_id = advanced.current_id
+    updated_state.current_step_index = advanced.step_index
+    updated_state.current_technique_turns = advanced.turns
+    updated_state.recent_technique_ids = list(advanced.recent_ids)
+
+    before_state = current_state.to_dict()
+    after_state = updated_state.to_dict()
+
+    diagnostics = {
+        "enabled": True,
+        "branch": "single_agent",
+        "request_type": context.classification.request_type.value,
+        "message_type": message_type,
+        "graph_path": ["agent"],
+        "selected_agents": _agent_intent_to_agents(reply_card.intent),
+        "needs_clarification": False,
+        "execution_kind": "агент",
+        "education_grounding": education_grounding_diagnostics,
+        "prompt_layers": {
+            "enabled": prompt_assembly.layers_enabled(),
+            "profile_chars": len(profile_block),
+            "window_turns": len(history_turns),
+            "prefix_fingerprints": [run.prefix_fp] if run.prefix_fp else [],
+        },
+        "agent": {
+            "intent": reply_card.intent,
+            "technique_id": reply_card.technique_id,
+            "technique_step_index": advanced.step_index,
+            "safety_level": reply_card.safety_level,
+            "safety_reason": reply_card.safety_reason,
+            "next_action": reply_card.next_action,
+            "memory_candidates": list(reply_card.memory_candidates),
+            "rationale": reply_card.rationale,
+            "llm_calls": run.llm_calls,
+            "repair_attempts": run.repair_attempts,
+            "attempts_total": run.attempts,
+        },
+        "state_delta": _changed_state(before_state, after_state),
+        "state_after": after_state,
+        "llm_totals": {
+            "tokens_input": run.tokens_in,
+            "tokens_output": run.tokens_out,
+            "latency_ms": run.latency_ms,
+            "account_ids": [run.account_id] if run.account_id else [],
+            "actual_model_tiers": [model_tier],
+        },
+        "latency_ms": int((time.monotonic() - started) * 1000),
+    }
+
+    context.supervisor_turn = SupervisorTurnResult(
+        reply=reply_card.reply.strip(),
+        state_delta=diagnostics["state_delta"],
+        updated_state=updated_state,
+        message_type=message_type,
+        selected_agents=_agent_intent_to_agents(reply_card.intent),
+        used_pending_answer=False,
+        needs_clarification=False,
+        diagnostics=diagnostics,
+        education_cta=None,
+    )
+    context.supervisor_state = after_state
+    context.response_draft = reply_card.reply.strip()
+    context.response_tokens_input = run.tokens_in
+    context.response_tokens_output = run.tokens_out
+    context.response_account_id = run.account_id or "AGENT"
+    context.response_actual_model_tier = model_tier
+    context.diagnostics["supervisor"] = diagnostics
+
+    logger.info(
+        "[single_agent] patient=%d intent=%s safety=%s calls=%d tokens=%d+%d",
+        request.patient_id,
+        reply_card.intent,
+        reply_card.safety_level,
+        run.llm_calls,
+        run.tokens_in,
+        run.tokens_out,
+    )
+    return context
 
 
 def _raise_if_failed(graph_state, supervisor_diagnostics: dict[str, Any]) -> None:
@@ -373,9 +559,12 @@ class SupervisorStage(PipelineStage):
 
         current_state = CurrentState.from_dict(context.supervisor_state)
         message_type = _derive_message_type(context.request.user_input, current_state)
-        education_rag_context, education_rag_grounding_items, education_grounding_diagnostics = (
-            await _load_education_grounding(context)
-        )
+        (
+            education_rag_context,
+            education_rag_grounding_items,
+            education_grounding_diagnostics,
+            patient_context,
+        ) = await _load_education_grounding(context)
 
         # Fallback: if education session is active but RAG returned nothing (e.g. query too short —
         # "давай", "да", "ок"), re-query with the saved education topic so the expert still has grounding.
@@ -391,9 +580,12 @@ class SupervisorStage(PipelineStage):
                     context.request.patient_id,
                     fallback_topic,
                 )
-                education_rag_context, education_rag_grounding_items, education_grounding_diagnostics = (
-                    await _load_education_grounding(context, query_override=fallback_topic)
-                )
+                (
+                    education_rag_context,
+                    education_rag_grounding_items,
+                    education_grounding_diagnostics,
+                    patient_context,
+                ) = await _load_education_grounding(context, query_override=fallback_topic)
 
         context.education_rag_context = education_rag_context
         context.education_rag_grounding_items = education_rag_grounding_items
@@ -405,6 +597,35 @@ class SupervisorStage(PipelineStage):
             strict=strict_tier,
             education_grounding_available=bool(education_rag_grounding_items),
         )
+
+        # Одноагентная ветка (шаг 4) живёт параллельно старой. Интент SAFETY на неё
+        # не переводится: кризис схлопываем отдельно, после накопления статистики.
+        if _single_agent_applicable(context):
+            agent_context = await _run_single_agent(
+                context,
+                current_state=current_state,
+                message_type=message_type,
+                model_tier=model_tier,
+                strict_model_tier=strict_tier,
+                patient_context=patient_context,
+                education_rag_context=education_rag_context,
+                education_grounding_diagnostics=education_grounding_diagnostics,
+                started=started,
+            )
+            if agent_context is not None:
+                return agent_context
+        # Слои промпта [1] профиль и [3] окно строятся только под флагом —
+        # при выключенном флаге промпт остаётся прежним байт-в-байт.
+        profile_block = ""
+        history_turns: list[dict[str, str]] = []
+        if prompt_assembly.layers_enabled():
+            profile_block = prompt_assembly.build_profile_layer(patient_context)
+            history_turns = [
+                {"role": item["role"], "content": item["content"]}
+                for item in (patient_context.get("chat_history") or [])
+                if isinstance(item, dict) and item.get("role") and item.get("content")
+            ]
+
         graph_state = await run_first_module(
             FirstModuleInput(
                 user_message=context.request.user_input,
@@ -415,6 +636,10 @@ class SupervisorStage(PipelineStage):
                 education_rag_context=education_rag_context,
                 education_rag_grounding_items=education_rag_grounding_items,
                 patient_gender=context.request.patient_gender,
+                session_id=session_key(context.request.patient_id, context.request.thread_id),
+                patient_id=context.request.patient_id,
+                profile_block=profile_block,
+                history=history_turns,
             )
         )
 
@@ -435,6 +660,12 @@ class SupervisorStage(PipelineStage):
             "needs_clarification": bool(graph_state.needs_clarification),
             "execution_kind": graph_state.execution_kind.value if graph_state.execution_kind else None,
             "education_grounding": education_grounding_diagnostics,
+            "prompt_layers": {
+                "enabled": prompt_assembly.layers_enabled(),
+                "profile_chars": len(profile_block),
+                "window_turns": len(history_turns),
+                "prefix_fingerprints": list(getattr(graph_state, "prefix_fingerprints", []) or []),
+            },
             "state_delta": state_delta,
             "state_after": after_state,
             "llm_totals": {

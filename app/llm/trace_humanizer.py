@@ -18,9 +18,32 @@ def _format_stage(stage: dict[str, Any]) -> str:
     return f"{name}: {status}, {int(latency_ms)} мс."
 
 
+# Узлы intake/delegation умеют собирать карточку без обращения к LLM, когда
+# сессия эксперта уже активна (bypass в nodes.py). Такая диагностика не содержит
+# статистики попыток — без явной строки узел просто пропадал из трейса, и это
+# читалось как «вывод графа отвалился».
+_BYPASS_MARKERS: dict[str, str] = {
+    "synthetic_expert_follow_up": "карточка собрана без вызова LLM (сессия эксперта активна)",
+    "education_close_bypass": "закрытие education-сессии без вызова LLM",
+}
+
+
+def _bypass_reason(llm: dict[str, Any]) -> str | None:
+    for marker, reason in _BYPASS_MARKERS.items():
+        if llm.get(marker):
+            expert = str(llm.get("expert") or "").strip()
+            return f"{reason}, эксперт: {expert}" if expert else reason
+    return None
+
+
 def _append_llm_attempts(items: list[str], label: str, llm: dict[str, Any] | None) -> None:
     llm = dict(llm or {})
     if not llm:
+        return
+
+    bypass_reason = _bypass_reason(llm)
+    if bypass_reason:
+        items.append(f"{label}: пропущен — {bypass_reason}.")
         return
 
     succeeded_on_attempt = llm.get("succeeded_on_attempt")

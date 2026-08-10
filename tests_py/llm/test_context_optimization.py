@@ -359,3 +359,61 @@ class TestCacheUtilities:
         assert "rag_cache_size" in stats
         assert isinstance(stats["summary_cache_size"], int)
         assert isinstance(stats["rag_cache_size"], int)
+
+
+class TestChatHistoryIsThreadScoped:
+    """История чата уезжает в окно диалога промпта — она обязана быть по своему треду."""
+
+    @pytest.mark.asyncio
+    async def test_query_filters_by_thread_id(self):
+        from app.llm.context_builder import _get_chat_history
+
+        captured = {}
+
+        class _Result:
+            def scalars(self):
+                return self
+
+            def all(self):
+                return []
+
+        class _Session:
+            async def execute(self, statement):
+                captured["sql"] = str(statement.compile(compile_kwargs={"literal_binds": True}))
+                return _Result()
+
+        await _get_chat_history(1, _Session(), thread_id="debug-42")
+
+        assert "thread_id" in captured["sql"]
+        assert "'debug-42'" in captured["sql"]
+
+    @pytest.mark.asyncio
+    async def test_default_thread_when_not_given(self):
+        from app.llm.context_builder import DEFAULT_THREAD_ID, _get_chat_history
+
+        captured = {}
+
+        class _Result:
+            def scalars(self):
+                return self
+
+            def all(self):
+                return []
+
+        class _Session:
+            async def execute(self, statement):
+                captured["sql"] = str(statement.compile(compile_kwargs={"literal_binds": True}))
+                return _Result()
+
+        await _get_chat_history(1, _Session())
+
+        assert f"'{DEFAULT_THREAD_ID}'" in captured["sql"]
+
+    @pytest.mark.asyncio
+    async def test_bundle_passes_thread_id_down(self, mock_db):
+        with patch("app.llm.context_builder_optimized._get_chat_history") as history:
+            history.return_value = []
+
+            await build_context_bundle_optimized(1, mock_db, "", thread_id="debug-42")
+
+            assert history.call_args.kwargs["thread_id"] == "debug-42"

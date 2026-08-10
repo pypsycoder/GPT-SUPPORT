@@ -248,6 +248,11 @@ class FirstModuleInput:
     education_rag_context: list[str] = field(default_factory=list)
     education_rag_grounding_items: list[dict[str, Any]] = field(default_factory=list)
     patient_gender: str | None = None
+    session_id: str = ""
+    patient_id: int | None = None
+    # Слои промпта (заполняются только при LLM_PROMPT_LAYERS=1).
+    profile_block: str = ""
+    history: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -260,6 +265,12 @@ class FirstModuleState:
     education_rag_context: list[str] = field(default_factory=list)
     education_rag_grounding_items: list[dict[str, Any]] = field(default_factory=list)
     patient_gender: str | None = None
+    session_id: str = ""
+    patient_id: int | None = None
+    # Слои промпта (заполняются только при LLM_PROMPT_LAYERS=1).
+    profile_block: str = ""
+    history: list[dict[str, str]] = field(default_factory=list)
+    prefix_fingerprints: list[str] = field(default_factory=list)
     intake_card: IntakeCard | None = None
     delegation_card: DelegationCard | None = None
     expert_card: EmotionalExpertCard | EducationExpertCard | None = None
@@ -290,6 +301,10 @@ class FirstModuleState:
             education_rag_context=[str(item) for item in payload.education_rag_context if str(item).strip()],
             education_rag_grounding_items=[dict(item) for item in payload.education_rag_grounding_items],
             patient_gender=payload.patient_gender,
+            session_id=payload.session_id,
+            patient_id=payload.patient_id,
+            profile_block=payload.profile_block,
+            history=[dict(item) for item in payload.history],
         )
 
     def register_llm_call(
@@ -316,6 +331,11 @@ class FirstModuleState:
             "message_type": self.message_type,
             "model_tier": self.model_tier,
             "strict_model_tier": self.strict_model_tier,
+            "session_id": self.session_id,
+            "patient_id": self.patient_id,
+            "profile_block": self.profile_block,
+            "history": [dict(item) for item in self.history],
+            "prefix_fingerprints": list(self.prefix_fingerprints),
             "education_rag_context": list(self.education_rag_context),
             "education_rag_grounding_items": [dict(item) for item in self.education_rag_grounding_items],
             "intake_card": self.intake_card.to_dict() if self.intake_card else None,
@@ -354,6 +374,17 @@ class FirstModuleState:
             message_type=str(payload.get("message_type") or "full_message"),
             model_tier=str(payload.get("model_tier") or "lite"),
             strict_model_tier=bool(payload.get("strict_model_tier")),
+            session_id=str(payload.get("session_id") or ""),
+            patient_id=int(payload["patient_id"]) if payload.get("patient_id") is not None else None,
+            profile_block=str(payload.get("profile_block") or ""),
+            history=[
+                {"role": str(item.get("role") or ""), "content": str(item.get("content") or "")}
+                for item in (payload.get("history") or [])
+                if isinstance(item, dict)
+            ],
+            prefix_fingerprints=[
+                str(item) for item in (payload.get("prefix_fingerprints") or []) if str(item).strip()
+            ],
             education_rag_context=[
                 str(item) for item in (payload.get("education_rag_context") or []) if str(item).strip()
             ],

@@ -282,6 +282,32 @@ def _json_dump(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
+_SUPERVISOR_STEPS = ("intake", "delegation", "expert")
+
+
+def _supervisor_llm_steps(supervisor: dict) -> list[dict]:
+    """Диагностика LLM по каждому узлу графа (intake / delegation / expert)."""
+    steps = []
+    for name in _SUPERVISOR_STEPS:
+        llm = ((supervisor.get(name) or {}).get("llm") or {})
+        if llm:
+            steps.append(llm)
+    return steps
+
+
+def _supervisor_parse_mode(supervisor: dict) -> str:
+    """field_block (легаси) | structured (response_format json_schema)."""
+    modes = {str(llm.get("parse_mode") or "field_block") for llm in _supervisor_llm_steps(supervisor)}
+    if not modes:
+        return "-"
+    return ", ".join(sorted(modes))
+
+
+def _supervisor_parse_metric(supervisor: dict, key: str) -> int:
+    """Сумма счётчика по узлам хода: попытки парса и починки схемы."""
+    return sum(int(llm.get(key) or 0) for llm in _supervisor_llm_steps(supervisor))
+
+
 def _normalize_runtime_diagnostics(diagnostics: dict, *, router_result, response) -> dict:
     normalized = dict(diagnostics or {})
     normalized.setdefault(
@@ -441,6 +467,36 @@ async def _run_eval_cases(cases: list[EvalCase], patient_id: int, source: str) -
     return results
 
 
+def _parse_summary_rows(results: list[dict]) -> list[tuple[str, object]]:
+    """Метрики шага 3: доля успешных парсов карточек и доля repair-ретраев.
+
+    Один «парс» — один вызов узла графа. Успешным считается узел, который отдал
+    карточку (``final_status == success``); ``repair_attempts`` — починки схемы
+    внутри ``GigaChatClient.structured()``, целевая доля < 2%.
+    """
+    steps = [
+        llm
+        for item in results
+        for llm in _supervisor_llm_steps(item["diagnostics"].get("supervisor") or {})
+    ]
+    if not steps:
+        return [("Card parse steps", 0)]
+
+    attempts = sum(int(llm.get("attempts_total") or 0) for llm in steps)
+    repairs = sum(int(llm.get("repair_attempts") or 0) for llm in steps)
+    succeeded = sum(1 for llm in steps if llm.get("final_status") == "success")
+    modes = sorted({str(llm.get("parse_mode") or "field_block") for llm in steps})
+
+    return [
+        ("Card parse mode", ", ".join(modes)),
+        ("Card parse steps", len(steps)),
+        ("Card parse success rate", round(succeeded / len(steps), 4)),
+        ("Card parse attempts (incl. retries)", attempts),
+        ("Card repair attempts", repairs),
+        ("Card repair rate", round(repairs / attempts, 4) if attempts else 0.0),
+    ]
+
+
 def _build_summary_sheet(ws, results: list[dict], generated_at: str, patient_id: int, *, title: str = "Summary") -> None:
     statuses = Counter(item["status"] for item in results)
     issues = Counter(issue for item in results for issue in item["issues"])
@@ -466,6 +522,7 @@ def _build_summary_sheet(ws, results: list[dict], generated_at: str, patient_id:
         ("Avg tokens_input", round(_safe_mean([int(item["tokens_input"]) for item in results]), 1)),
         ("Avg tokens_output", round(_safe_mean([int(item["tokens_output"]) for item in results]), 1)),
     ]
+    rows.extend(_parse_summary_rows(results))
     for row in rows:
         ws.append(list(row))
 
@@ -508,6 +565,9 @@ def _build_cases_sheet(ws, results: list[dict], *, title: str = "Cases") -> None
         "supervisor_selected_agents",
         "supervisor_needs_clarification",
         "graph_path",
+        "parse_mode",
+        "parse_attempts",
+        "repair_attempts",
         "response",
         "tokens_input",
         "tokens_output",
@@ -542,6 +602,9 @@ def _build_cases_sheet(ws, results: list[dict], *, title: str = "Cases") -> None
                 ", ".join(supervisor.get("selected_agents") or []),
                 supervisor.get("needs_clarification", False),
                 " > ".join(supervisor.get("graph_path") or []),
+                _supervisor_parse_mode(supervisor),
+                _supervisor_parse_metric(supervisor, "attempts_total"),
+                _supervisor_parse_metric(supervisor, "repair_attempts"),
                 item["response"],
                 item["tokens_input"],
                 item["tokens_output"],

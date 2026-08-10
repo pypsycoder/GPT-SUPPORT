@@ -8,12 +8,17 @@ Accounts are read from environment variables: GIGACHAT_KEY_A1, GIGACHAT_KEY_A2, 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
+from app.llm import structured, telemetry
 from app.llm.errors import LLMConfigurationError, LLMResponseError, LLMTransportError
 from app.llm.http import request_json_with_policy
 
@@ -29,6 +34,47 @@ MODEL_NAMES: dict[str, str] = {
 }
 
 _TIER_PRIORITY: dict[str, int] = {"lite": 0, "pro": 1, "max": 2}
+
+# JSON дороже плоского текста на скобки и ключи — потолок в 512 токенов,
+# рассчитанный на карточку «поле: значение», обрезал бы длинные ответы
+# education-эксперта на середине и ломал бы валидацию схемы.
+_STRUCTURED_MAX_TOKENS = 900
+
+_STRUCTURED_REPAIR_PROMPT = (
+    "Ответ не прошёл валидацию по схеме. "
+    "Верни ТОЛЬКО корректный JSON по схеме, без пояснений и без markdown."
+)
+
+
+@dataclass(slots=True)
+class StructuredResult:
+    """Результат ``GigaChatClient.structured()``."""
+
+    parsed: Any
+    raw_text: str
+    tokens_in: int = 0
+    tokens_out: int = 0
+    latency_ms: int = 0
+    repair_attempts: int = 0
+
+
+def session_key(patient_id: int, thread_id: str) -> str:
+    """Стабильный ключ треда для заголовка X-Session-ID и sticky-роутинга аккаунтов.
+
+    Не должен содержать ничего идентифицирующего пациента, кроме
+    внутреннего числового id (уходит на сервер Сбера и логируется там).
+    """
+    return f"p{patient_id}-{thread_id}"
+
+
+def _stable_index(key: str, modulo: int) -> int:
+    """Детерминированный индекс по ключу, устойчивый к перезапуску процесса.
+
+    Встроенный ``hash()`` для строк солится PYTHONHASHSEED и меняется
+    между рестартами — для sticky-роутинга это недопустимо.
+    """
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % modulo
 
 
 @dataclass
@@ -103,6 +149,12 @@ class GigaChatClient:
         system_prompt: str,
         *,
         temperature: float = 0.7,
+        step: str | None = None,
+        patient_id: int | None = None,
+        session_id: str | None = None,
+        prefix_fp: str | None = None,
+        response_format: dict | None = None,
+        max_tokens: int = 512,
     ) -> tuple[str, int, int, int]:
         async with self._state.lock:
             start = time.monotonic()
@@ -113,21 +165,29 @@ class GigaChatClient:
                 "model": model_name,
                 "messages": [{"role": "system", "content": system_prompt}, *messages],
                 "temperature": temperature,
-                "max_tokens": 512,
+                "max_tokens": max_tokens,
             }
+            if response_format is not None:
+                # functions в этом запросе не передаём: смешивать их с
+                # response_format нельзя, поведение непредсказуемо.
+                payload["response_format"] = response_format
 
             last_exc: LLMTransportError | LLMResponseError | None = None
             for attempt in range(2):
                 try:
+                    headers = {
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    }
+                    if session_id:
+                        headers["X-Session-ID"] = session_id
+
                     data = await request_json_with_policy(
                         "chat",
                         method="POST",
                         url=GIGACHAT_API_URL,
                         operation=f"chat completion for account {self.account_id}",
-                        headers={
-                            "Authorization": f"Bearer {token}",
-                            "Content-Type": "application/json",
-                        },
+                        headers=headers,
                         json_body=payload,
                     )
 
@@ -135,16 +195,37 @@ class GigaChatClient:
                     usage = data.get("usage", {})
                     tokens_in = usage.get("prompt_tokens", 0)
                     tokens_out = usage.get("completion_tokens", 0)
+                    precached_tokens = usage.get("precached_prompt_tokens", 0)
+                    total_tokens = usage.get("total_tokens", tokens_in + tokens_out)
+                    finish_reason = data["choices"][0].get("finish_reason")
                     elapsed_ms = int((time.monotonic() - start) * 1000)
 
                     self.tokens_used += tokens_in + tokens_out
                     logger.info(
-                        "[pool] account=%s model=%s in=%d out=%d time=%dms",
+                        "[pool] account=%s model=%s in=%d out=%d precached=%d time=%dms",
                         self.account_id,
                         model_name,
                         tokens_in,
                         tokens_out,
+                        precached_tokens,
                         elapsed_ms,
+                    )
+                    asyncio.create_task(
+                        telemetry.log_call(
+                            account_id=self.account_id,
+                            model=model_name,
+                            step=step,
+                            patient_id=patient_id,
+                            session_key=session_id,
+                            prefix_fp=prefix_fp,
+                            prompt_tokens=tokens_in,
+                            completion_tokens=tokens_out,
+                            precached_tokens=precached_tokens,
+                            total_tokens=total_tokens,
+                            latency_ms=elapsed_ms,
+                            finish_reason=finish_reason,
+                            ok=True,
+                        )
                     )
                     return text, tokens_in, tokens_out, elapsed_ms
 
@@ -179,10 +260,112 @@ class GigaChatClient:
                         )
 
             if last_exc is None:
-                raise LLMResponseError(
+                last_exc = LLMResponseError(
                     f"chat failed for account {self.account_id} without a classified error"
                 )
+            asyncio.create_task(
+                telemetry.log_call(
+                    account_id=self.account_id,
+                    model=model_name,
+                    step=step,
+                    patient_id=patient_id,
+                    session_key=session_id,
+                    prefix_fp=prefix_fp,
+                    latency_ms=int((time.monotonic() - start) * 1000),
+                    ok=False,
+                    error=str(last_exc)[:500],
+                )
+            )
             raise last_exc
+
+    async def structured(
+        self,
+        messages: list[dict],
+        system_prompt: str,
+        schema: type[BaseModel],
+        *,
+        temperature: float = 0.1,
+        step: str | None = None,
+        patient_id: int | None = None,
+        session_id: str | None = None,
+        prefix_fp: str | None = None,
+        max_tokens: int = _STRUCTURED_MAX_TOKENS,
+        repair: bool = True,
+    ) -> StructuredResult:
+        """Вернуть валидированный Pydantic-объект вместо сырого текста.
+
+        ``response_format={"type": "json_schema", "schema": ..., "strict": true}``
+        заменяет самописный парсер полей: модель физически не может вернуть
+        карточку без обязательного поля.
+
+        ``repair=True`` оставляет ровно одну попытку починки — модель получает
+        текст своей ошибки валидации. При ``strict: true`` срабатывает редко,
+        но защищает от краевых схем. Repair-вызов уходит в телеметрию со своим
+        ``step`` (``<step>_repair``), чтобы его долю можно было посчитать SQL-ом.
+        """
+        response_format = structured.response_format_for(schema)
+
+        text, tokens_in, tokens_out, latency_ms = await self.call(
+            messages,
+            system_prompt,
+            temperature=temperature,
+            step=step,
+            patient_id=patient_id,
+            session_id=session_id,
+            prefix_fp=prefix_fp,
+            response_format=response_format,
+            max_tokens=max_tokens,
+        )
+
+        try:
+            parsed = schema.model_validate_json(structured.strip_fence(text))
+            return StructuredResult(
+                parsed=parsed,
+                raw_text=text,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+            )
+        except (ValidationError, ValueError) as exc:
+            if not repair:
+                raise LLMResponseError(f"schema validation failed: {exc}") from exc
+            first_error = exc
+
+        logger.warning(
+            "[pool] structured repair account=%s schema=%s: %s",
+            self.account_id,
+            schema.__name__,
+            first_error,
+        )
+        repair_messages = [
+            *messages,
+            {"role": "assistant", "content": text},
+            {"role": "user", "content": _STRUCTURED_REPAIR_PROMPT},
+        ]
+        text2, tokens_in2, tokens_out2, latency_ms2 = await self.call(
+            repair_messages,
+            system_prompt,
+            temperature=0.0,
+            step=f"{step}_repair" if step else "structured_repair",
+            patient_id=patient_id,
+            session_id=session_id,
+            prefix_fp=prefix_fp,
+            response_format=response_format,
+            max_tokens=max_tokens,
+        )
+        try:
+            parsed = schema.model_validate_json(structured.strip_fence(text2))
+        except (ValidationError, ValueError) as exc:
+            raise LLMResponseError(f"schema validation failed twice: {exc}") from exc
+
+        return StructuredResult(
+            parsed=parsed,
+            raw_text=text2,
+            tokens_in=tokens_in + tokens_in2,
+            tokens_out=tokens_out + tokens_out2,
+            latency_ms=latency_ms + latency_ms2,
+            repair_attempts=1,
+        )
 
 
 class AccountPool:
@@ -261,6 +444,7 @@ class AccountPool:
         model_tier: str,
         *,
         allow_fallback: bool = False,
+        sticky_key: str | None = None,
     ) -> GigaChatClient:
         if not self.clients:
             raise LLMConfigurationError("No GigaChat accounts configured")
@@ -277,6 +461,22 @@ class AccountPool:
             )
         if not candidates:
             candidates = self.clients
+
+        if sticky_key:
+            # Кэш GigaChat живёт в контуре аккаунта — один тред должен всегда
+            # попадать на один и тот же аккаунт. Переключение на другой
+            # аккаунт из пула происходит только при отказе (см. GigaChatClient.call:
+            # ретраи внутри аккаунта, а не переход на другой клиент).
+            #
+            # `candidates` here includes higher tiers too (priority >= min_priority,
+            # e.g. "lite" matches lite/pro/max) — that's fine for the non-sticky
+            # least-busy path below, which only upgrades tier when the cheap one is
+            # busy. For sticky routing there's no such fallback signal, so we must
+            # prefer an exact tier match first, otherwise a "lite" thread could get
+            # permanently pinned to a "max" account by hash alone.
+            exact_tier_candidates = [c for c in candidates if c.model_tier == tier]
+            sticky_pool = exact_tier_candidates or candidates
+            return sticky_pool[_stable_index(sticky_key, len(sticky_pool))]
 
         candidates.sort(key=lambda c: (c.is_busy, _TIER_PRIORITY.get(c.model_tier, 1)))
 

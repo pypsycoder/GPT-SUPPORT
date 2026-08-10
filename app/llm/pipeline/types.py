@@ -25,6 +25,7 @@ class LLMRequest:
     strict_model_tier: bool = False
     db: AsyncSession | None = None
     patient_gender: str | None = None
+    thread_id: str = "default"
 
 
 @dataclass

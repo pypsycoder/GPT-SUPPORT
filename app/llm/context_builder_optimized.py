@@ -13,12 +13,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from functools import partial
 from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.llm.context_builder import (
+    DEFAULT_THREAD_ID,
     _get_recent_vitals,
     _get_medication_adherence,
     _get_sleep_summary,
@@ -150,6 +152,7 @@ async def build_context_bundle_optimized(
     patient_id: int,
     db: AsyncSession,
     query: str = "",
+    thread_id: str = DEFAULT_THREAD_ID,
 ) -> dict:
     """
     Оптимизированная сборка контекста с параллельными запросами и кэшированием.
@@ -223,7 +226,7 @@ async def build_context_bundle_optimized(
         "recent_water": _get_recent_water,
         "routine_summary": _get_routine_summary,
         "practices_summary": _get_practices_summary,
-        "chat_history": _get_chat_history,
+        "chat_history": partial(_get_chat_history, thread_id=thread_id),
     }
     
     parallel_started = time.monotonic()
