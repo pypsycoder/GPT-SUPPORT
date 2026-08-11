@@ -68,6 +68,9 @@ class PipelineContext:
     diagnostics: dict[str, Any] = field(default_factory=dict)
     early_response: str | None = None
     early_response_source: str | None = None
+    # Решение L0: разобранные показатели, уровень тревоги, продолжение интента.
+    # Заполняется BoundaryGuardStage, используется дальше по пайплайну.
+    l0: Any = None
 
 
 class PipelineStage(ABC):

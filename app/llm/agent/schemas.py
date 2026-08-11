@@ -24,12 +24,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 SafetyLevel = Literal["none", "concern", "urgent"]
+SafetyKind = Literal["psychological", "medical", "none"]
 Intent = Literal["emotional_support", "education", "smalltalk", "safety"]
 
 # Перечисление ключей для системного промпта: модель обязана знать их дословно.
 AGENT_REPLY_KEYS = (
-    "reply, intent, technique_id, safety_level, safety_reason, next_action, "
-    "memory_candidates, rationale"
+    "reply, intent, technique_id, safety_level, safety_kind, safety_reason, "
+    "next_action, memory_candidates, rationale"
 )
 
 
@@ -54,6 +55,15 @@ class AgentReply(BaseModel):
     )
     safety_level: SafetyLevel = Field(
         description="none — обычный разговор; concern — тревожные признаки; urgent — угроза жизни"
+    )
+    # Вид нужен второму эшелону, чтобы подставить правильный протокол: телефон
+    # доверия при передозировке — вредный совет, а разговор о скорой при
+    # суицидальных мыслях не отвечает на то, что человек сказал.
+    safety_kind: SafetyKind = Field(
+        description=(
+            "psychological — про смерть или самоповреждение; "
+            "medical — острое состояние тела; none — риска нет"
+        )
     )
     safety_reason: str = Field(
         max_length=200,

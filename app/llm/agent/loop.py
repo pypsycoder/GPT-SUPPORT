@@ -71,6 +71,7 @@ def build_layers(
     anchor_goal: str | None = None,
     technique_state: TechniqueState | None = None,
     technique_context: str = "",
+    l0_note: str = "",
 ) -> prompt_assembly.PromptLayers:
     """Слои промпта агента — та же дисциплина, что и в старой ветке (шаг 2)."""
     technique_block = build_technique_block(
@@ -85,6 +86,7 @@ def build_layers(
         last_bot_reply=last_bot_reply,
         session_goal=session_goal,
         technique_block=technique_block,
+        l0_note=l0_note,
     )
     return prompt_assembly.PromptLayers(
         system=AGENT_SYSTEM_PROMPT,

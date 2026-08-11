@@ -7,7 +7,7 @@ import re
 import time
 from typing import Any
 
-from app.llm import agent, prompt_assembly
+from app.llm import agent, prompt_assembly, router_l0, safety_responses
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
@@ -344,6 +344,106 @@ async def _load_education_grounding(
     return education_view, grounding_items, diagnostics, context_payload
 
 
+_ALERT_NOTES = {
+    "bp_critical": (
+        "Давление в кризисной зоне. Отметь это прямо, предложи перемерить через "
+        "несколько минут в покое и связаться с диализным центром. Не диагностируй "
+        "и не назначай ничего."
+    ),
+    "bp_high": "Давление выше обычного — стоит отметить спокойно, без нагнетания.",
+}
+
+
+def _l0_note(decision) -> str:
+    """Что L0 разобрал детерминированно — передаём агенту как факты, а не догадки."""
+    if decision is None:
+        return ""
+    lines: list[str] = []
+
+    if decision.vitals:
+        rendered = []
+        for item in decision.vitals:
+            if item.get("type") == "BP":
+                rendered.append(f"АД {item['systolic']}/{item['diastolic']}")
+            else:
+                rendered.append(f"{item['type']} {item['value']}")
+        lines.append("Пациент назвал показатели: " + ", ".join(rendered) + ".")
+
+    if decision.alert and decision.alert in _ALERT_NOTES:
+        lines.append(_ALERT_NOTES[decision.alert])
+
+    if decision.safety_level == "concern":
+        lines.append(
+            "В сообщении есть признак истощения или безнадёжности "
+            f"({decision.rule}). Отнесись внимательнее, но не приписывай человеку "
+            "того, чего он не говорил."
+        )
+
+    if decision.intent == "continuation" and decision.continued_intent:
+        lines.append(
+            f"Это короткий ответ на твой предыдущий вопрос — продолжение темы "
+            f"«{decision.continued_intent}», а не новый запрос."
+        )
+
+    return "\n".join(lines)
+
+
+_SAFETY_ORDER = {"none": 0, "concern": 1, "urgent": 2}
+
+
+def _apply_agent_safety_net(context: PipelineContext, reply_card) -> dict[str, Any]:
+    """Второй эшелон защиты поверх вердикта агента.
+
+    Делает две вещи, и обе про ложноотрицательные срабатывания L0:
+
+    1. **Считает пропуски на живом трафике.** Ход, где агент увидел риск, а L0
+       промолчал, — это и есть пропуск L0. Других способов мерить полноту
+       непрерывно у нас нет: разовые замеры идут по выборкам, каждая из которых
+       чем-нибудь смещена.
+    2. **Перекрывает ответ при urgent.** Вердикт приходит уже после генерации,
+       поэтому предотвратить вызов он не может — но выбросить текст и подставить
+       протокол ничего не стоит, а цена ошибки здесь максимальная.
+
+    Оговорка: детекторы не независимы. Это та же модель, и при ``concern`` от L0
+    она получает подсказку через ``_l0_note``. Чище всего сигнал там, где L0
+    промолчал — то есть ровно в интересующем нас случае.
+    """
+    l0_level = str(getattr(context.l0, "safety_level", "none") or "none")
+    agent_level = str(reply_card.safety_level or "none")
+    agent_kind = str(getattr(reply_card, "safety_kind", "none") or "none")
+
+    missed_by_l0 = _SAFETY_ORDER.get(agent_level, 0) > _SAFETY_ORDER.get(l0_level, 0)
+    escalated = agent_level == "urgent"
+
+    reply = safety_responses.crisis_response(agent_kind) if escalated else reply_card.reply.strip()
+
+    if escalated:
+        logger.warning(
+            "[safety_net] агент поднял urgent (kind=%s, l0=%s) patient=%d — ответ перекрыт. Причина: %s",
+            agent_kind,
+            l0_level,
+            context.request.patient_id,
+            str(reply_card.safety_reason)[:120],
+        )
+    elif missed_by_l0:
+        # Не кризис, но L0 не заметил того, что заметил агент. Копим для замера.
+        logger.info(
+            "[safety_net] L0 промолчал, агент дал %s patient=%d: %s",
+            agent_level,
+            context.request.patient_id,
+            str(reply_card.safety_reason)[:120],
+        )
+
+    return {
+        "reply": reply,
+        "l0_level": l0_level,
+        "agent_level": agent_level,
+        "agent_kind": agent_kind,
+        "missed_by_l0": missed_by_l0,
+        "reply_overridden": escalated,
+    }
+
+
 def _single_agent_applicable(context: PipelineContext) -> bool:
     """Идёт ли этот ход по одноагентной ветке.
 
@@ -411,6 +511,7 @@ async def _run_single_agent(
         anchor_goal=current_state.anchor_goal,
         technique_state=technique_state,
         technique_context=str(current_state.slots.get("intake_context") or ""),
+        l0_note=_l0_note(context.l0),
     )
     run = await agent.Agent(
         model_tier=model_tier, strict_model_tier=strict_model_tier
@@ -430,8 +531,16 @@ async def _run_single_agent(
         return None
 
     reply_card = run.reply
+
+    # Второй эшелон. L0 работает до вызова и ловит явные формулировки; агент
+    # видит сообщение целиком и замечает то, что регулярки пропускают. Его
+    # вердикт до сих пор только писался в диагностику — здесь он начинает
+    # работать.
+    safety_net = _apply_agent_safety_net(context, reply_card)
+    patient_reply = safety_net["reply"]
+
     updated_state = CurrentState.from_dict(current_state.to_dict())
-    updated_state.last_bot_reply = reply_card.reply.strip() or None
+    updated_state.last_bot_reply = patient_reply or None
     updated_state.last_selected_agents = _agent_intent_to_agents(reply_card.intent)
     updated_state.needs_clarification = False
     updated_state.pending_question = None
@@ -465,11 +574,21 @@ async def _run_single_agent(
             "window_turns": len(history_turns),
             "prefix_fingerprints": [run.prefix_fp] if run.prefix_fp else [],
         },
+        "l0": {
+            "enabled": router_l0.l0_enabled(),
+            "intent": getattr(context.l0, "intent", None),
+            "rule": getattr(context.l0, "rule", None),
+            "safety_level": getattr(context.l0, "safety_level", "none"),
+            "vitals": list(getattr(context.l0, "vitals", []) or []),
+            "alert": getattr(context.l0, "alert", None),
+        },
+        "safety_net": safety_net,
         "agent": {
             "intent": reply_card.intent,
             "technique_id": reply_card.technique_id,
             "technique_step_index": advanced.step_index,
             "safety_level": reply_card.safety_level,
+            "safety_kind": reply_card.safety_kind,
             "safety_reason": reply_card.safety_reason,
             "next_action": reply_card.next_action,
             "memory_candidates": list(reply_card.memory_candidates),
@@ -491,7 +610,7 @@ async def _run_single_agent(
     }
 
     context.supervisor_turn = SupervisorTurnResult(
-        reply=reply_card.reply.strip(),
+        reply=patient_reply,
         state_delta=diagnostics["state_delta"],
         updated_state=updated_state,
         message_type=message_type,
@@ -502,7 +621,7 @@ async def _run_single_agent(
         education_cta=None,
     )
     context.supervisor_state = after_state
-    context.response_draft = reply_card.reply.strip()
+    context.response_draft = patient_reply
     context.response_tokens_input = run.tokens_in
     context.response_tokens_output = run.tokens_out
     context.response_account_id = run.account_id or "AGENT"
@@ -597,6 +716,16 @@ class SupervisorStage(PipelineStage):
             strict=strict_tier,
             education_grounding_available=bool(education_rag_grounding_items),
         )
+        # L0 поднял тревогу — на lite такой разговор вести нельзя. Только вверх:
+        # понижать тир по сигналу тревоги мы не станем никогда.
+        l0 = context.l0
+        if not strict_tier and l0 is not None and l0.safety_level == "concern" and model_tier == "lite":
+            logger.info(
+                "[supervisor] L0 concern (%s) patient=%d — поднимаю тир lite→pro",
+                l0.rule,
+                context.request.patient_id,
+            )
+            model_tier = "pro"
 
         # Одноагентная ветка (шаг 4) живёт параллельно старой. Интент SAFETY на неё
         # не переводится: кризис схлопываем отдельно, после накопления статистики.

@@ -9,9 +9,22 @@ from __future__ import annotations
 import logging
 import time
 
+from app.llm import router_l0
+from app.llm.safety_responses import CRISIS_RESPONSE, MEDICAL_URGENT_RESPONSE
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 
 logger = logging.getLogger("gpt-support-llm.pipeline.boundary_guard")
+
+
+def _previous_intent(context: PipelineContext) -> str | None:
+    """Интент прошлого хода — им продолжается короткий ответ вроде «да»."""
+    state = context.request.supervisor_state or {}
+    agents = [str(a) for a in (state.get("last_selected_agents") or []) if str(a).strip()]
+    if agents:
+        return agents[0]
+    if state.get("education_session_active"):
+        return "education"
+    return None
 
 
 _CRISIS_PATTERNS = (
@@ -32,14 +45,6 @@ _CRISIS_PATTERNS = (
     "хочу уйти из жизни",
     "причинить себе вред",
     "навредить себе",
-)
-
-_CRISIS_RESPONSE = (
-    "Слышу, что тебе сейчас очень тяжело. "
-    "Я рядом, но в такой момент важно поговорить с живым человеком — "
-    "он сможет помочь лучше, чем я.\n\n"
-    "Позвони на телефон доверия: 8-800-2000-122 (бесплатно, круглосуточно).\n\n"
-    "Если есть кто-то рядом — пожалуйста, скажи ему, что тебе нужна помощь прямо сейчас."
 )
 
 _PROMPT_INJECTION_PATTERNS = (
@@ -114,8 +119,42 @@ class BoundaryGuardStage(PipelineStage):
             }
             return context
 
-        if any(pattern in normalized for pattern in _CRISIS_PATTERNS):
-            context.early_response = _CRISIS_RESPONSE
+        # L0 заменяет поиск подстроки: границы слов вместо вхождения, отдельная
+        # ветка для острого медицинского состояния и разделение «кризис» /
+        # «тревожный признак». Решение кладём в контекст целиком — дальше по
+        # пайплайну им пользуются supervisor и агент.
+        if router_l0.l0_enabled():
+            decision = router_l0.classify(
+                user_input,
+                has_pending_question=bool((context.request.supervisor_state or {}).get("pending_question")),
+                previous_intent=_previous_intent(context),
+            )
+            context.l0 = decision
+
+            if decision.safety_level == "urgent":
+                medical = decision.safety_kind == "medical"
+                context.early_response = MEDICAL_URGENT_RESPONSE if medical else CRISIS_RESPONSE
+                context.early_response_source = (
+                    "boundary_guard_medical_urgent" if medical else "boundary_guard_crisis"
+                )
+                context.diagnostics["boundary_guard"] = {
+                    "triggered": True,
+                    "type": "crisis_signal",
+                    "reason": f"l0:{decision.rule}",
+                    "safety_kind": decision.safety_kind,
+                    "latency_ms": int((time.monotonic() - started) * 1000),
+                }
+                logger.warning(
+                    "[boundary_guard] L0 urgent kind=%s rule=%s patient=%d input=%s",
+                    decision.safety_kind,
+                    decision.rule,
+                    context.request.patient_id,
+                    user_input[:50],
+                )
+                return context
+
+        elif any(pattern in normalized for pattern in _CRISIS_PATTERNS):
+            context.early_response = CRISIS_RESPONSE
             context.early_response_source = "boundary_guard_crisis"
             context.diagnostics["boundary_guard"] = {
                 "triggered": True,

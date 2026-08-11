@@ -79,6 +79,7 @@ def build_agent_user_prompt(
     last_bot_reply: str | None,
     session_goal: str | None,
     technique_block: str = "",
+    l0_note: str = "",
 ) -> str:
     """Волатильный слой: всё, что меняется от хода к ходу.
 
@@ -98,6 +99,9 @@ def build_agent_user_prompt(
 
     if last_bot_reply:
         parts.append(f"Твоя предыдущая реплика (не повторяй дословно):\n{last_bot_reply}")
+
+    if l0_note:
+        parts.append(l0_note)
 
     if rag_fragments:
         block = "\n".join(f"- {item}" for item in rag_fragments[:5])

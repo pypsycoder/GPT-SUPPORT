@@ -22,6 +22,7 @@ def _reply_payload(**overrides) -> dict:
         "intent": "emotional_support",
         "technique_id": "нет",
         "safety_level": "none",
+        "safety_kind": "none",
         "safety_reason": "нет",
         "next_action": "предложить практику дыхания",
         "memory_candidates": [],
@@ -439,3 +440,96 @@ def test_technique_id_is_part_of_the_schema_and_prompt():
     assert "technique_id" in schema["required"]
     assert "technique_id" in AGENT_SYSTEM_PROMPT
     assert "Одна техника за ход" in AGENT_SYSTEM_PROMPT
+
+
+# --------------------------------------------------------------------------- #
+# Второй эшелон: вердикт агента как сеть под ложноотрицательные L0
+# --------------------------------------------------------------------------- #
+
+from app.llm import safety_responses  # noqa: E402
+from app.llm.pipeline.stages.supervisor import _apply_agent_safety_net  # noqa: E402
+
+
+class _L0(dict):
+    """Мини-заглушка решения L0: важен только safety_level."""
+
+    def __init__(self, level: str):
+        super().__init__()
+        self.safety_level = level
+
+
+def _ctx_with_l0(level: str | None) -> PipelineContext:
+    context = PipelineContext(request=LLMRequest(patient_id=1, user_input="текст"))
+    context.l0 = _L0(level) if level else None
+    return context
+
+
+def _card(**overrides) -> AgentReply:
+    return AgentReply.model_validate(_reply_payload(**overrides))
+
+
+def test_agent_urgent_overrides_the_reply():
+    """Текст уже сгенерирован — выбрасываем его и подставляем протокол."""
+    card = _card(
+        safety_level="urgent",
+        safety_kind="psychological",
+        reply="давай подышим вместе",
+    )
+
+    result = _apply_agent_safety_net(_ctx_with_l0("none"), card)
+
+    assert result["reply_overridden"] is True
+    assert result["reply"] == safety_responses.CRISIS_RESPONSE
+    assert "давай подышим" not in result["reply"]
+
+
+def test_medical_urgent_gets_the_ambulance_text_not_the_hotline():
+    """Телефон доверия при передозировке — вредный совет."""
+    card = _card(**{"safety_level": "urgent", "safety_kind": "medical"})
+
+    result = _apply_agent_safety_net(_ctx_with_l0("none"), card)
+
+    assert result["reply"] == safety_responses.MEDICAL_URGENT_RESPONSE
+    assert "103" in result["reply"]
+    assert "8-800-2000-122" not in result["reply"]
+
+
+def test_l0_miss_is_recorded_when_agent_sees_more():
+    """Ход, где L0 промолчал, а агент увидел риск, — это пропуск L0."""
+    result = _apply_agent_safety_net(_ctx_with_l0("none"), _card(safety_level="concern"))
+
+    assert result["missed_by_l0"] is True
+    assert result["reply_overridden"] is False
+    assert result["l0_level"] == "none"
+    assert result["agent_level"] == "concern"
+
+
+def test_no_miss_when_l0_already_saw_it():
+    result = _apply_agent_safety_net(_ctx_with_l0("concern"), _card(safety_level="concern"))
+
+    assert result["missed_by_l0"] is False
+
+
+def test_agent_quieter_than_l0_is_not_a_miss():
+    """L0 поднял тревогу, агент нет — это не пропуск L0, а его перестраховка."""
+    result = _apply_agent_safety_net(_ctx_with_l0("concern"), _card(safety_level="none"))
+
+    assert result["missed_by_l0"] is False
+    assert result["reply_overridden"] is False
+
+
+def test_ordinary_turn_passes_the_reply_through():
+    card = _card()
+
+    result = _apply_agent_safety_net(_ctx_with_l0(None), card)
+
+    assert result["reply"] == card.reply.strip()
+    assert result["reply_overridden"] is False
+    assert result["missed_by_l0"] is False
+
+
+def test_safety_kind_is_required_in_the_schema():
+    schema = structured.json_schema_for(AgentReply)
+
+    assert "safety_kind" in schema["required"]
+    assert schema["properties"]["safety_kind"]["enum"] == ["psychological", "medical", "none"]
