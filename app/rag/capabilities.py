@@ -63,6 +63,36 @@ async def get_rag_backend_info(db: AsyncSession) -> dict[str, object]:
     )
     vector_index_present = bool(vector_index_result.scalar())
 
+    fulltext_column_result = await db.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'education'
+                  AND table_name = 'lesson_embeddings'
+                  AND column_name = 'chunk_tsv'
+            )
+            """
+        )
+    )
+    fulltext_column_present = bool(fulltext_column_result.scalar())
+
+    fulltext_index_result = await db.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = 'education'
+                  AND tablename = 'lesson_embeddings'
+                  AND indexdef ILIKE '%chunk_tsv%'
+            )
+            """
+        )
+    )
+    fulltext_index_present = bool(fulltext_index_result.scalar())
+
     backend = "pgvector" if extension_installed and vector_column_present else "python_cosine"
     blocker = None
     if not extension_installed:
@@ -78,6 +108,8 @@ async def get_rag_backend_info(db: AsyncSession) -> dict[str, object]:
         "vector_column_present": vector_column_present,
         "vector_index_present": vector_index_present,
         "blocker": blocker,
+        "fulltext_column_present": fulltext_column_present,
+        "fulltext_index_present": fulltext_index_present,
     }
 
     _capabilities_cache["value"] = dict(info)
