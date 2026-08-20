@@ -80,4 +80,4 @@ async def test_first_module_delegates_when_same_clarification_question_repeats(m
     assert state.execution_kind is ExecutionKind.DELEGATE
     assert state.selected_agents == ["emotional_support"]
     assert state.needs_clarification is False
-    assert state.final_reply == "Я рядом. Расскажи, как эта грусть влияет на твой день сейчас."
+    assert state.final_reply == "Я рядом.\nРасскажи, как эта грусть влияет на твой день сейчас."

@@ -71,6 +71,9 @@ class PipelineContext:
     # Решение L0: разобранные показатели, уровень тревоги, продолжение интента.
     # Заполняется BoundaryGuardStage, используется дальше по пайплайну.
     l0: Any = None
+    # Показатели, разобранные L0 и готовые к записи. Пишет их роутер:
+    # commit по правилам проекта живёт только там.
+    pending_vitals: list[dict[str, Any]] = field(default_factory=list)
 
 
 class PipelineStage(ABC):

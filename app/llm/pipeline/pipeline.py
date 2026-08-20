@@ -9,6 +9,7 @@ import time
 
 from app.llm.pipeline.stages import ClassificationStage, MemoryWriteStage, SupervisorStage
 from app.llm.pipeline.stages.boundary_guard import BoundaryGuardStage
+from app.llm.pipeline.stages.data_entry import DataEntryStage
 from app.llm.pipeline.types import LLMRequest, LLMResponse, PipelineContext
 from app.llm.pool import MODEL_NAMES
 from app.llm.router import RequestType
@@ -28,6 +29,8 @@ class LLMPipeline:
         self.stages = [
             BoundaryGuardStage(),
             ClassificationStage(),
+            # До супервизора: запись показателей моделью не занимается.
+            DataEntryStage(),
             SupervisorStage(),
             MemoryWriteStage(),
         ]
@@ -164,7 +167,7 @@ class LLMPipeline:
             account_id=account_id,
             requested_model_tier=requested_tier,
             actual_model_tier=actual_tier,
-            pending_vitals=None,
+            pending_vitals=list(context.pending_vitals) or None,
             pending_st_memory=pending_st_memory,
             pending_lt_memory=pending_lt_memory,
             supervisor_state=dict(context.supervisor_state or {}) or None,

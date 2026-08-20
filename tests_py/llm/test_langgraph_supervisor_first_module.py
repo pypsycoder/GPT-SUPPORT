@@ -111,7 +111,7 @@ async def test_first_module_delegates_and_uses_emotional_expert(monkeypatch):
     assert state.execution_kind is ExecutionKind.DELEGATE
     assert state.delegation_validation is ValidationDecision.ACCEPT
     assert state.selected_agents == ["emotional_support"]
-    assert state.final_reply == "Я рядом. Попробуй назвать, что в предстоящем диализе пугает сильнее всего."
+    assert state.final_reply == "Я рядом.\nПопробуй назвать, что в предстоящем диализе пугает сильнее всего."
     assert state.diagnostics["graph_path"] == [
         "intake_analyze",
         "intake_validate",

@@ -56,6 +56,16 @@ class StructuredResult:
     tokens_out: int = 0
     latency_ms: int = 0
     repair_attempts: int = 0
+    # Ошибка первой попытки, которую вылечила починка. Без неё удачный ход
+    # выглядит бесплатным, и схему, которая стабильно не проходит с первого
+    # раза, нечем отличить от схемы, которая проходит.
+    first_error: str | None = None
+
+
+def error_preview(text: str, limit: int = 400) -> str:
+    """Сырой ответ модели в одну строку — чтобы попадал в текст ошибки."""
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= limit else flat[:limit] + "…"
 
 
 def session_key(patient_id: int, thread_id: str) -> str:
@@ -328,7 +338,9 @@ class GigaChatClient:
             )
         except (ValidationError, ValueError) as exc:
             if not repair:
-                raise LLMResponseError(f"schema validation failed: {exc}") from exc
+                raise LLMResponseError(
+                    f"schema validation failed: {exc} | raw={error_preview(text)}"
+                ) from exc
             first_error = exc
 
         logger.warning(
@@ -356,11 +368,15 @@ class GigaChatClient:
         try:
             parsed = schema.model_validate_json(structured.strip_fence(text2))
         except (ValidationError, ValueError) as exc:
-            raise LLMResponseError(f"schema validation failed twice: {exc}") from exc
+            raise LLMResponseError(
+                f"schema validation failed twice: {exc} | raw={error_preview(text2)} "
+                f"| first={first_error} | first_raw={error_preview(text)}"
+            ) from exc
 
         return StructuredResult(
             parsed=parsed,
             raw_text=text2,
+            first_error=f"{first_error} | raw={error_preview(text)}",
             tokens_in=tokens_in + tokens_in2,
             tokens_out=tokens_out + tokens_out2,
             latency_ms=latency_ms + latency_ms2,

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import json
 import os
 import sys
@@ -129,6 +130,7 @@ async def run_branch(branch: str, cases: list[dict], patient_id: int) -> list[di
                     {
                         "case_id": case_id,
                         "category": case.get("category"),
+                        "expected_intent": case.get("expected_intent"),
                         "text": text,
                         "reply": response.response,
                         "intent": _intent_of(diagnostics),
@@ -219,6 +221,38 @@ def render_table(summaries: dict[str, dict], agreement: dict) -> str:
     return "\n".join(lines)
 
 
+def compute_accuracy(rows: list[dict]) -> dict:
+    """Попадание в ожидаемый интент — если он в кейсе указан.
+
+    Согласие веток само по себе ничего не говорит: они могут дружно ошибаться.
+    Отдельно считаем по категориям, потому что средняя цифра скрывает главное —
+    на каких именно классах ветка систематически промахивается.
+    """
+    judged = [r for r in rows if not r.get("error") and r.get("expected_intent")]
+    if not judged:
+        return {"total": 0}
+
+    hits = sum(1 for r in judged if r["intent"] == r["expected_intent"])
+    by_category: dict[str, dict[str, int]] = {}
+    for row in judged:
+        bucket = by_category.setdefault(row.get("category") or "?", {"hit": 0, "total": 0})
+        bucket["total"] += 1
+        if row["intent"] == row["expected_intent"]:
+            bucket["hit"] += 1
+
+    return {
+        "total": len(judged),
+        "hits": hits,
+        "accuracy": hits / len(judged),
+        "by_category": by_category,
+        "misses": [
+            {"case_id": r["case_id"], "expected": r["expected_intent"], "got": r["intent"]}
+            for r in judged
+            if r["intent"] != r["expected_intent"]
+        ],
+    }
+
+
 def compute_agreement(legacy: list[dict], single: list[dict]) -> dict:
     by_id = {r["case_id"]: r for r in single if not r.get("error")}
     pairs = [(r, by_id[r["case_id"]]) for r in legacy if not r.get("error") and r["case_id"] in by_id]
@@ -238,6 +272,8 @@ def compute_agreement(legacy: list[dict], single: list[dict]) -> dict:
 
 
 async def main() -> None:
+    # Windows-консоль в cp1251 роняет вывод на кириллице и стрелках.
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser()
     parser.add_argument("--patient-id", type=int, default=1)
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
@@ -257,14 +293,35 @@ async def main() -> None:
 
     summaries = {b: summarize(results[b]) for b in BRANCHES}
     agreement = compute_agreement(results["legacy"], results["single_agent"])
+    accuracy = {b: compute_accuracy(results[b]) for b in BRANCHES}
     table = render_table(summaries, agreement)
     print("\n" + table)
+
+    if accuracy["legacy"].get("total"):
+        print("\n=== попадание в ожидаемый интент ===")
+        for branch in BRANCHES:
+            stats = accuracy[branch]
+            print(f"  {branch:14s} {stats['hits']}/{stats['total']} ({stats['accuracy']:.0%})")
+        print("\n  по категориям:")
+        print(f"    {'категория':16s}{'старая':>10s}{'агент':>10s}")
+        for name in sorted(accuracy["legacy"]["by_category"]):
+            a = accuracy["legacy"]["by_category"][name]
+            b = accuracy["single_agent"]["by_category"].get(name, {"hit": 0, "total": 0})
+            legacy_cell = "{}/{}".format(a["hit"], a["total"])
+            agent_cell = "{}/{}".format(b["hit"], b["total"])
+            print(f"    {name:16s}{legacy_cell:>10s}{agent_cell:>10s}")
+        for branch in BRANCHES:
+            misses = accuracy[branch]["misses"]
+            if misses:
+                print(f"\n  промахи {branch}:")
+                for m in misses:
+                    print(f"    {m['case_id']:28s} ждали {m['expected']:18s} получили {m['got']}")
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     out = REPORTS_DIR / f"agent_branch_compare_{time.strftime('%Y.%m.%d_%H.%M')}.json"
     out.write_text(
         json.dumps(
-            {"summaries": summaries, "agreement": agreement, "results": results},
+            {"summaries": summaries, "agreement": agreement, "accuracy": accuracy, "results": results},
             ensure_ascii=False,
             indent=1,
         ),

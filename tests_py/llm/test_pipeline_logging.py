@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.llm.errors import LLMResponseError
@@ -12,6 +12,7 @@ from app.llm.pipeline.types import LLMRequest
 from app.llm.router import ModelTier, RequestType, RouterResult
 from app.models.llm import LLMRequestLog
 from app.users.models import User
+from tests_py.sqlite_schema import create_tables
 
 
 @asynccontextmanager
@@ -22,27 +23,7 @@ async def pipeline_logging_session_ctx() -> AsyncSession:
         execution_options={"schema_translate_map": {"users": None, "llm": None}},
     )
     async with engine.begin() as conn:
-        await conn.run_sync(User.__table__.create)
-        await conn.execute(
-            text(
-                """
-                CREATE TABLE llm_request_logs (
-                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                    patient_id INTEGER NOT NULL,
-                    account_id VARCHAR(20) NOT NULL,
-                    model_tier VARCHAR(10) NOT NULL,
-                    tokens_input INTEGER NOT NULL DEFAULT 0,
-                    tokens_output INTEGER NOT NULL DEFAULT 0,
-                    response_time_ms INTEGER NOT NULL DEFAULT 0,
-                    request_type VARCHAR(40),
-                    success BOOLEAN NOT NULL DEFAULT 1,
-                    error_message TEXT,
-                    diagnostics_json JSON,
-                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-        )
+        await conn.run_sync(create_tables, User, LLMRequestLog)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session

@@ -52,6 +52,7 @@ async def test_pipeline_greeting_opens_intake_without_legacy_router_fields(monke
     assert [stage["name"] for stage in response.diagnostics["stages"]] == [
         "boundary_guard",
         "classification",
+        "data_entry",
         "supervisor",
         "memory_write",
     ]
@@ -138,7 +139,8 @@ async def test_pipeline_uses_emotional_expert_after_delegation(monkeypatch):
         )
     )
 
-    assert response.response == "Я рядом. Попробуй назвать, что в предстоящем диализе пугает сильнее всего."
+    # Части карточки эксперта склеиваются переносом строки, а не пробелом.
+    assert response.response == "Я рядом.\nПопробуй назвать, что в предстоящем диализе пугает сильнее всего."
     assert response.supervisor_state["pending_question"] is None
     assert response.supervisor_state["last_selected_agents"] == ["emotional_support"]
     assert response.diagnostics["supervisor"]["delegation"]["card"]["expert"] == "эмоциональная_поддержка"
@@ -196,7 +198,7 @@ async def test_pipeline_uses_education_expert_after_delegation(monkeypatch):
     )
 
     assert response.response == (
-        "После диализа слабость может ощущаться сильнее из-за самой нагрузки процедуры и восстановления после нее. "
+        "После диализа слабость может ощущаться сильнее из-за самой нагрузки процедуры и восстановления после нее.\n"
         "Если хочешь, можно посмотреть урок «Слабость после диализа»."
     )
     assert response.supervisor_state["pending_question"] is None

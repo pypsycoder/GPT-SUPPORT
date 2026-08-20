@@ -21,10 +21,13 @@ https://developers.sber.ru/docs/ru/gigachat/guides/structured-output
 
 from __future__ import annotations
 
+import copy
 import os
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
+from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
 
 ENV_FLAG = "LLM_STRUCTURED_OUTPUT"
 
@@ -108,6 +111,30 @@ def response_format_for(model: type[BaseModel]) -> dict[str, Any]:
         "schema": json_schema_for(model),
         "strict": True,
     }
+
+
+def all_required(model: type[BaseModel], *, name: str | None = None) -> type[BaseModel]:
+    """Копия модели без дефолтов — то есть с полным ``required``.
+
+    Нужна, чтобы прогнать строгую и мягкую схему одним и тем же кодом. Ручная
+    копия модели рядом с оригиналом разъедется на первом же новом поле, поэтому
+    поля берутся из оригинала, и у них снимаются только дефолты.
+
+    Наследование от исходной модели сохраняет ``model_config`` и валидаторы:
+    меняется ровно одна переменная — состав ``required``.
+    """
+    fields: dict[str, Any] = {}
+    for field_name, info in model.model_fields.items():
+        clone: FieldInfo = copy.deepcopy(info)
+        clone.default = PydanticUndefined
+        clone.default_factory = None
+        fields[field_name] = (clone.annotation, clone)
+
+    return create_model(  # type: ignore[call-overload]
+        name or f"Required{model.__name__}",
+        __base__=model,
+        **fields,
+    )
 
 
 def assert_required_present(schema: dict[str, Any]) -> None:

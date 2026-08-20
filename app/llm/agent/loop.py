@@ -21,7 +21,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.llm import prompt_assembly
+from pydantic import BaseModel
+
+from app.llm import prompt_assembly, structured
 from app.llm.agent.prompts import AGENT_SYSTEM_PROMPT, build_agent_user_prompt
 from app.llm.agent.schemas import AgentReply
 from app.llm.agent.techniques import TechniqueState, build_technique_block

@@ -26,7 +26,6 @@ def _reply_payload(**overrides) -> dict:
         "safety_reason": "нет",
         "next_action": "предложить практику дыхания",
         "memory_candidates": [],
-        "rationale": "пациент выражает тревогу",
     }
     payload.update(overrides)
     return payload
@@ -36,13 +35,53 @@ def _reply_payload(**overrides) -> dict:
 # Схема
 # --------------------------------------------------------------------------- #
 
-def test_agent_schema_is_flat_and_fully_required():
+def test_agent_schema_is_flat():
+    """$ref ломает strict-режим — схема должна остаться плоской."""
+    blob = json.dumps(structured.json_schema_for(AgentReply), ensure_ascii=False)
+
+    assert "$ref" not in blob and "$defs" not in blob
+
+
+def test_only_the_three_irreplaceable_fields_are_required():
+    """Обязательных ровно три.
+
+    Раньше обязательными были все восемь — по документации GigaChat, где сказано,
+    что без required модель возвращает произвольный JSON. На живом прогоне вышло
+    наоборот: на «привет» и «спасибо» модель обрывала карточку, валидация падала
+    целиком, и 4 из 5 коротких реплик уходили на откат к старой ветке.
+    Остальным полям дали дефолты — потеря поля дешевле потери всей карточки.
+    """
     schema = structured.json_schema_for(AgentReply)
 
-    structured.assert_required_present(schema)
-    assert set(schema["required"]) == set(schema["properties"])
-    blob = json.dumps(schema, ensure_ascii=False)
-    assert "$ref" not in blob and "$defs" not in blob
+    assert set(schema["required"]) == {"reply", "intent", "safety_level"}
+
+
+def test_minimal_card_from_the_model_is_accepted():
+    card = AgentReply.model_validate(
+        {"reply": "Привет!", "intent": "smalltalk", "safety_level": "none"}
+    )
+
+    assert card.technique_id == "нет"
+    assert card.safety_kind == "none"
+    assert card.memory_candidates == []
+
+
+def test_truncated_key_does_not_kill_the_card():
+    """Модель присылала safekind вместо safety_kind — лишний ключ игнорируем."""
+    card = AgentReply.model_validate(
+        {"reply": "ок", "intent": "smalltalk", "safety_level": "none", "safekind": "none"}
+    )
+
+    assert card.reply == "ок"
+
+
+def test_empty_safety_kind_means_no_risk():
+    """При отсутствии риска GigaChat присылает пустую строку вместо none."""
+    card = AgentReply.model_validate(
+        {"reply": "ок", "intent": "smalltalk", "safety_level": "none", "safety_kind": ""}
+    )
+
+    assert card.safety_kind == "none"
 
 
 def test_agent_schema_carries_routing_fields():
@@ -58,11 +97,7 @@ def test_agent_schema_carries_routing_fields():
     ]
 
 
-def test_memory_candidates_is_required_even_though_it_can_be_empty():
-    schema = structured.json_schema_for(AgentReply)
 
-    assert "memory_candidates" in schema["required"]
-    assert AgentReply.model_validate(_reply_payload()).memory_candidates == []
 
 
 # --------------------------------------------------------------------------- #
@@ -437,7 +472,7 @@ def test_technique_id_is_part_of_the_schema_and_prompt():
     from app.llm.agent.prompts import AGENT_SYSTEM_PROMPT
 
     schema = structured.json_schema_for(AgentReply)
-    assert "technique_id" in schema["required"]
+    assert "technique_id" in schema["properties"]
     assert "technique_id" in AGENT_SYSTEM_PROMPT
     assert "Одна техника за ход" in AGENT_SYSTEM_PROMPT
 
@@ -528,8 +563,7 @@ def test_ordinary_turn_passes_the_reply_through():
     assert result["missed_by_l0"] is False
 
 
-def test_safety_kind_is_required_in_the_schema():
-    schema = structured.json_schema_for(AgentReply)
+def test_safety_kind_offers_the_right_values():
+    props = structured.json_schema_for(AgentReply)["properties"]
 
-    assert "safety_kind" in schema["required"]
-    assert schema["properties"]["safety_kind"]["enum"] == ["psychological", "medical", "none"]
+    assert props["safety_kind"]["enum"] == ["psychological", "medical", "none"]

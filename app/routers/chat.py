@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import pool
+from app.llm import vitals_writer
 from app.llm.router import classify_request
 from app.models.llm import ChatMessage, ChatSupervisorState
 from app.users.models import User
@@ -74,7 +75,11 @@ class MessageResponse(BaseModel):
     response_time_ms: int
     domain: Optional[str]
     model: str
+    # pending_vitals остаётся для старого потока подтверждения (confirm-vitals).
+    # Запись показателей через L0 его не использует: она уже записала и отдаёт
+    # кнопку отмены.
     pending_vitals: Optional[list] = None
+    buttons: Optional[list] = None
     education_cta: Optional[dict] = None
 
 
@@ -140,6 +145,37 @@ async def _write_supervisor_state(
         row.state_json = dict(supervisor_state)
 
 
+class UndoVitalsRequest(BaseModel):
+    patient_id: int
+    entries: list[dict]
+
+
+class UndoVitalsResponse(BaseModel):
+    removed: int
+
+
+@router.post("/undo-vitals", response_model=UndoVitalsResponse)
+async def undo_vitals(
+    body: UndoVitalsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> UndoVitalsResponse:
+    """Убрать показатели, записанные последним ходом чата.
+
+    Идентификаторы приходят из кнопки, но доверять им нельзя: удаляем только
+    строки этого пациента, проверка внутри vitals_writer.undo().
+    """
+    if current_user.id != body.patient_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нет доступа к данным другого пациента",
+        )
+
+    removed = await vitals_writer.undo(db, body.patient_id, body.entries)
+    await db.commit()
+    return UndoVitalsResponse(removed=removed)
+
+
 @router.post("/message", response_model=MessageResponse)
 async def send_message(
     body: MessageRequest,
@@ -179,6 +215,17 @@ async def send_message(
             request_type=router_result.request_type.value,
         )
     )
+    # Показатели распознал pipeline, но записывает их роутер: commit по правилам
+    # проекта живёт только здесь. Кнопка отмены несёт идентификаторы созданных
+    # строк, чтобы убрать ровно их, а не последнюю запись пациента.
+    undo_buttons = None
+    if llm_response.pending_vitals:
+        created = await vitals_writer.write(db, body.patient_id, llm_response.pending_vitals)
+        if created:
+            undo_buttons = [
+                {"label": "Отменить", "action": "undo_vitals", "payload": {"entries": created}}
+            ]
+
     db.add(
         ChatMessage(
             patient_id=body.patient_id,
@@ -189,6 +236,7 @@ async def send_message(
             model_used=llm_response.model,
             domain=llm_response.domain,
             request_type=router_result.request_type.value,
+            buttons_json=undo_buttons,
         )
     )
     await _write_supervisor_state(
@@ -204,7 +252,7 @@ async def send_message(
         response_time_ms=llm_response.response_time_ms,
         domain=llm_response.domain,
         model=llm_response.model,
-        pending_vitals=llm_response.pending_vitals,
+        buttons=undo_buttons,
         education_cta=llm_response.education_cta,
     )
 

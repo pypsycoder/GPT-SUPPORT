@@ -592,7 +592,6 @@ async def _run_single_agent(
             "safety_reason": reply_card.safety_reason,
             "next_action": reply_card.next_action,
             "memory_candidates": list(reply_card.memory_candidates),
-            "rationale": reply_card.rationale,
             "llm_calls": run.llm_calls,
             "repair_attempts": run.repair_attempts,
             "attempts_total": run.attempts,

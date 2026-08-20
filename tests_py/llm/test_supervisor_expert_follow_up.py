@@ -80,4 +80,4 @@ async def test_first_module_routes_expert_follow_up_answer_back_to_expert(monkey
     assert "на вопрос «Когда впервые ощутили грусть?»: уже пару часов" in state.intake_card.context
     assert state.delegation_card is not None
     assert state.delegation_card.expert.value == "эмоциональная_поддержка"
-    assert state.final_reply == "Понял вас. Это уже важная деталь, спасибо."
+    assert state.final_reply == "Понял вас.\nЭто уже важная деталь, спасибо."

@@ -318,6 +318,12 @@
       el.addEventListener('click', function () {
         wrap.remove();
         if (btn.action === 'dismiss_morning') return;
+        // Отмена записи показателей: не переход, а запрос на удаление ровно тех
+        // строк, которые создал этот ход. Их id приходят в payload кнопки.
+        if (btn.action === 'undo_vitals') {
+          undoVitals(msgEl, btn.payload);
+          return;
+        }
         var url = _MORNING_ACTION_URLS[btn.action];
         if (url) window.location.href = url;
       });
@@ -332,6 +338,33 @@
   // ============================================================
   // CONFIRM VITALS UI
   // ============================================================
+
+  function undoVitals(msgEl, payload) {
+    var entries = (payload && payload.entries) || [];
+    if (!entries.length) return;
+
+    var statusEl = document.createElement('span');
+    statusEl.className = 'chat-confirm-status';
+    statusEl.textContent = 'Отменяю…';
+    msgEl.appendChild(statusEl);
+
+    getPatientId()
+      .then(function (patientId) {
+        return apiFetch('/api/chat/undo-vitals', 'POST', {
+          patient_id: patientId,
+          entries: entries,
+        });
+      })
+      .then(function (data) {
+        var removed = (data && data.removed) || 0;
+        statusEl.textContent = removed ? 'Запись отменена' : 'Уже отменено';
+        statusEl.classList.add('chat-confirm-status--ok');
+      })
+      .catch(function () {
+        statusEl.textContent = 'Не получилось отменить';
+        statusEl.classList.add('chat-confirm-status--err');
+      });
+  }
 
   function appendConfirmButtons(msgEl, vitals) {
     var wrap = document.createElement('div');
@@ -440,6 +473,11 @@
       var msgEl = appendMessage('assistant', data.response, data.created_at || new Date().toISOString());
       if (data.pending_vitals && data.pending_vitals.length > 0) {
         appendConfirmButtons(msgEl, data.pending_vitals);
+      }
+      // Показатели, записанные сразу: кнопка «Отменить» под ответом. При
+      // перезагрузке она приедет из buttons_json сообщения.
+      if (data.buttons && data.buttons.length > 0) {
+        appendMorningButtons(msgEl, data.buttons);
       }
       if (data.education_cta) {
         appendEducationCta(msgEl, data.education_cta);

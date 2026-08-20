@@ -247,6 +247,18 @@ def _is_question_about_numbers(text: str) -> bool:
     return bool(_ASKS_ABOUT_NORM.search(text))
 
 
+def _carries_emotion(text: str) -> bool:
+    """Есть ли в сообщении переживание помимо цифр.
+
+    Переиспользуем детектор из библиотеки техник — тот же, по которому эксперт
+    подбирает упражнение. Он детерминированный и уже выверен: на чистых записях
+    вроде «давление 125 на 85» молчит.
+    """
+    from app.llm.technique_library import infer_emotions  # локально: избегаем цикла импорта
+
+    return bool(infer_emotions(text, ""))
+
+
 def _is_short_answer(text: str) -> bool:
     stripped = text.strip()
     if len(stripped) > SHORT_ANSWER_CHARS:
@@ -291,6 +303,19 @@ def classify(
     if vitals:
         safety_level = "concern" if (alert == "bp_critical" or concern) else "none"
         safety_kind = "medical" if alert == "bp_critical" else None
+        if _carries_emotion(message):
+            # «Давление 200 на 100, мне очень страшно» — цифры записать надо, но
+            # отвечать сухим шаблоном нельзя: человек сказал о страхе, и это
+            # ровно то, ради чего платформа существует. Показатели отдаём
+            # дальше, ответ пишет модель.
+            logger.debug("[l0] показатели вместе с эмоцией — интент не присваиваю")
+            return L0Decision(
+                rule="vitals_with_emotion",
+                safety_level=safety_level,
+                safety_kind=safety_kind,
+                vitals=vitals,
+                alert=alert,
+            )
         if _is_question_about_numbers(message):
             # Цифры есть, но человек спрашивает, а не записывает. Интент не
             # присваиваем, а разобранные показатели и тревогу отдаём дальше —

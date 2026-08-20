@@ -14,10 +14,12 @@ from app.llm.errors import LLMResponseError
 from app.llm.memory import st_memory_store
 from app.llm.pipeline import LLMResponse
 from app.llm.router import ModelTier, RequestType, RouterResult
+from app.models.llm import ChatMessage, ChatSupervisorState
 from app.researchers.models import Researcher
 from app.researchers.router import router as researcher_router
 from app.users.models import User
 from core.db.session import get_async_session
+from tests_py.sqlite_schema import create_tables
 
 
 @asynccontextmanager
@@ -28,8 +30,9 @@ async def researcher_chat_session_ctx() -> AsyncSession:
         execution_options={"schema_translate_map": {"users": None, "llm": None}},
     )
     async with engine.begin() as conn:
-        await conn.run_sync(User.__table__.create)
-        await conn.run_sync(Researcher.__table__.create)
+        await conn.run_sync(
+            create_tables, User, Researcher, ChatMessage, ChatSupervisorState
+        )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session

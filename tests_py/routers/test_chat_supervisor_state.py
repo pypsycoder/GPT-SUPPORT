@@ -5,15 +5,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.auth.dependencies import get_current_user
 from app.llm.pipeline import LLMResponse
-from app.models.llm import ChatSupervisorState
+from app.models.llm import ChatMessage, ChatSupervisorState
 from app.routers.chat import router as chat_router
 from app.users.models import User
 from core.db.session import get_async_session
+from tests_py.sqlite_schema import create_tables
 
 
 @asynccontextmanager
@@ -24,39 +25,7 @@ async def chat_session_ctx() -> AsyncSession:
         execution_options={"schema_translate_map": {"users": None, "llm": None}},
     )
     async with engine.begin() as conn:
-        await conn.run_sync(User.__table__.create)
-        await conn.execute(
-            text(
-                """
-                CREATE TABLE chat_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    patient_id INTEGER NOT NULL,
-                    role VARCHAR(20) NOT NULL,
-                    content TEXT NOT NULL,
-                    tokens_used INTEGER NOT NULL DEFAULT 0,
-                    model_used VARCHAR(60),
-                    domain VARCHAR(40),
-                    request_type VARCHAR(40),
-                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-        )
-        await conn.execute(
-            text(
-                """
-                CREATE TABLE chat_supervisor_states (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    patient_id INTEGER NOT NULL,
-                    thread_id VARCHAR(80) NOT NULL DEFAULT 'default',
-                    state_json JSON NOT NULL,
-                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(patient_id, thread_id)
-                )
-                """
-            )
-        )
+        await conn.run_sync(create_tables, User, ChatMessage, ChatSupervisorState)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
         yield session
