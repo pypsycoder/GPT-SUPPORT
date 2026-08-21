@@ -6,6 +6,9 @@ SQLAlchemy ORM модели для LLM-модуля.
   - chat_messages        — история сообщений пациента и ассистента
   - llm_request_logs     — технический лог каждого запроса к GigaChat API (агрегат на ход пайплайна)
   - llm_call_log         — сырой лог каждого вызова GigaChat API (телеметрия кэша, см. TOKEN_OPTIMIZATION_PLAN)
+  - patient_facts        — семантическая память: устойчивые факты о пациенте (см. app.llm.memory_store)
+  - patient_fact_history — аудит изменений patient_facts
+  - chat_summaries       — эпизодическая память: свёртка вытесненных из окна ходов
 """
 
 from __future__ import annotations
@@ -281,3 +284,155 @@ class LLMCallLog(Base):
             f"<LLMCallLog id={self.id} account={self.account_id} step={self.step} "
             f"precached={self.precached_tokens}>"
         )
+
+
+class PatientFact(Base):
+    """Устойчивый факт о пациенте (семантическая память, слой [1] промпта).
+
+    Идентичность факта — по ``normalized_key``, а не по ключу от модели:
+    ``AgentReply.memory_candidates`` отдаёт произвольный текст без key/value
+    (см. app.llm.agent.schemas), поэтому дедуп и решение о записи держит
+    ``app.llm.memory_store`` детерминированно, по совпадению нормализованного
+    текста между ходами.
+    """
+
+    __tablename__ = "patient_facts"
+    __table_args__ = (
+        sa.Index(
+            "uq_patient_facts_active_key",
+            "patient_id",
+            "normalized_key",
+            unique=True,
+            postgresql_where=sa.text("status IN ('pending', 'active')"),
+        ),
+        sa.Index("ix_patient_facts_patient_status", "patient_id", "status"),
+        {"schema": "llm"},
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+
+    patient_id: Mapped[int] = mapped_column(
+        sa.Integer,
+        sa.ForeignKey("users.users.id", ondelete="CASCADE", name="fk_pf_patient_id"),
+        nullable=False,
+    )
+
+    text: Mapped[str] = mapped_column(sa.Text, nullable=False)
+
+    normalized_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+
+    status: Mapped[str] = mapped_column(
+        sa.String(20),
+        nullable=False,
+        server_default="pending",
+        comment="pending | active | superseded | retracted",
+    )
+
+    evidence_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="1")
+
+    first_seen_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, server_default=sa.text("NOW()")
+    )
+
+    last_seen_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, server_default=sa.text("NOW()")
+    )
+
+    expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, server_default=sa.text("NOW()")
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime,
+        nullable=False,
+        server_default=sa.text("NOW()"),
+        onupdate=datetime.utcnow,
+    )
+
+    def __repr__(self) -> str:
+        return f"<PatientFact id={self.id} patient={self.patient_id} status={self.status}>"
+
+
+class PatientFactHistory(Base):
+    """Аудит изменений ``patient_facts`` — откуда взялось решение gate."""
+
+    __tablename__ = "patient_fact_history"
+    __table_args__ = (
+        sa.Index("ix_pfh_fact_id", "fact_id"),
+        {"schema": "llm"},
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+
+    fact_id: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+
+    patient_id: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+
+    old_status: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
+
+    new_status: Mapped[str] = mapped_column(sa.String(20), nullable=False)
+
+    reason: Mapped[str] = mapped_column(
+        sa.String(40),
+        nullable=False,
+        comment="promoted | refreshed | capacity_evicted | expired",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, server_default=sa.text("NOW()")
+    )
+
+    def __repr__(self) -> str:
+        return f"<PatientFactHistory fact={self.fact_id} {self.old_status}->{self.new_status}>"
+
+
+class ChatSummary(Base):
+    """Эпизодическая память: свёртка ходов, вытесненных из окна диалога (слой [2]).
+
+    Симметрична ``ChatSupervisorState`` — один ряд на (patient_id, thread_id).
+    ``covered_through_message_id`` — курсор по ``ChatMessage.id``: свёрнуты все
+    ходы с id не больше этого значения, дальше их пересчитывать не нужно.
+    """
+
+    __tablename__ = "chat_summaries"
+    __table_args__ = (
+        sa.UniqueConstraint("patient_id", "thread_id", name="uq_cs_patient_thread"),
+        {"schema": "llm"},
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+
+    patient_id: Mapped[int] = mapped_column(
+        sa.Integer,
+        sa.ForeignKey("users.users.id", ondelete="CASCADE", name="fk_cs_patient_id"),
+        nullable=False,
+        index=True,
+    )
+
+    thread_id: Mapped[str] = mapped_column(sa.String(80), nullable=False, server_default="default")
+
+    digest: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="")
+
+    covered_through_message_id: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default="0"
+    )
+
+    summarizer_version: Mapped[str] = mapped_column(
+        sa.String(20), nullable=False, server_default="v1"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, server_default=sa.text("NOW()")
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime,
+        nullable=False,
+        server_default=sa.text("NOW()"),
+        onupdate=datetime.utcnow,
+    )
+
+    def __repr__(self) -> str:
+        return f"<ChatSummary patient={self.patient_id} thread={self.thread_id}>"

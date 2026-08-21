@@ -59,9 +59,20 @@ def structured_enabled_for_tier(model_tier: str | None) -> bool:
     return str(model_tier or "").strip().lower() not in UNSUPPORTED_TIERS
 
 
+# Живым прогоном (шаг 7, после обмена с функцией в истории) поймано: GigaChat
+# иногда генерирует спецтокен вместо ASCII-кавычки — валидный на вид JSON,
+# ключи и значения на месте, но `"` заменена на буквальную строку
+# `<|superquote|>`. Судя по всему, артефакт токенизатора, а не поломанная
+# структура ответа — воспроизводится именно после function_call в истории,
+# не на обычных structured()-вызовах. Лечится заменой перед парсингом.
+_SUPERQUOTE_TOKEN = "<|superquote|>"
+
+
 def strip_fence(text: str) -> str:
-    """Снимает ```-обёртку, если модель всё-таки её поставила."""
+    """Снимает ```-обёртку и известные артефакты токенизатора перед парсингом JSON."""
     cleaned = str(text or "").strip()
+    if _SUPERQUOTE_TOKEN in cleaned:
+        cleaned = cleaned.replace(_SUPERQUOTE_TOKEN, '"')
     if not cleaned.startswith("```"):
         return cleaned
     cleaned = cleaned.split("\n", 1)[-1]

@@ -11,10 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api_errors import register_api_exception_handlers
 from app.auth.dependencies import get_current_researcher
 from app.llm.errors import LLMResponseError
-from app.llm.memory import st_memory_store
 from app.llm.pipeline import LLMResponse
 from app.llm.router import ModelTier, RequestType, RouterResult
-from app.models.llm import ChatMessage, ChatSupervisorState
+from app.models.llm import ChatMessage, ChatSupervisorState, PatientFact
 from app.researchers.models import Researcher
 from app.researchers.router import router as researcher_router
 from app.users.models import User
@@ -31,7 +30,7 @@ async def researcher_chat_session_ctx() -> AsyncSession:
     )
     async with engine.begin() as conn:
         await conn.run_sync(
-            create_tables, User, Researcher, ChatMessage, ChatSupervisorState
+            create_tables, User, Researcher, ChatMessage, ChatSupervisorState, PatientFact
         )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
@@ -41,7 +40,6 @@ async def researcher_chat_session_ctx() -> AsyncSession:
 
 def test_researcher_chat_debug_returns_graph_v2_trace(monkeypatch):
     async def runner():
-        st_memory_store.clear_all()
         async with researcher_chat_session_ctx() as seed_session:
             patient = User(full_name="Patient Debug", patient_number=1001)
             researcher = Researcher(username="researcher", password_hash="x", full_name="Researcher Debug")
@@ -183,8 +181,6 @@ def test_researcher_chat_debug_returns_graph_v2_trace(monkeypatch):
             )
             assert payload["supervisor_state"]["pending_question"]["question_text"] == "От чего тебе тревожно?"
 
-        st_memory_store.clear_all()
-
     asyncio.run(runner())
 
 
@@ -315,14 +311,17 @@ def test_researcher_chat_debug_keeps_router_tier_when_not_forced(monkeypatch):
             app.dependency_overrides[get_async_session] = override_session
             app.dependency_overrides[get_current_researcher] = override_researcher
             monkeypatch.setattr("app.researchers.router._llm_pipeline", FakePipeline())
-            monkeypatch.setattr(
-                "app.researchers.router.classify_request",
-                lambda _message, _source: RouterResult(
+            async def _fake_classify_request_async(_message, _source):
+                return RouterResult(
                     request_type=RequestType.EMOTIONAL,
                     model_tier=ModelTier.PRO,
                     domain_hint="emotion",
                     priority=2,
-                ),
+                )
+
+            monkeypatch.setattr(
+                "app.researchers.router.classify_request_async",
+                _fake_classify_request_async,
             )
 
             client = TestClient(app)

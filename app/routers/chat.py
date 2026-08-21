@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import pool
-from app.llm import vitals_writer
-from app.llm.router import classify_request
+from app.llm import memory_store, vitals_writer
+from app.llm.router_cascade import classify_request_async
 from app.models.llm import ChatMessage, ChatSupervisorState
 from app.users.models import User
 from core.db.session import get_async_session
@@ -179,6 +179,7 @@ async def undo_vitals(
 @router.post("/message", response_model=MessageResponse)
 async def send_message(
     body: MessageRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> MessageResponse:
@@ -188,7 +189,7 @@ async def send_message(
             detail="Нет доступа к чату другого пациента",
         )
 
-    router_result = classify_request(body.message, body.source)
+    router_result = await classify_request_async(body.message, body.source)
     supervisor_state = await _read_supervisor_state(db, body.patient_id)
     llm_response = await _llm_pipeline.process(
         LLMRequest(
@@ -245,6 +246,10 @@ async def send_message(
         supervisor_state=llm_response.supervisor_state,
     )
     await db.commit()
+
+    # Свёртка вытесненных из окна ходов — вне критического пути ответа.
+    # Своя сессия внутри: request-сессия уже закрывается к моменту запуска.
+    background_tasks.add_task(memory_store.maybe_compact, body.patient_id, _DEFAULT_THREAD_ID)
 
     return MessageResponse(
         response=llm_response.response,

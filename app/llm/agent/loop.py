@@ -1,14 +1,17 @@
 """
-Агентный цикл: один агент со структурным выводом вместо цепочки узлов.
+Агентный цикл: один агент со структурным выводом плюс опциональные инструменты.
 
-Заменяет intake → delegation → expert (3-9 вызовов LLM на ход) на один вызов.
+Заменяет intake → delegation → expert (3-9 вызовов LLM на ход) на 1-2 вызова.
 Текст пациенту, уровень риска, намерение, следующий шаг и кандидаты в память
 приходят одним структурным ответом.
 
-Фаза инструментов из референса (``ref/agent_loop.py``) здесь не реализована —
-это шаг 7. Каркас цикла оставлен: ``max_hops`` и место под ToolRegistry
-обозначены, но при ``allowed_tools=None`` цикл сразу идёт в структурный финал.
-Смешивать ``functions`` и ``response_format`` в одном запросе нельзя.
+Фаза инструментов (шаг 7, ``ref/agent_loop.py``): при непустом ``allowed_tools``
+цикл до ``max_hops`` раз зовёт ``client.call_with_functions()``, дописывает
+обязательную пару сообщений (``assistant`` с ``function_call``, затем
+``function`` с результатом) и только потом переходит к структурному финалу —
+отдельным вызовом, потому что смешивать ``functions`` и ``response_format``
+в одном запросе нельзя. При ``allowed_tools=None`` (по умолчанию) фаза
+инструментов пропускается полностью — поведение не отличается от шага 4.
 
 Второй инвариант — про деньги: ``session_id`` один на весь ход и на весь тред,
 и системный промпт тоже один. Тогда со второго хода префикс берётся из кэша.
@@ -22,13 +25,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.llm import prompt_assembly, structured
+from app.llm import prompt_assembly, structured, tools
 from app.llm.agent.prompts import AGENT_SYSTEM_PROMPT, build_agent_user_prompt
 from app.llm.agent.schemas import AgentReply
 from app.llm.agent.techniques import TechniqueState, build_technique_block
-from app.llm.errors import LLMConfigurationError, LLMResponseError, LLMTransportError
-from app.llm.pool import pool
+from app.llm.errors import LLMConfigurationError, LLMError, LLMResponseError, LLMTransportError
+from app.llm.pool import GigaChatClient, pool
 
 logger = logging.getLogger("gpt-support-llm.agent")
 
@@ -71,9 +75,11 @@ def build_layers(
     last_bot_reply: str | None = None,
     session_goal: str | None = None,
     anchor_goal: str | None = None,
+    digest: str = "",
     technique_state: TechniqueState | None = None,
     technique_context: str = "",
     l0_note: str = "",
+    tools_available: bool = False,
 ) -> prompt_assembly.PromptLayers:
     """Слои промпта агента — та же дисциплина, что и в старой ветке (шаг 2)."""
     technique_block = build_technique_block(
@@ -89,11 +95,12 @@ def build_layers(
         session_goal=session_goal,
         technique_block=technique_block,
         l0_note=l0_note,
+        tools_available=tools_available,
     )
     return prompt_assembly.PromptLayers(
         system=AGENT_SYSTEM_PROMPT,
         profile=profile_block,
-        summary=prompt_assembly.build_summary_layer(anchor_goal=anchor_goal),
+        summary=prompt_assembly.build_summary_layer(anchor_goal=anchor_goal, digest=digest),
         window=prompt_assembly.window_from_history(
             history, exclude_last_user_message=user_message
         ),
@@ -125,16 +132,13 @@ class Agent:
         thread_key: str = "",
         allowed_tools: list[str] | None = None,
         max_hops: int = MAX_TOOL_HOPS,
+        db: AsyncSession | None = None,
     ) -> AgentRun:
         started = time.monotonic()
         prefix_fp = layers.prefix_fingerprint()
         # Отпечаток в ключе кэша: стабильная часть сменилась — честный новый старт.
         cache_key = prompt_assembly.with_fingerprint(thread_key, prefix_fp) or None
         messages = layers.tail_messages()
-
-        if allowed_tools:
-            # Шаг 7. Пока инструменты не подключены, фаза сбора данных пропускается.
-            logger.debug("[agent] tools requested but not wired yet: %s", allowed_tools)
 
         run = AgentRun(prefix_fp=prefix_fp)
 
@@ -147,6 +151,31 @@ class Agent:
         except LLMConfigurationError:
             raise
         run.account_id = client.account_id
+
+        if allowed_tools:
+            run.hops, findings = await self._collect_with_tools(
+                client,
+                messages,
+                system_prompt=layers.system,
+                allowed_tools=allowed_tools,
+                max_hops=max_hops,
+                patient_id=patient_id,
+                db=db,
+                cache_key=cache_key,
+                prefix_fp=prefix_fp,
+                run=run,
+            )
+            if findings:
+                summary = "\n\n".join(findings)
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Результат поиска по инструментам:\n{summary}\n\n"
+                            "Сформируй итоговый ответ пациенту строго по схеме, в формате JSON."
+                        ),
+                    }
+                )
 
         last_error: str | None = None
         for attempt in range(1, _MAX_ATTEMPTS + 1):
@@ -185,6 +214,7 @@ class Agent:
                 "model_tier": self.model_tier,
                 "intent": result.parsed.intent,
                 "safety_level": result.parsed.safety_level,
+                "hops": run.hops,
             }
             return run
 
@@ -198,5 +228,90 @@ class Agent:
             "account_id": run.account_id,
             "model_tier": self.model_tier,
             "error": run.error,
+            "hops": run.hops,
         }
         return run
+
+    async def _collect_with_tools(
+        self,
+        client: GigaChatClient,
+        messages: list[dict[str, Any]],
+        *,
+        system_prompt: str,
+        allowed_tools: list[str],
+        max_hops: int,
+        patient_id: int | None,
+        db: AsyncSession | None,
+        cache_key: str | None,
+        prefix_fp: str,
+        run: AgentRun,
+    ) -> tuple[int, list[str]]:
+        """Фаза сбора данных инструментами. Работает на СВОЕЙ копии истории —
+        нативный протокол ``function_call``/``role="function"`` нужен только
+        внутри этой фазы (в ней он обязателен: оба сообщения и именно в таком
+        порядке, иначе 422 «every assistant function call must have a result
+        in history»). Наружу отдаёт текстовые находки, а не сырые сообщения.
+
+        Живым прогоном поймано: если эти же сообщения пробрасывать дальше в
+        структурный финал (``response_format`` после ``role="function"`` в
+        истории), GigaChat регулярно ломает JSON — спецтокен вместо кавычки,
+        потерянные запятые, сырые переводы строк внутри значений. Надёжнее
+        не показывать структурному вызову нативный function-обмен вовсе:
+        ``run()`` добавляет находки обычной пользовательской репликой.
+
+        Любая ошибка вызова с ``functions`` (сеть, провайдер) не роняет ход:
+        логируем и идём в структурный финал без результата инструмента —
+        агент всё равно должен ответить пациенту.
+        """
+        specs = tools.registry.specs(allowed_tools)
+        if not specs:
+            return 0, []
+
+        working = list(messages)
+        findings: list[str] = []
+        hops = 0
+        for _ in range(max_hops):
+            try:
+                result = await client.call_with_functions(
+                    working,
+                    system_prompt,
+                    functions=specs,
+                    function_call="auto",
+                    temperature=self.temperature,
+                    step="agent_tools",
+                    patient_id=patient_id,
+                    session_id=cache_key,
+                    prefix_fp=prefix_fp,
+                    max_tokens=self.max_tokens,
+                )
+            except LLMError as exc:
+                logger.warning("[agent] tool-collection call failed, идём в финал без него: %s", exc)
+                run.llm_calls += 1
+                break
+
+            run.llm_calls += 1
+            run.tokens_in += result.tokens_in
+            run.tokens_out += result.tokens_out
+
+            if result.function_call is None:
+                break
+
+            fc = result.function_call
+            hops += 1
+            logger.info("[agent] tool call hop=%d name=%s", hops, fc.name)
+            tool_result = await tools.registry.invoke(fc.name, fc.arguments, patient_id=patient_id, db=db)
+            findings.append(tool_result)
+
+            working.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "function_call": {"name": fc.name, "arguments": fc.arguments},
+                    **({"functions_state_id": result.functions_state_id} if result.functions_state_id else {}),
+                }
+            )
+            working.append({"role": "function", "content": tool_result})
+        else:
+            logger.warning("[agent] tool loop exhausted after %d hops", max_hops)
+
+        return hops, findings

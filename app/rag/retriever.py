@@ -16,22 +16,19 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import time
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.llm.embeddings import cosine_similarity, get_text_embedding
 from app.llm.errors import LLMResponseError, LLMTransportError, RetrievalError
-from app.llm.http import request_json_with_policy
 from app.rag.capabilities import get_rag_backend_info
 
 
 logger = logging.getLogger("rag.retriever")
 
-EMBEDDINGS_URL = "https://gigachat.devices.sberbank.ru/api/v1/embeddings"
-_QUERY_EMBEDDING_CACHE: dict[str, list[float]] = {}
 _TOKEN_RE = re.compile(r"[a-zA-Zа-яА-ЯёЁ0-9]+")
 _SECTION_RE = re.compile(r"##\s*\[([^\]]+)\]")
 _SECTION_FALLBACK_RE = re.compile(r"Раздел:\s*([^\n]+)")
@@ -78,44 +75,6 @@ _RUSSIAN_SUFFIXES = (
 # RRF constant — стандартное значение из литературы (Cormack et al.), не
 # требует калибровки под масштаб конкретных скоров.
 _RRF_K = 60
-
-
-async def _get_query_embedding(query: str) -> list[float]:
-    cached = _QUERY_EMBEDDING_CACHE.get(query)
-    if cached is not None:
-        return list(cached)
-
-    from app.llm.pool import pool
-
-    gc_client = await pool.get_available("lite")
-    token = await gc_client._get_access_token()
-
-    try:
-        data = await request_json_with_policy(
-            "embeddings",
-            method="POST",
-            url=EMBEDDINGS_URL,
-            operation="query embeddings",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json_body={"model": "Embeddings", "input": [query]},
-        )
-        embedding = data["data"][0]["embedding"]
-        _QUERY_EMBEDDING_CACHE[query] = list(embedding)
-        return embedding
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise LLMResponseError("embeddings response payload is invalid") from exc
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return dot / (norm_a * norm_b)
 
 
 def _normalize_token(token: str) -> str:
@@ -468,7 +427,7 @@ async def _retrieve_with_python_cosine(
     for row in rows:
         try:
             emb = json.loads(row.embedding)
-            sim = _cosine_similarity(query_vec, emb)
+            sim = cosine_similarity(query_vec, emb)
             scored_rows.append((sim, row))
         except (json.JSONDecodeError, TypeError, ValueError):
             invalid_embedding_rows += 1
@@ -519,7 +478,7 @@ async def retrieve_relevant_modules_with_meta(
 ) -> dict[str, object]:
     embedding_started = time.monotonic()
     try:
-        query_vec = await _get_query_embedding(query)
+        query_vec = await get_text_embedding(query)
     except (LLMTransportError, LLMResponseError) as exc:
         raise RetrievalError("failed to compute query embedding") from exc
     embedding_request_ms = int((time.monotonic() - embedding_started) * 1000)

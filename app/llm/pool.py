@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import time
@@ -60,6 +61,40 @@ class StructuredResult:
     # выглядит бесплатным, и схему, которая стабильно не проходит с первого
     # раза, нечем отличить от схемы, которая проходит.
     first_error: str | None = None
+
+
+@dataclass(slots=True)
+class FunctionCall:
+    """Запрос модели на вызов инструмента (``message.function_call``)."""
+
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(slots=True)
+class FunctionCallResult:
+    """Результат ``GigaChatClient.call_with_functions()``."""
+
+    content: str
+    function_call: FunctionCall | None
+    functions_state_id: str | None
+    finish_reason: str | None
+    tokens_in: int = 0
+    tokens_out: int = 0
+    latency_ms: int = 0
+
+
+@dataclass(slots=True)
+class _RawCompletion:
+    """Сырой разобранный ответ ``/chat/completions`` — общий для ``call()`` и
+    ``call_with_functions()``. Дальнейший разбор (текст vs function_call)
+    остаётся за вызывающей стороной."""
+
+    message: dict[str, Any]
+    tokens_in: int
+    tokens_out: int
+    latency_ms: int
+    finish_reason: str | None
 
 
 def error_preview(text: str, limit: int = 400) -> str:
@@ -153,34 +188,30 @@ class GigaChatClient:
             logger.debug("[pool] token refreshed account=%s", self.account_id)
             return self._state.access_token
 
-    async def call(
+    async def _execute(
         self,
-        messages: list[dict],
-        system_prompt: str,
+        payload: dict[str, Any],
         *,
-        temperature: float = 0.7,
-        step: str | None = None,
-        patient_id: int | None = None,
-        session_id: str | None = None,
-        prefix_fp: str | None = None,
-        response_format: dict | None = None,
-        max_tokens: int = 512,
-    ) -> tuple[str, int, int, int]:
+        step: str | None,
+        patient_id: int | None,
+        session_id: str | None,
+        prefix_fp: str | None,
+    ) -> _RawCompletion:
+        """``POST /chat/completions`` с ретраем на протухший токен и телеметрией.
+
+        Общая обвязка для ``call()`` и ``call_with_functions()`` (шаг 7):
+        транспорт, ретраи, логирование — идентичны для обоих путей. Разбор
+        полей ответа (текст vs ``function_call``) остаётся за вызывающей
+        стороной, поэтому здесь наружу отдаётся весь ``message`` целиком.
+
+        Извлечение ``message`` тоже внутри retry-блока: малформед-ответ
+        (``choices`` пуст/не тот тип) получает ту же повторную попытку, что и
+        раньше в недифференцированном ``call()``.
+        """
         async with self._state.lock:
             start = time.monotonic()
             token = await self._get_access_token()
             model_name = MODEL_NAMES.get(self.model_tier, MODEL_NAMES["pro"])
-
-            payload = {
-                "model": model_name,
-                "messages": [{"role": "system", "content": system_prompt}, *messages],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-            if response_format is not None:
-                # functions в этом запросе не передаём: смешивать их с
-                # response_format нельзя, поведение непредсказуемо.
-                payload["response_format"] = response_format
 
             last_exc: LLMTransportError | LLMResponseError | None = None
             for attempt in range(2):
@@ -201,7 +232,9 @@ class GigaChatClient:
                         json_body=payload,
                     )
 
-                    text = data["choices"][0]["message"]["content"]
+                    message = data["choices"][0]["message"]
+                    if not isinstance(message, dict):
+                        raise TypeError("message is not a dict")
                     usage = data.get("usage", {})
                     tokens_in = usage.get("prompt_tokens", 0)
                     tokens_out = usage.get("completion_tokens", 0)
@@ -237,7 +270,13 @@ class GigaChatClient:
                             ok=True,
                         )
                     )
-                    return text, tokens_in, tokens_out, elapsed_ms
+                    return _RawCompletion(
+                        message=message,
+                        tokens_in=tokens_in,
+                        tokens_out=tokens_out,
+                        latency_ms=elapsed_ms,
+                        finish_reason=finish_reason,
+                    )
 
                 except (LLMTransportError, LLMResponseError) as exc:
                     last_exc = exc
@@ -287,6 +326,88 @@ class GigaChatClient:
                 )
             )
             raise last_exc
+
+    async def call(
+        self,
+        messages: list[dict],
+        system_prompt: str,
+        *,
+        temperature: float = 0.7,
+        step: str | None = None,
+        patient_id: int | None = None,
+        session_id: str | None = None,
+        prefix_fp: str | None = None,
+        response_format: dict | None = None,
+        max_tokens: int = 512,
+    ) -> tuple[str, int, int, int]:
+        payload: dict[str, Any] = {
+            "model": MODEL_NAMES.get(self.model_tier, MODEL_NAMES["pro"]),
+            "messages": [{"role": "system", "content": system_prompt}, *messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if response_format is not None:
+            # functions в этом запросе не передаём: смешивать их с
+            # response_format нельзя, поведение непредсказуемо.
+            payload["response_format"] = response_format
+
+        raw = await self._execute(
+            payload, step=step, patient_id=patient_id, session_id=session_id, prefix_fp=prefix_fp
+        )
+        text = raw.message.get("content") or ""
+        return text, raw.tokens_in, raw.tokens_out, raw.latency_ms
+
+    async def call_with_functions(
+        self,
+        messages: list[dict],
+        system_prompt: str,
+        *,
+        functions: list[dict[str, Any]],
+        function_call: str | dict[str, str] = "auto",
+        temperature: float = 0.3,
+        step: str | None = None,
+        patient_id: int | None = None,
+        session_id: str | None = None,
+        prefix_fp: str | None = None,
+        max_tokens: int = 512,
+    ) -> FunctionCallResult:
+        """Нативный tool-calling (шаг 7). ``response_format`` здесь не передаётся
+        никогда — смешивать functions и структурный вывод нельзя (см. ``call()``).
+        """
+        payload: dict[str, Any] = {
+            "model": MODEL_NAMES.get(self.model_tier, MODEL_NAMES["pro"]),
+            "messages": [{"role": "system", "content": system_prompt}, *messages],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if functions:
+            payload["functions"] = functions
+            payload["function_call"] = function_call or "auto"
+
+        raw = await self._execute(
+            payload, step=step, patient_id=patient_id, session_id=session_id, prefix_fp=prefix_fp
+        )
+
+        fc: FunctionCall | None = None
+        raw_fc = raw.message.get("function_call")
+        if raw_fc:
+            args = raw_fc.get("arguments")
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except (json.JSONDecodeError, TypeError):
+                    args = {}
+            fc = FunctionCall(name=str(raw_fc.get("name") or ""), arguments=args or {})
+
+        return FunctionCallResult(
+            content=raw.message.get("content") or "",
+            function_call=fc,
+            functions_state_id=raw.message.get("functions_state_id"),
+            finish_reason=raw.finish_reason,
+            tokens_in=raw.tokens_in,
+            tokens_out=raw.tokens_out,
+            latency_ms=raw.latency_ms,
+        )
 
     async def structured(
         self,

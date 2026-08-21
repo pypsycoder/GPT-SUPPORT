@@ -7,7 +7,7 @@ import re
 import time
 from typing import Any
 
-from app.llm import agent, prompt_assembly, router_l0, safety_responses
+from app.llm import agent, memory_store, prompt_assembly, router_l0, safety_responses, tools
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
@@ -308,16 +308,26 @@ async def _load_education_grounding(
     context: PipelineContext,
     *,
     query_override: str | None = None,
+    skip_rag: bool = False,
 ) -> tuple[list[str], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Возвращает (education view, grounding items, диагностика, сырой контекст пациента).
 
     Сырой контекст нужен послойной сборке промпта: из него строятся стабильные
     слои [1] профиль и [3] окно диалога.
+
+    ``skip_rag=True`` (шаг 7, одноагентная ветка с инструментами): RAG-поиск
+    не запускается вовсе — агент получит ``search_education`` как инструмент
+    и сходит за материалами сам, только если реально понадобится. Остальные
+    секции (витальные, история чата, устойчивые факты) собираются как обычно —
+    ``build_context_bundle_optimized`` гейтит RAG-блок по длине запроса
+    (``len(query) >= 10``), поэтому пустой query достаточен, чтобы его
+    пропустить, не трогая остальную сборку. НЕ через ``query_override=""``:
+    пустая строка falsy и утекла бы в ``query_override or user_input``.
     """
     if context.request.db is None:
         return [], [], {"enabled": False, "reason": "db_unavailable"}, {}
 
-    query = query_override or context.request.user_input
+    query = "" if skip_rag else (query_override or context.request.user_input)
     try:
         bundle = await build_context_bundle_optimized(
             context.request.patient_id,
@@ -335,8 +345,12 @@ async def _load_education_grounding(
         dict(item) for item in (context_payload.get("rag_grounding_items") or []) if isinstance(item, dict)
     ]
     education_view = [str(item) for item in (rag_views.get("education") or []) if str(item).strip()]
+    context_payload["stable_facts"] = await memory_store.list_active_facts_text(
+        context.request.db, context.request.patient_id
+    )
     diagnostics = {
         "enabled": True,
+        "skip_rag": skip_rag,
         "view_count": len(education_view),
         "grounding_count": len(grounding_items),
         "rag": dict((bundle.get("diagnostics") or {}).get("rag") or {}),
@@ -480,6 +494,7 @@ async def _run_single_agent(
     education_rag_context: list[str],
     education_grounding_diagnostics: dict[str, Any],
     started: float,
+    use_agent_tools: bool = False,
 ) -> PipelineContext | None:
     """Один структурный вызов вместо intake → delegation → expert.
 
@@ -493,6 +508,11 @@ async def _run_single_agent(
         for item in (patient_context.get("chat_history") or [])
         if isinstance(item, dict) and item.get("role") and item.get("content")
     ]
+    digest = ""
+    if request.db is not None:
+        digest = await memory_store.get_digest(
+            request.db, patient_id=request.patient_id, thread_id=request.thread_id
+        )
 
     technique_state = agent.TechniqueState(
         current_id=current_state.current_technique_id,
@@ -509,9 +529,11 @@ async def _run_single_agent(
         last_bot_reply=current_state.last_bot_reply,
         session_goal=current_state.goal,
         anchor_goal=current_state.anchor_goal,
+        digest=digest,
         technique_state=technique_state,
         technique_context=str(current_state.slots.get("intake_context") or ""),
         l0_note=_l0_note(context.l0),
+        tools_available=use_agent_tools,
     )
     run = await agent.Agent(
         model_tier=model_tier, strict_model_tier=strict_model_tier
@@ -519,6 +541,8 @@ async def _run_single_agent(
         layers,
         patient_id=request.patient_id,
         thread_key=session_key(request.patient_id, request.thread_id),
+        allowed_tools=["search_education"] if use_agent_tools else None,
+        db=request.db if use_agent_tools else None,
     )
 
     if not run.ok or run.reply is None:
@@ -595,6 +619,8 @@ async def _run_single_agent(
             "llm_calls": run.llm_calls,
             "repair_attempts": run.repair_attempts,
             "attempts_total": run.attempts,
+            "tools_enabled": use_agent_tools,
+            "tool_hops": run.hops,
         },
         "state_delta": _changed_state(before_state, after_state),
         "state_after": after_state,
@@ -677,17 +703,26 @@ class SupervisorStage(PipelineStage):
 
         current_state = CurrentState.from_dict(context.supervisor_state)
         message_type = _derive_message_type(context.request.user_input, current_state)
+
+        # Шаг 7: одноагентная ветка с включёнными инструментами не грузит RAG
+        # заранее — search_education агент вызывает сам, только если нужно.
+        # _single_agent_applicable не зависит от patient_context, поэтому
+        # решение можно принять раньше, чем обычно.
+        use_agent_tools = _single_agent_applicable(context) and tools.agent_tools_enabled()
+
         (
             education_rag_context,
             education_rag_grounding_items,
             education_grounding_diagnostics,
             patient_context,
-        ) = await _load_education_grounding(context)
+        ) = await _load_education_grounding(context, skip_rag=use_agent_tools)
 
         # Fallback: if education session is active but RAG returned nothing (e.g. query too short —
         # "давай", "да", "ок"), re-query with the saved education topic so the expert still has grounding.
+        # Не для use_agent_tools: там RAG сознательно пропущен, а не "ничего не нашёл".
         if (
-            not education_rag_grounding_items
+            not use_agent_tools
+            and not education_rag_grounding_items
             and current_state.education_session_active
             and current_state.education_topic
         ):
@@ -739,6 +774,7 @@ class SupervisorStage(PipelineStage):
                 education_rag_context=education_rag_context,
                 education_grounding_diagnostics=education_grounding_diagnostics,
                 started=started,
+                use_agent_tools=use_agent_tools,
             )
             if agent_context is not None:
                 return agent_context

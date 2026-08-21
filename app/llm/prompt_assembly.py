@@ -301,6 +301,7 @@ def window_from_history(
 #   active_practices                              — всегда пусто (заглушка в context_builder).
 PROFILE_SECTIONS: tuple[tuple[str, str], ...] = (
     ("patient_summary", "Краткая сводка за последние дни"),
+    ("stable_facts", "Устойчивые факты о пациенте"),
     ("recent_vitals", "Витальные показатели"),
     ("medication_adherence", "Приём лекарств"),
     ("sleep_summary", "Сон"),
@@ -311,7 +312,7 @@ PROFILE_SECTIONS: tuple[tuple[str, str], ...] = (
     ("practices_summary", "Практики"),
 )
 
-_LIST_SECTIONS = frozenset({"patient_summary"})
+_LIST_SECTIONS = frozenset({"patient_summary", "stable_facts"})
 
 
 def build_profile_layer(context: dict[str, Any] | None) -> str:
@@ -356,7 +357,9 @@ def build_summary_layer(*, anchor_goal: str | None = None, digest: str | None = 
     ветки, накопленный intake-контекст, активная техника), живёт в слое [4] —
     иначе отпечаток менялся бы на каждом ходу и кэш не набирался бы никогда.
 
-    ``digest`` зарезервирован под фоновую свёртку истории (шаг 5).
+    ``digest`` — свёртка вытесненных из окна ходов, читается из
+    ``llm.chat_summaries`` фоновой задачей ``app.llm.memory_store.maybe_compact``
+    (шаг 5).
     """
     parts: list[str] = []
     anchor = canonical_line(str(anchor_goal or ""))

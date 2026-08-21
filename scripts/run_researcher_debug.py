@@ -20,10 +20,10 @@ env_file = PROJECT_ROOT / ".env"
 if env_file.exists():
     load_dotenv(env_file)
 
+from app.llm import memory_store
 from app.llm.errors import LLMConfigurationError, LLMError
-from app.llm.memory import st_memory_store
 from app.llm.pipeline import LLMPipeline, LLMRequest
-from app.llm.router import classify_request
+from app.llm.router_cascade import classify_request_async
 from app.llm.trace_humanizer import build_human_trace
 from app.models.llm import ChatMessage
 from app.researchers import crud as researcher_crud
@@ -67,11 +67,6 @@ def _parse_args() -> argparse.Namespace:
         "--persist-messages",
         action="store_true",
         help="Persist user/assistant chat messages into the database.",
-    )
-    parser.add_argument(
-        "--keep-memory",
-        action="store_true",
-        help="Keep in-memory ST memory for the chosen session instead of clearing it before the run.",
     )
     parser.add_argument(
         "--continue-on-error",
@@ -145,18 +140,13 @@ async def _run_turn(
     patient_id: int,
     message: str,
     tier: str,
-    session_id: str,
     thread_id: str,
     supervisor_state: dict[str, Any] | None,
     persist_messages: bool,
 ) -> TurnRunResult:
-    memory_before = st_memory_store.read(
-        patient_id=patient_id,
-        session_id=session_id,
-        thread_id=thread_id,
-    )
+    memory_before = [{"text": text} for text in await memory_store.list_active_facts_text(db, patient_id)]
 
-    router_result = _apply_forced_model_tier(classify_request(message, "text"), tier)
+    router_result = _apply_forced_model_tier(await classify_request_async(message, "text"), tier)
 
     try:
         llm_result = await _llm_pipeline.process(
@@ -193,12 +183,6 @@ async def _run_turn(
 
     pending_st_memory = list(llm_result.pending_st_memory or [])
     pending_lt_memory = list(llm_result.pending_lt_memory or [])
-    memory_after = st_memory_store.write(
-        patient_id=patient_id,
-        session_id=session_id,
-        thread_id=thread_id,
-        updates=pending_st_memory,
-    )
 
     if persist_messages:
         db.add(
@@ -225,6 +209,8 @@ async def _run_turn(
             )
         )
         await db.commit()
+
+    memory_after = [{"text": text} for text in await memory_store.list_active_facts_text(db, patient_id)]
 
     diagnostics_json = dict(llm_result.diagnostics or {})
     return TurnRunResult(
@@ -265,9 +251,6 @@ async def _main() -> int:
     session_id = args.session_id or f"cli-debug-{args.patient_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:6]}"
     thread_id = str(args.thread_id or "main")
 
-    if not args.keep_memory:
-        st_memory_store.clear(patient_id=args.patient_id, session_id=session_id, thread_id=thread_id)
-
     turns: list[dict[str, Any]] = []
     supervisor_state: dict[str, Any] | None = None
 
@@ -282,7 +265,6 @@ async def _main() -> int:
                 patient_id=args.patient_id,
                 message=message,
                 tier=args.tier,
-                session_id=session_id,
                 thread_id=thread_id,
                 supervisor_state=supervisor_state,
                 persist_messages=bool(args.persist_messages),

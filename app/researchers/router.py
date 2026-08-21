@@ -24,9 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.session import get_async_session
 from app.auth.dependencies import get_current_researcher
 from app.llm.errors import LLMConfigurationError, LLMError
-from app.llm.memory import st_memory_store
+from app.llm import memory_store
 from app.llm.pipeline import LLMPipeline, LLMRequest
-from app.llm.router import classify_request
+from app.llm.router_cascade import classify_request_async
 from app.llm.trace_humanizer import build_human_trace
 from app.models.llm import ChatMessage, ChatSupervisorState
 from app.researchers.models import Researcher
@@ -506,7 +506,7 @@ async def researcher_chat_debug_message(
 
     session_id = _normalize_debug_session_token(body.session_id, body.patient_id)
     thread_id = _normalize_debug_thread_token(body.thread_id)
-    router_result = classify_request(body.message, body.source)
+    router_result = await classify_request_async(body.message, body.source)
     router_result = _apply_forced_model_tier(router_result, body.forced_model_tier)
     supervisor_state = await _read_debug_supervisor_state(
         session,
@@ -515,11 +515,9 @@ async def researcher_chat_debug_message(
         thread_id=thread_id,
     )
 
-    memory_before = st_memory_store.read(
-        patient_id=body.patient_id,
-        session_id=session_id,
-        thread_id=thread_id,
-    )
+    memory_before = [
+        {"text": text} for text in await memory_store.list_active_facts_text(session, body.patient_id)
+    ]
     try:
         llm_response = await _llm_pipeline.process(
             LLMRequest(
@@ -572,6 +570,9 @@ async def researcher_chat_debug_message(
             },
         )
 
+    # ST-память (ключ-значение на сессию) закрыта персистентным
+    # `chat_supervisor_states` — поле остаётся в ответе для совместимости
+    # схемы, но gate больше не пишет в неё (см. app.llm.memory_store).
     pending_st_memory = list(llm_response.pending_st_memory or [])
     pending_lt_memory = list(llm_response.pending_lt_memory or [])
     await _write_debug_supervisor_state(
@@ -580,12 +581,6 @@ async def researcher_chat_debug_message(
         session_id=session_id,
         thread_id=thread_id,
         supervisor_state=llm_response.supervisor_state,
-    )
-    memory_after = st_memory_store.write(
-        patient_id=body.patient_id,
-        session_id=session_id,
-        thread_id=thread_id,
-        updates=pending_st_memory,
     )
 
     if body.persist_messages:
@@ -615,6 +610,9 @@ async def researcher_chat_debug_message(
             )
         )
     await session.commit()
+    memory_after = [
+        {"text": text} for text in await memory_store.list_active_facts_text(session, body.patient_id)
+    ]
 
     diagnostics_json = llm_response.diagnostics or {}
     human_trace = [

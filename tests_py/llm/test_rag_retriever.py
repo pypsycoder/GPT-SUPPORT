@@ -47,7 +47,7 @@ async def test_retrieve_relevant_modules_with_meta_reports_python_backend(monkey
     ]
     db = FakeDB(query_rows=query_rows)
 
-    monkeypatch.setattr(retriever, "_get_query_embedding", AsyncMock(return_value=[1.0, 0.0]))
+    monkeypatch.setattr(retriever, "get_text_embedding", AsyncMock(return_value=[1.0, 0.0]))
     monkeypatch.setattr(
         retriever,
         "get_rag_backend_info",
@@ -110,7 +110,7 @@ async def test_retrieve_relevant_modules_with_meta_reports_pgvector_backend(monk
     ]
     db = FakeDB(query_rows=query_rows)
 
-    monkeypatch.setattr(retriever, "_get_query_embedding", AsyncMock(return_value=[1.0, 0.0, 0.5]))
+    monkeypatch.setattr(retriever, "get_text_embedding", AsyncMock(return_value=[1.0, 0.0, 0.5]))
     monkeypatch.setattr(
         retriever,
         "get_rag_backend_info",

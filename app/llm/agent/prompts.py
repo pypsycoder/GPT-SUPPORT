@@ -80,6 +80,7 @@ def build_agent_user_prompt(
     session_goal: str | None,
     technique_block: str = "",
     l0_note: str = "",
+    tools_available: bool = False,
 ) -> str:
     """Волатильный слой: всё, что меняется от хода к ходу.
 
@@ -106,7 +107,9 @@ def build_agent_user_prompt(
     if rag_fragments:
         block = "\n".join(f"- {item}" for item in rag_fragments[:5])
         parts.append(f"Найденные обучающие фрагменты по теме:\n{block}")
-    else:
+    elif not tools_available:
+        # С инструментами (шаг 7) RAG заранее не грузится — заявлять "не найдено"
+        # здесь означало бы соврать и отговорить модель звать search_education.
         parts.append("Обучающих фрагментов по теме не найдено.")
 
     if technique_block:

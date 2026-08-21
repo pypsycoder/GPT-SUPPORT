@@ -92,6 +92,10 @@ def test_response_format_shape():
         ('```json\n{"a": 1}\n```', '{"a": 1}'),
         ("```\n{}\n```", "{}"),
         ("  {}  ", "{}"),
+        # Живым прогоном поймано (шаг 7): после function_call в истории GigaChat
+        # иногда генерирует спецтокен вместо кавычки — валидный на вид JSON,
+        # но `"` заменена буквальной строкой `<|superquote|>`.
+        ("{<|superquote|>a<|superquote|>: 1}", '{"a": 1}'),
     ],
 )
 def test_strip_fence(raw, expected):
