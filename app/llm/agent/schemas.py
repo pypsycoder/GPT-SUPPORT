@@ -78,7 +78,8 @@ class AgentReply(BaseModel):
         default="none",
         description=(
             "psychological — про смерть или самоповреждение; "
-            "medical — острое состояние тела; none — риска нет"
+            "medical — острое состояние тела прямо сейчас, требующее скорой "
+            "(не многодневное ухудшение самочувствия); none — риска нет"
         )
     )
     safety_reason: str = Field(
