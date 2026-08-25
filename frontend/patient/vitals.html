@@ -401,6 +401,28 @@
     }
 
     // ============================
+    // Временная блокировка кнопки отправки после успеха (2 сек):
+    // текст кнопки меняется на "✍️ Данные внесены"
+    // ============================
+    function notifySubmitted(button, successMessage) {
+        setStatus('success', successMessage);
+
+        if (!button) return;
+
+        if (!button.dataset.originalText) {
+            button.dataset.originalText = button.textContent;
+        }
+
+        button.disabled = true;
+        button.textContent = '✍️ Данные внесены';
+
+        setTimeout(() => {
+            button.disabled = false;
+            button.textContent = button.dataset.originalText;
+        }, 2000);
+    }
+
+    // ============================
     // Инициализация форм отправки Vitals (сессия, без токена)
     // ============================
     function initForms() {
@@ -492,7 +514,7 @@
                         throw new Error(msg);
                     }
 
-                    setStatus('success', 'Давление успешно отправлено. Спасибо!');
+                    notifySubmitted(bpForm.querySelector('button[type="submit"]'), 'Давление успешно отправлено. Спасибо!');
                     bpForm.reset();
                 } catch (error) {
                     console.error(error);
@@ -530,7 +552,7 @@
 
                     if (!response.ok) throw new Error('Ошибка при отправке данных пульса');
 
-                    setStatus('success', 'Пульс успешно отправлен. Спасибо!');
+                    notifySubmitted(pulseForm.querySelector('button[type="submit"]'), 'Пульс успешно отправлен. Спасибо!');
                     pulseForm.reset();
                 } catch (error) {
                     console.error(error);
@@ -568,7 +590,7 @@
 
                     if (!response.ok) throw new Error('Ошибка при отправке данных веса');
 
-                    setStatus('success', 'Вес успешно отправлен. Спасибо!');
+                    notifySubmitted(weightForm.querySelector('button[type="submit"]'), 'Вес успешно отправлен. Спасибо!');
                     weightForm.reset();
                 } catch (error) {
                     console.error(error);
@@ -607,7 +629,7 @@
 
                     if (!response.ok) throw new Error('Ошибка при отправке данных о воде');
 
-                    setStatus('success', 'Данные о воде успешно отправлены. Спасибо!');
+                    notifySubmitted(waterForm.querySelector('button[type="submit"]'), 'Данные о воде успешно отправлены. Спасибо!');
                     waterForm.reset();
                 } catch (error) {
                     console.error(error);
