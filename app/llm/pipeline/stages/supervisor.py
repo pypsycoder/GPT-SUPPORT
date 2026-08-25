@@ -618,6 +618,11 @@ async def _run_single_agent(
         )
         context.supervisor_state = after_state
         context.response_draft = _AGENT_ERROR_REPLY
+        # Тот же случай, что у старой ветки (intake_execute_node) — техническая
+        # заглушка, не содержательный ответ. Если request_type здесь всё же
+        # SAFETY (карточка не разобралась именно на тревожном сообщении),
+        # кризисный постфикс в pipeline.py дописывать нельзя.
+        context.response_is_fallback_error = True
         context.response_tokens_input = run.tokens_in
         context.response_tokens_output = run.tokens_out
         context.response_account_id = run.account_id or "AGENT"
