@@ -140,7 +140,7 @@ async def run_branch(branch: str, cases: list[dict], patient_id: int) -> list[di
                         "tokens_out": response.tokens_output,
                         "latency_ms": int((time.monotonic() - started) * 1000),
                         "tier": response.actual_model_tier,
-                        "fallback": bool(diagnostics.get("single_agent_fallback")),
+                        "fallback": bool(_supervisor(diagnostics).get("error")),
                     }
                 )
                 print(f"  {case_id}: intent={rows[-1]['intent']} calls={rows[-1]['llm_calls']} "

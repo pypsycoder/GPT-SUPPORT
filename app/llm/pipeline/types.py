@@ -68,6 +68,11 @@ class PipelineContext:
     diagnostics: dict[str, Any] = field(default_factory=dict)
     early_response: str | None = None
     early_response_source: str | None = None
+    # True, если response_draft — техническая заглушка сбоя (например,
+    # старая ветка не смогла разобрать intake-карточку), а не содержательный
+    # ответ. Такой текст не должен получать постфикс с телефоном доверия —
+    # см. _build_response в pipeline.py.
+    response_is_fallback_error: bool = False
     # Решение L0: разобранные показатели, уровень тревоги, продолжение интента.
     # Заполняется BoundaryGuardStage, используется дальше по пайплайну.
     l0: Any = None

@@ -328,6 +328,13 @@ def test_maybe_compact_summarizes_evicted_turns_and_advances_cursor(monkeypatch)
                 ).scalar_one()
                 assert summary.covered_through_message_id == expected_cutoff_id
 
+            # Живым прогоном (16-ходовый тред) поймано: без JSON_ONLY_INSTRUCTION
+            # в системном промпте суммаризатора Lite на длинной истории придумывал
+            # свою JSON-схему вместо {"digest": "..."}, обе попытки падали, и
+            # chat_summaries вообще не создавался — см. app/llm/memory_store.py.
+            system_prompt = fake_client.structured.call_args.args[1]
+            assert "JSON" in system_prompt
+
     asyncio.run(runner())
 
 

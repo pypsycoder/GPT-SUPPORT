@@ -97,18 +97,63 @@ class AgentReply(BaseModel):
         description="Устойчивые факты о пациенте, или пустой список. Решение о записи принимает не модель",
     )
 
+    @field_validator("technique_id", "safety_reason", "next_action", mode="before")
+    @classmethod
+    def _normalize_optional_text_none(cls, value: object) -> object:
+        """Явный JSON ``null`` вместо дефолта ``"нет"`` на этих трёх полях.
+
+        Живым прогоном (16-ходовый тред, cross-cutting проверка свёртки
+        истории) поймано на ``safety_reason``/``next_action``:
+        ``{"safety_reason": null, "next_action": null, ...}`` — валидация
+        падала, потому что поля типа ``str`` не принимают ``None``, а свой
+        дефолт Pydantic не подставляет за явно присланное значение. Тот же
+        сбой, что уже чинят ``_normalize_safety_kind``/
+        ``_normalize_memory_candidates`` выше, на трёх полях с общим
+        дефолтом сразу.
+        """
+        if value is None:
+            return "нет"
+        return value
+
     @field_validator("safety_kind", mode="before")
     @classmethod
     def _normalize_safety_kind(cls, value: object) -> object:
-        """Пустая строка от модели означает «риска нет».
+        """Пустая или произвольная строка от модели — не риск из двух категорий.
 
         Когда риска нет, GigaChat присылает ``safety_kind: ""`` вместо ``none``
         — на замере это уронило валидацию 64 раза и увело 15 ходов из 16 на
         откат к старой ветке. Перечисление в схеме оставляем: оно подсказывает
-        модели верные значения. Здесь только подчищаем пустоту.
+        модели верные значения.
+
+        Живым прогоном (LLM_test/reports/2026.08.24_23.00 сессии, single_agent,
+        thread phase1-3to6) поймано и второе поведение: на ``safety_level:
+        concern`` модель вместо перечисления присылает произвольное русское
+        слово-ярлык («бессонница» вместо «psychological») — валидация падала
+        дважды подряд с одной и той же ошибкой. ``safety_kind`` влияет на текст
+        только при ``urgent`` (см. ``crisis_response`` в safety_responses.py,
+        где неопознанный вид уже трактуется как психологический) — на
+        ``concern`` это чистая диагностика, так что любое значение вне
+        перечисления безопасно свести к «none».
         """
         if value is None:
             return "none"
-        if isinstance(value, str) and not value.strip():
+        if isinstance(value, str) and value.strip() not in {"psychological", "medical"}:
             return "none"
+        return value
+
+    @field_validator("memory_candidates", mode="before")
+    @classmethod
+    def _normalize_memory_candidates(cls, value: object) -> object:
+        """Пустая строка от модели означает «кандидатов нет».
+
+        Тот же сбой, что чинит ``_normalize_safety_kind`` выше, но на списковом
+        поле: GigaChat вместо ``[]`` присылает ``memory_candidates: ""``.
+        Живым прогоном (LLM_test/reports/2026.08.24_21.59.md, фаза 1, ходы
+        1/6/7) это ловилось на каждой второй-третьей реплике и уводило
+        single_agent на двойной откат к старой ветке intake→delegation→expert.
+        """
+        if value is None:
+            return []
+        if isinstance(value, str) and not value.strip():
+            return []
         return value

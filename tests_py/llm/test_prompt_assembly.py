@@ -256,8 +256,7 @@ def test_trim_window_starts_from_user_turn():
 # Ключ сессии
 # --------------------------------------------------------------------------- #
 
-def test_session_key_includes_fingerprint():
-    assert pa.session_key(42, "default", "abc123") == "p42-default-abc123"
+def test_with_fingerprint_combines_thread_key_and_fingerprint():
     assert pa.with_fingerprint("p42-default", "abc123") == "p42-default-abc123"
 
 

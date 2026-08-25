@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -35,6 +37,25 @@ load_environment()
 from app.llm import router_l1, router_l2  # noqa: E402
 from app.llm.router import classify_request  # noqa: E402
 from app.llm.router_cascade import classify_request_async  # noqa: E402
+
+# stats["l1_hits"]/["l2_hits"]/["fallback_hits"] были объявлены, но никогда не
+# заполнялись — метрика №3 из докстринга ("доля сообщений, дошедших до L2")
+# фактически не считалась и не печаталась. classify_request_async() не
+# возвращает resolved_by наружу (RouterResult этого не хранит), поэтому
+# ловим его тем же способом, что и логи прода — через DEBUG-строку
+# "[router_cascade] resolved_by=%s", которую сама функция уже пишет.
+_RESOLVED_BY_RE = re.compile(r"resolved_by=(\w+)")
+
+
+class _ResolvedByCounter(logging.Handler):
+    def __init__(self, stats: dict) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.stats = stats
+
+    def emit(self, record: logging.LogRecord) -> None:
+        match = _RESOLVED_BY_RE.search(record.getMessage())
+        if match:
+            self.stats[f"{match.group(1)}_hits"] += 1
 
 DEFAULT_LABELS = ROOT_DIR / "LLM_test" / "cases" / "intent_labels.json"
 
@@ -70,8 +91,15 @@ async def evaluate(rows: list[dict]) -> dict:
         "l1_hits": 0,
         "l2_hits": 0,
         "fallback_hits": 0,
+        "l0_early_or_error": 0,
         "disagreements": [],
     }
+
+    cascade_logger = logging.getLogger("gpt-support-llm.router_cascade")
+    prev_level = cascade_logger.level
+    cascade_logger.setLevel(logging.DEBUG)
+    counter = _ResolvedByCounter(stats)
+    cascade_logger.addHandler(counter)
 
     for row in rows:
         text = row["text"]
@@ -104,6 +132,15 @@ async def evaluate(rows: list[dict]) -> dict:
             stats["disagreements"].append(
                 {"text": text, "truth": truth, "old": old, "cascade": cascade}
             )
+
+    cascade_logger.removeHandler(counter)
+    cascade_logger.setLevel(prev_level)
+    # Ходы, которые каскад резолвит ДО строки "resolved_by=" (L0 urgent/data_entry
+    # ранний return) или которые упали в except и попали в classify_request
+    # напрямую — тоже не безымянные проценты, а посчитанный остаток.
+    stats["l0_early_or_error"] = stats["total"] - (
+        stats["l1_hits"] + stats["l2_hits"] + stats["fallback_hits"]
+    )
 
     return stats
 
@@ -141,6 +178,13 @@ def main() -> None:
     if judged:
         print(f"  старый роутер: {stats['old_correct']}/{judged} ({stats['old_correct'] / judged:.0%})")
         print(f"  каскад:        {stats['cascade_correct']}/{judged} ({stats['cascade_correct'] / judged:.0%})")
+
+    total = stats["total"]
+    print("\n=== КЕМ РЕЗОЛВЛЕНО (доля L2 — часть 9.2 манула, цель < 15%) ===")
+    print(f"  L0 (urgent/data_entry) или ошибка каскада: {stats['l0_early_or_error']}/{total} ({stats['l0_early_or_error'] / total:.0%})")
+    print(f"  L1:                                        {stats['l1_hits']}/{total} ({stats['l1_hits'] / total:.0%})")
+    print(f"  L2:                                        {stats['l2_hits']}/{total} ({stats['l2_hits'] / total:.0%})")
+    print(f"  откат на старый роутер (fallback):          {stats['fallback_hits']}/{total} ({stats['fallback_hits'] / total:.0%})")
 
     print(f"\n=== РАСХОЖДЕНИЯ (старый vs каскад): {len(stats['disagreements'])} ===")
     for item in stats["disagreements"][:30]:

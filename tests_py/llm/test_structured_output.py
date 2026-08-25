@@ -57,6 +57,21 @@ def test_assert_required_present_rejects_incomplete_schema():
         )
 
 
+def test_json_only_instruction_shared_across_every_structured_system_prompt():
+    """Регрессия анализа шагов 1-4: формулировка была независимо продублирована
+    (с расхождением) в agent/prompts.py, agent/judge.py, langgraph_supervisor/policy.py
+    и router_l2.py — теперь все ссылаются на один source of truth."""
+    from app.llm.agent.judge import JUDGE_SYSTEM_PROMPT
+    from app.llm.agent.prompts import AGENT_SYSTEM_PROMPT
+    from app.llm.langgraph_supervisor.policy import _json_format_instruction
+    from app.llm.router_l2 import _SYSTEM_PROMPT as ROUTER_L2_SYSTEM_PROMPT
+
+    assert structured.JSON_ONLY_INSTRUCTION in AGENT_SYSTEM_PROMPT
+    assert structured.JSON_ONLY_INSTRUCTION in JUDGE_SYSTEM_PROMPT
+    assert structured.JSON_ONLY_INSTRUCTION in _json_format_instruction("a, b")
+    assert structured.JSON_ONLY_INSTRUCTION in ROUTER_L2_SYSTEM_PROMPT
+
+
 def test_schema_drops_redundant_titles():
     schema = structured.json_schema_for(schemas.DelegationCardSchema)
 

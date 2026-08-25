@@ -316,7 +316,15 @@ def intake_execute_node(state: FirstModuleState) -> FirstModuleState:
     _mark_node(state, "intake_execute")
     if state.intake_validation is not ValidationDecision.ACCEPT or state.intake_card is None:
         state.execution_kind = ExecutionKind.FINISH
-        state.final_reply = "Извини, я не смог корректно разобрать запрос."
+        # Тот же текст, что _AGENT_ERROR_REPLY в одноагентной ветке
+        # (app/llm/pipeline/stages/supervisor.py) — предлагает повторить, а
+        # не тупиковое извинение. intake_error остаётся заполненным (см.
+        # intake_validate_node) — по нему pipeline.py узнаёт, что это
+        # техническая заглушка, и не дописывает кризисный постфикс.
+        state.final_reply = (
+            "Прошу прощения, у меня техническая заминка с ответом. "
+            "Повтори, пожалуйста, сообщение ещё раз."
+        )
         return state
 
     card = state.intake_card

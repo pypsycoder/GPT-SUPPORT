@@ -16,6 +16,22 @@ def _disable_all(monkeypatch):
     monkeypatch.setattr(router_l2, "l2_enabled", lambda: False)
 
 
+async def test_l0_alone_fixes_bp_false_positive_without_l1_l2(monkeypatch):
+    """Регрессия, пойманная при написании MANUAL_TEST_PLAN.md: с ОДНИМ
+    LLM_ROUTER_L0=1 (L1/L2 выключены) "давление 200 на 100" раньше проваливалось
+    в старый classify_request и оставалось SAFETY — L0 резолвил data_entry,
+    но каскад это игнорировал, консультируя только safety_level. Использует
+    настоящий router_l0.classify (не мок): регрессия была именно в связке."""
+    monkeypatch.setattr(router_l0, "l0_enabled", lambda: True)
+    monkeypatch.setattr(router_l1, "l1_enabled", lambda: False)
+    monkeypatch.setattr(router_l2, "l2_enabled", lambda: False)
+
+    result = await router_cascade.classify_request_async("У меня давление 200 на 100", "text")
+
+    assert result.request_type == RequestType.CLINICAL
+    assert result.model_tier == ModelTier.PRO
+
+
 async def test_button_source_bypasses_cascade_entirely(monkeypatch):
     calls = []
     monkeypatch.setattr(router_l0, "l0_enabled", lambda: (calls.append("l0") or True))

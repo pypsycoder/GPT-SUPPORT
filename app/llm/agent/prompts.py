@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from app.llm.agent.schemas import AGENT_REPLY_KEYS
+from app.llm.structured import JSON_ONLY_INSTRUCTION
 
 AGENT_SYSTEM_PROMPT = (
     "Ты ассистент психологической поддержки пациента на программном гемодиализе.\n"
@@ -64,7 +65,7 @@ AGENT_SYSTEM_PROMPT = (
     "Грамматический род — по полу пациента, если он указан.\n"
     "\n"
     "## Формат\n"
-    "Верни ОДИН JSON-объект строго по переданной схеме, без markdown и без пояснений.\n"
+    f"{JSON_ONLY_INSTRUCTION}\n"
     f"Ключи объекта ровно такие, все обязательны: {AGENT_REPLY_KEYS}.\n"
     "Не придумывай своих имён полей и не переводи их.\n"
     "Пациенту показывается только reply — остальные поля служебные.\n"

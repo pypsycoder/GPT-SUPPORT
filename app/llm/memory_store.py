@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.llm.errors import LLMError
 from app.llm.prompt_assembly import DEFAULT_WINDOW_CHARS, DEFAULT_WINDOW_TURNS
+from app.llm.structured import JSON_ONLY_INSTRUCTION
 from app.models.llm import ChatMessage, ChatSummary, PatientFact, PatientFactHistory
 
 logger = logging.getLogger("gpt-support-llm.memory_store")
@@ -217,7 +218,17 @@ _SUMMARIZER_SYSTEM_PROMPT = (
     "Ты сжимаешь историю переписки пациента на диализе с ассистентом поддержки "
     "в короткую свёртку на русском языке, не длиннее нескольких предложений. "
     "Сохраняй устойчивые темы, договорённости и эмоциональный контекст. "
-    "Не придумывай факты, которых не было в переписке. Не используй markdown."
+    "Не придумывай факты, которых не было в переписке. Не используй markdown.\n\n"
+    # Единственный вызывающий этот промпт путь работает на pool.get_available("lite")
+    # и раньше не включал эту инструкцию — единственный structured()-вызов в
+    # проекте без неё. Живым прогоном (16-ходовый тред, cross-cutting проверка
+    # свёртки истории) поймано: без инструкции Lite на длинной истории
+    # придумывает СВОЮ JSON-схему (topics/agreements/emotional_context/...)
+    # вместо однополевой {"digest": "..."} — обе попытки structured() падают,
+    # maybe_compact молча возвращается без записи (см. её except LLMError),
+    # и chat_summaries вообще не создаётся. Тот же класс сбоя и то же лекарство,
+    # что уже задокументированы в router_l2.py.
+    f'{JSON_ONLY_INSTRUCTION} Схема: {{"digest": "..."}}.'
 )
 
 

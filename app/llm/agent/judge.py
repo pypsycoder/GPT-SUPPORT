@@ -13,6 +13,7 @@ import logging
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.llm.pool import pool
+from app.llm.structured import JSON_ONLY_INSTRUCTION
 
 logger = logging.getLogger("gpt-support-llm.judge")
 
@@ -40,7 +41,7 @@ JUDGE_SYSTEM_PROMPT = (
     "\n"
     "Будь строгим. Оценка 5 — только для действительно хорошего ответа.\n"
     "\n"
-    "Верни ОДИН JSON-объект строго по схеме, без markdown и без пояснений.\n"
+    f"{JSON_ONLY_INSTRUCTION}\n"
     f"Ключи объекта ровно такие, все обязательны: {JUDGE_KEYS}.\n"
     "Четыре оценки — целые числа от 1 до 5."
 )

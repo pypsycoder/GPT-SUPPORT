@@ -84,6 +84,53 @@ def test_empty_safety_kind_means_no_risk():
     assert card.safety_kind == "none"
 
 
+def test_null_safety_reason_and_next_action_fall_back_to_default():
+    """Живым прогоном (16-ходовый тред, cross-cutting проверка свёртки
+    истории): GigaChat прислал safety_reason: null, next_action: null —
+    оба поля типа str, None не проходил валидацию."""
+    card = AgentReply.model_validate(
+        {
+            "reply": "ок",
+            "intent": "emotional_support",
+            "safety_level": "none",
+            "technique_id": None,
+            "safety_reason": None,
+            "next_action": None,
+        }
+    )
+
+    assert card.technique_id == "нет"
+    assert card.safety_reason == "нет"
+    assert card.next_action == "нет"
+
+
+def test_free_text_safety_kind_falls_back_to_none():
+    """Живым прогоном (LLM_test/reports/2026.08.24_23.00, single_agent,
+    thread phase1-3to6): на concern модель прислала safety_kind: "бессонница"
+    вместо enum-значения — валидация падала дважды подряд с одной ошибкой."""
+    card = AgentReply.model_validate(
+        {
+            "reply": "ок",
+            "intent": "emotional_support",
+            "safety_level": "concern",
+            "safety_kind": "бессонница",
+        }
+    )
+
+    assert card.safety_kind == "none"
+
+
+def test_empty_memory_candidates_means_no_candidates():
+    """Живым прогоном (фаза 1, LLM_test/reports/2026.08.24_21.59.md, ходы 1/6/7):
+    GigaChat присылает memory_candidates: "" вместо [] — так же, как safety_kind
+    выше — и это ронял single_agent на откат к старой ветке."""
+    card = AgentReply.model_validate(
+        {"reply": "ок", "intent": "smalltalk", "safety_level": "none", "memory_candidates": ""}
+    )
+
+    assert card.memory_candidates == []
+
+
 def test_agent_schema_carries_routing_fields():
     """Ради этого и берётся схема: маршрутные поля приходят вместе с текстом."""
     props = structured.json_schema_for(AgentReply)["properties"]
@@ -276,11 +323,14 @@ def test_flag_is_off_by_default(monkeypatch):
     assert agent.single_agent_enabled() is True
 
 
-def test_safety_intent_never_goes_to_the_agent(monkeypatch):
-    """Требование брифа: кризис остаётся на старой ветке."""
+def test_safety_intent_goes_to_the_agent_too(monkeypatch):
+    """Настоящий L0-подтверждённый кризис сюда не доходит — его перехватывает
+    BoundaryGuardStage через early_response до этой стадии (см. docstring
+    _single_agent_applicable). SAFETY здесь — всегда «серая зона» L1/L2, и с
+    2026-08-25 она тоже идёт через одноагентную ветку, а не на старую."""
     monkeypatch.setenv(agent.ENV_FLAG, "1")
 
-    assert supervisor_stage._single_agent_applicable(_context(RequestType.SAFETY)) is False
+    assert supervisor_stage._single_agent_applicable(_context(RequestType.SAFETY)) is True
     assert supervisor_stage._single_agent_applicable(_context(RequestType.EMOTIONAL)) is True
     assert supervisor_stage._single_agent_applicable(_context(RequestType.CLINICAL)) is True
 
@@ -303,6 +353,33 @@ def test_agent_not_applicable_when_flag_is_off(monkeypatch):
 )
 def test_intent_maps_to_legacy_agent_names(intent, expected):
     assert supervisor_stage._agent_intent_to_agents(intent) == expected
+
+
+@pytest.mark.asyncio
+async def test_agent_failure_does_not_fall_back_to_legacy_branch(monkeypatch, stub_client):
+    """Живым прогоном (фаза 1, LLM_test/reports/2026.08.24_21.59.md, ходы
+    1/6/7) откат на старую ветку при сбое карточки маскировал сбой статистикой
+    intake→delegation→expert и утраивал латентность хода. Ветка теперь не
+    откатывается — отдаёт пациенту технический ответ сама, не трогая
+    run_first_module вовсе."""
+    monkeypatch.setenv(agent.ENV_FLAG, "1")
+    stub_client["install"](
+        LLMResponseError("schema validation failed twice"),
+        LLMResponseError("schema validation failed twice"),
+    )
+
+    async def legacy_branch_should_not_run(payload):
+        raise AssertionError("run_first_module не должен вызываться без отката")
+
+    monkeypatch.setattr(supervisor_stage, "run_first_module", legacy_branch_should_not_run)
+
+    context = await supervisor_stage.SupervisorStage().process(_context(RequestType.EMOTIONAL))
+
+    assert context.diagnostics["supervisor"]["branch"] == "single_agent"
+    assert context.diagnostics["supervisor"]["graph_path"] == ["agent"]
+    assert context.diagnostics["supervisor"]["error"] is not None
+    assert context.response_draft == supervisor_stage._AGENT_ERROR_REPLY
+    assert "single_agent_fallback" not in context.diagnostics
 
 
 # --------------------------------------------------------------------------- #

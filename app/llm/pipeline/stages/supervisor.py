@@ -12,7 +12,6 @@ from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.errors import LLMResponseError
 from app.llm.langgraph_supervisor import ExecutionKind, FirstModuleInput, run_first_module
 from app.llm.pool import session_key
-from app.llm.router import RequestType
 from app.llm.langgraph_supervisor.models import EducationExpertCard, EmotionalExpertCard, ExpertStrategy
 from app.llm.technique_library import get_technique_by_id
 from app.llm.pipeline.types import PipelineContext, PipelineStage
@@ -461,15 +460,27 @@ def _apply_agent_safety_net(context: PipelineContext, reply_card) -> dict[str, A
 def _single_agent_applicable(context: PipelineContext) -> bool:
     """Идёт ли этот ход по одноагентной ветке.
 
-    SAFETY остаётся на старой ветке по требованию брифа: кризисный путь уже
-    обвешан проверками (BoundaryGuardStage, max-тир), и схлопывать его до
-    накопления статистики нельзя.
+    Раньше здесь было общее исключение для ``request_type=SAFETY`` — «кризисный
+    путь остаётся на старой ветке, пока не наберётся статистика» (00_MANUAL.md,
+    часть 13). Но настоящий подтверждённый кризис (``L0.safety_level=='urgent'``)
+    сюда никогда не доходит: ``BoundaryGuardStage`` перехватывает его через
+    ``context.early_response`` и обрывает пайплайн до ``ClassificationStage``/
+    ``SupervisorStage`` (см. boundary_guard.py). Значит на этот код ни разу не
+    попадал настоящий L0-подтверждённый кризис — только «серая зона»: то, что
+    L1/L2 сами для себя пометили как safety при отсутствии однозначных
+    L0-паттернов (см. router_l2.py: «при сомнении — выбирай safety»). Именно
+    там старая ветка (intake→delegation→expert) показала живой баг на
+    многосоставном тревожном вводе (patient-sim, s05_anxious, 2026-08-25) —
+    не пройдя валидацию intake-карточки, тогда как одноагентная ветка такой
+    ввод обрабатывает штатно. Собственная эскалация внутри одноагентной ветки
+    (``AgentReply.safety_level`` → ``crisis_response()`` в ``_run_single_agent``)
+    не завязана на request_type и продолжает работать независимо.
     """
     if not agent.single_agent_enabled():
         return False
     if context.classification is None:
         return False
-    return context.classification.request_type is not RequestType.SAFETY
+    return True
 
 
 def _agent_intent_to_agents(intent: str) -> list[str]:
@@ -481,6 +492,12 @@ def _agent_intent_to_agents(intent: str) -> list[str]:
         "smalltalk": [],
     }
     return list(mapping.get(intent, []))
+
+
+_AGENT_ERROR_REPLY = (
+    "Прошу прощения, у меня техническая заминка с ответом. "
+    "Повтори, пожалуйста, сообщение ещё раз."
+)
 
 
 async def _run_single_agent(
@@ -495,11 +512,16 @@ async def _run_single_agent(
     education_grounding_diagnostics: dict[str, Any],
     started: float,
     use_agent_tools: bool = False,
-) -> PipelineContext | None:
+) -> PipelineContext:
     """Один структурный вызов вместо intake → delegation → expert.
 
-    Возвращает ``None``, если агент не смог отдать карточку, — тогда стадия
-    доигрывает старой веткой, и пациент не остаётся без ответа.
+    Если агент не смог отдать карточку (обе попытки в ``Agent.run`` упали на
+    валидации), ход всё равно остаётся на одноагентной ветке — без отката на
+    старую 3-вызовную цепочку intake → delegation → expert. Такой откат
+    раньше маскировал сбои схемы статистикой старой ветки и утраивал задержку
+    хода (два неудачных попытки агента + полный проход старой цепочки, см.
+    LLM_test/reports/2026.08.24_21.59.md). Вместо этого пациент получает
+    короткий технический ответ, а состояние супервизора не трогается.
     """
     request = context.request
     profile_block = prompt_assembly.build_profile_layer(patient_context)
@@ -547,12 +569,61 @@ async def _run_single_agent(
 
     if not run.ok or run.reply is None:
         logger.warning(
-            "[single_agent] patient=%d не отдал карточку (%s) — доигрываю старой веткой",
+            "[single_agent] patient=%d не отдал карточку (%s) — технический ответ, без отката на старую ветку",
             request.patient_id,
             run.error,
         )
-        context.diagnostics["single_agent_fallback"] = {"error": run.error}
-        return None
+        updated_state = CurrentState.from_dict(current_state.to_dict())
+        updated_state.last_bot_reply = _AGENT_ERROR_REPLY
+        before_state = current_state.to_dict()
+        after_state = updated_state.to_dict()
+        diagnostics = {
+            "enabled": True,
+            "branch": "single_agent",
+            "request_type": context.classification.request_type.value,
+            "message_type": message_type,
+            "graph_path": ["agent"],
+            "selected_agents": list(current_state.last_selected_agents or []),
+            "needs_clarification": current_state.needs_clarification,
+            "execution_kind": "агент_ошибка",
+            "education_grounding": education_grounding_diagnostics,
+            "prompt_layers": {
+                "enabled": prompt_assembly.layers_enabled(),
+                "profile_chars": len(profile_block),
+                "window_turns": len(history_turns),
+                "prefix_fingerprints": [run.prefix_fp] if run.prefix_fp else [],
+            },
+            "error": run.error,
+            "state_delta": _changed_state(before_state, after_state),
+            "state_after": after_state,
+            "llm_totals": {
+                "tokens_input": run.tokens_in,
+                "tokens_output": run.tokens_out,
+                "latency_ms": run.latency_ms,
+                "account_ids": [run.account_id] if run.account_id else [],
+                "actual_model_tiers": [model_tier],
+            },
+            "latency_ms": int((time.monotonic() - started) * 1000),
+        }
+        context.supervisor_turn = SupervisorTurnResult(
+            reply=_AGENT_ERROR_REPLY,
+            state_delta=diagnostics["state_delta"],
+            updated_state=updated_state,
+            message_type=message_type,
+            selected_agents=list(current_state.last_selected_agents or []),
+            used_pending_answer=False,
+            needs_clarification=current_state.needs_clarification,
+            diagnostics=diagnostics,
+            education_cta=None,
+        )
+        context.supervisor_state = after_state
+        context.response_draft = _AGENT_ERROR_REPLY
+        context.response_tokens_input = run.tokens_in
+        context.response_tokens_output = run.tokens_out
+        context.response_account_id = run.account_id or "AGENT"
+        context.response_actual_model_tier = model_tier
+        context.diagnostics["supervisor"] = diagnostics
+        return context
 
     reply_card = run.reply
 
@@ -761,10 +832,13 @@ class SupervisorStage(PipelineStage):
             )
             model_tier = "pro"
 
-        # Одноагентная ветка (шаг 4) живёт параллельно старой. Интент SAFETY на неё
-        # не переводится: кризис схлопываем отдельно, после накопления статистики.
+        # Одноагентная ветка (шаг 4) живёт параллельно старой. С 2026-08-25
+        # SAFETY тоже идёт сюда (см. docstring _single_agent_applicable —
+        # настоящий L0-кризис до этой стадии не доходит). Сбой карточки внутри
+        # ветки не откатывается на старую цепочку (см. docstring
+        # _run_single_agent) — ветка отдаёт технический ответ сама.
         if _single_agent_applicable(context):
-            agent_context = await _run_single_agent(
+            return await _run_single_agent(
                 context,
                 current_state=current_state,
                 message_type=message_type,
@@ -776,8 +850,6 @@ class SupervisorStage(PipelineStage):
                 started=started,
                 use_agent_tools=use_agent_tools,
             )
-            if agent_context is not None:
-                return agent_context
         # Слои промпта [1] профиль и [3] окно строятся только под флагом —
         # при выключенном флаге промпт остаётся прежним байт-в-байт.
         profile_block = ""
@@ -850,6 +922,15 @@ class SupervisorStage(PipelineStage):
                 "supervisor graph v2 returned empty reply",
                 diagnostics={"supervisor": supervisor_diagnostics},
             )
+
+        # intake_error непустой только на техническом сбое intake-карточки
+        # (intake_execute_node в nodes.py) — final_reply там уже не
+        # содержательный ответ, а заглушка «повтори сообщение». Кризисный
+        # постфикс на такую заглушку дописывать нельзя, даже если
+        # classification.request_type остался SAFETY.
+        intake_validation = (graph_state.diagnostics.get("intake") or {}).get("validation") or {}
+        if str(intake_validation.get("error") or "").strip():
+            context.response_is_fallback_error = True
 
         education_cta: dict[str, Any] | None = None
         _expert = getattr(graph_state, "expert_card", None)

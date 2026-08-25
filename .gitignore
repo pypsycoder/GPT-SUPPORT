@@ -95,3 +95,4 @@ config.yaml
 settings_local.py
 nul
 LLM_test/
+test-results/

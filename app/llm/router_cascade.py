@@ -96,6 +96,16 @@ async def classify_request_async(text: str, source: str) -> RouterResult:
             if decision.safety_level == "concern":
                 floor_tier = ModelTier.PRO
                 floor_priority = 2
+            if decision.intent == "data_entry":
+                # Регрессия, пойманная при написании MANUAL_TEST_PLAN.md: без
+                # этой ветки L0 только поднимал планку (concern), но никогда
+                # не резолвил тип сам — "давление 200 на 100" при ОДНОМ
+                # включённом LLM_ROUTER_L0 (без L1/L2) проваливалось в старый
+                # classify_request и оставалось SAFETY. L0 явно резолвит
+                # data_entry (см. router_l0.classify) — CLINICAL прямо здесь,
+                # не дожидаясь L1/L2/отката.
+                result = RouterResult(RequestType.CLINICAL, ModelTier.PRO, domain, 2)
+                return _apply_floor(result, floor_tier, floor_priority)
 
         request_type_str: str | None = None
         resolved_by = "fallback"
