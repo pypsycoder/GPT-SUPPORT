@@ -1,20 +1,24 @@
-"""Генерация реплик пациента: Claude, иначе GigaChat, иначе шаблоны.
+"""Генерация реплик пациента: Claude, GigaChat или OpenRouter — иначе шаблоны.
 
 Это инструмент разработчика, не часть прод-кода: харнесс сам, от лица
 LLM, играет роль пациента, разговаривая с реальным (GigaChat) ассистентом
-через тот же вход, что и настоящий чат. Приоритет источника динамических
-реплик: Claude (``ANTHROPIC_API_KEY``) → GigaChat из общего пула аккаунтов
-приложения (``app.llm.pool`` — тот же пул, что обслуживает бота) → заранее
-написанные перефразировки (``Turn.fallback`` из ``scenarios.py``).
+через тот же вход, что и настоящий чат. Источники динамических реплик, по
+умолчанию в этом порядке приоритета (первый настроенный выигрывает):
+Claude (``ANTHROPIC_API_KEY``) → GigaChat из общего пула аккаунтов
+приложения (``app.llm.pool`` — тот же пул, что обслуживает бота) →
+OpenRouter (``OPENROUTER_API_KEY``, любая модель по вкусу — по умолчанию
+дешёвый Gemini) → заранее написанные перефразировки (``Turn.fallback`` из
+``scenarios.py``). Можно принудительно выбрать конкретный источник через
+``PATIENT_SIM_BACKEND=claude|gigachat|openrouter`` — например, чтобы
+специально прогнать пациента на другой модели, а не на первой доступной.
 
 GigaChat-пациент разговаривает с GigaChat-ботом на разных ролях/системных
-промптах — это не идеально независимый испытатель (в отличие от Claude), но
-не требует стороннего ключа и даёт живую, реагирующую на реплики бота речь
-вместо фиксированного текста. Без обоих ключей/пула скрипт не падает —
-переключается на fallback, беднее по разнообразию, но осмысленный и
-достаточный для сценариев, где формулировка задана буквально (``Turn.literal``,
-суицидальные паттерны и цифры давления — самые чувствительные к точной
-формулировке случаи не зависят ни от одного из ключей вообще).
+промптах — это не идеально независимый испытатель (в отличие от Claude или
+OpenRouter). Без ключей/пула скрипт не падает — переключается на fallback,
+беднее по разнообразию, но осмысленный и достаточный для сценариев, где
+формулировка задана буквально (``Turn.literal``, суицидальные паттерны и
+цифры давления — самые чувствительные к точной формулировке случаи не
+зависят ни от одного из источников вообще).
 """
 
 from __future__ import annotations
@@ -30,6 +34,11 @@ logger = logging.getLogger("patient_sim.patient_agent")
 DEFAULT_MODEL = os.getenv("PATIENT_SIM_MODEL", "claude-sonnet-5")
 GIGACHAT_PATIENT_TIER = os.getenv("PATIENT_SIM_GIGACHAT_TIER", "pro")
 GIGACHAT_PATIENT_FALLBACK_TIER = os.getenv("PATIENT_SIM_GIGACHAT_FALLBACK_TIER", "max")
+# Не самая дорогая модель по счёту — по просьбе пользователя. Слаг проверять
+# на openrouter.ai/models, если модель у OpenRouter поменяется/устареет.
+OPENROUTER_MODEL = os.getenv("PATIENT_SIM_OPENROUTER_MODEL", "google/gemini-2.5-flash")
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+_BACKEND_PRIORITY = ("claude", "gigachat", "openrouter")
 
 try:
     import anthropic  # type: ignore
@@ -37,6 +46,13 @@ try:
     _ANTHROPIC_IMPORTED = True
 except ImportError:
     _ANTHROPIC_IMPORTED = False
+
+try:
+    import httpx  # type: ignore
+
+    _HTTPX_IMPORTED = True
+except ImportError:
+    _HTTPX_IMPORTED = False
 
 try:
     from app.llm.pool import pool as _gigachat_pool  # type: ignore
@@ -67,17 +83,12 @@ _SYSTEM_TEMPLATE = """Ты участвуешь в тестовом прогон
 
 
 class PatientAgent:
-    """Один агент-пациент на всю сессию сценария (хранит клиента Claude/GigaChat)."""
+    """Один агент-пациент на всю сессию сценария (хранит клиента Claude, если он есть)."""
 
     def __init__(self, persona: Persona):
         self.persona = persona
-        self._client = _make_claude_client()
-        if self._client is not None:
-            self.mode = "claude"
-        elif _gigachat_available():
-            self.mode = "gigachat"
-        else:
-            self.mode = "fallback"
+        self.mode = _select_backend()
+        self._client = _make_claude_client() if self.mode == "claude" else None
 
     async def turn_text(
         self,
@@ -89,10 +100,13 @@ class PatientAgent:
         transcript: list[dict],
         used_variants: list[str],
     ) -> tuple[str, str]:
-        """Вернуть (текст_реплики, источник) где источник — literal|claude|gigachat|fallback."""
+        """Вернуть (текст_реплики, источник) — literal|claude|gigachat|openrouter|fallback."""
         literal = turn.resolve_literal(iteration)
         if literal is not None:
             return literal, "literal"
+
+        if not turn.beat or self.mode == "fallback":
+            return turn.resolve_fallback(iteration), "fallback"
 
         prompt_kwargs = dict(
             beat=turn.beat,
@@ -101,21 +115,17 @@ class PatientAgent:
             total_iterations=total_iterations,
             used_variants=used_variants,
         )
-
-        if self._client is not None and turn.beat:
-            try:
-                text = await self._via_claude(**prompt_kwargs)
-                if text:
-                    return text, "claude"
-            except Exception as exc:  # noqa: BLE001 — не роняем ночной прогон из-за сети
-                logger.warning("[patient_agent] Claude call failed, falling back: %s", exc)
-        elif self.mode == "gigachat" and turn.beat:
-            try:
-                text = await self._via_gigachat(**prompt_kwargs)
-                if text:
-                    return text, "gigachat"
-            except Exception as exc:  # noqa: BLE001 — не роняем ночной прогон из-за сбоя пула
-                logger.warning("[patient_agent] GigaChat call failed, falling back: %s", exc)
+        backend_call = {
+            "claude": self._via_claude,
+            "gigachat": self._via_gigachat,
+            "openrouter": self._via_openrouter,
+        }[self.mode]
+        try:
+            text = await backend_call(**prompt_kwargs)
+            if text:
+                return text, self.mode
+        except Exception as exc:  # noqa: BLE001 — не роняем ночной прогон из-за сети/сбоя
+            logger.warning("[patient_agent] %s call failed, falling back: %s", self.mode, exc)
 
         return turn.resolve_fallback(iteration), "fallback"
 
@@ -231,6 +241,40 @@ class PatientAgent:
                 )
         return ""
 
+    async def _via_openrouter(
+        self,
+        *,
+        beat: str,
+        transcript: list[dict],
+        iteration: int,
+        total_iterations: int,
+        used_variants: list[str],
+    ) -> str:
+        system, user_prompt = self._build_prompt(
+            beat=beat,
+            transcript=transcript,
+            iteration=iteration,
+            total_iterations=total_iterations,
+            used_variants=used_variants,
+        )
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                OPENROUTER_API_URL,
+                headers={"Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"},
+                json={
+                    "model": OPENROUTER_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": 0.95,
+                    "max_tokens": 220,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+        return data["choices"][0]["message"]["content"].strip()
+
 
 def _make_claude_client():
     if not _ANTHROPIC_IMPORTED:
@@ -245,12 +289,49 @@ def _gigachat_available() -> bool:
     return bool(_GIGACHAT_POOL_IMPORTED and _gigachat_pool is not None and _gigachat_pool.clients)
 
 
+def _openrouter_available() -> bool:
+    return bool(_HTTPX_IMPORTED and os.getenv("OPENROUTER_API_KEY"))
+
+
+_BACKEND_CHECKS = {
+    "claude": lambda: _ANTHROPIC_IMPORTED and bool(os.getenv("ANTHROPIC_API_KEY")),
+    "gigachat": _gigachat_available,
+    "openrouter": _openrouter_available,
+}
+
+
+def _select_backend() -> str:
+    """Какой источник реплик использовать — принудительно или по приоритету."""
+    forced = os.getenv("PATIENT_SIM_BACKEND", "").strip().lower()
+    if forced:
+        if forced not in _BACKEND_PRIORITY:
+            logger.warning(
+                "[patient_agent] неизвестный PATIENT_SIM_BACKEND=%r, игнорирую", forced
+            )
+        elif _BACKEND_CHECKS[forced]():
+            return forced
+        else:
+            logger.warning(
+                "[patient_agent] PATIENT_SIM_BACKEND=%r запрошен, но не настроен "
+                "(нет ключа/пула) — использую автоприоритет",
+                forced,
+            )
+
+    for name in _BACKEND_PRIORITY:
+        if _BACKEND_CHECKS[name]():
+            return name
+    return "fallback"
+
+
 def describe_mode() -> str:
-    if _ANTHROPIC_IMPORTED and os.getenv("ANTHROPIC_API_KEY"):
+    mode = _select_backend()
+    if mode == "claude":
         return f"claude ({DEFAULT_MODEL})"
-    if _gigachat_available():
+    if mode == "gigachat":
         return (
             f"gigachat ({GIGACHAT_PATIENT_TIER}, откат на {GIGACHAT_PATIENT_FALLBACK_TIER}) "
             "— тот же пул, что у бота, не независимый испытатель"
         )
-    return "fallback (нет ни ANTHROPIC_API_KEY, ни настроенных GigaChat-аккаунтов)"
+    if mode == "openrouter":
+        return f"openrouter ({OPENROUTER_MODEL})"
+    return "fallback (нет ни ANTHROPIC_API_KEY, ни GigaChat-аккаунтов, ни OPENROUTER_API_KEY)"
