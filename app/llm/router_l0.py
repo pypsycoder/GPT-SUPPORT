@@ -176,6 +176,23 @@ _CHRONIC_QUALIFIER_RE = _p(
     r"|\bуже\s+(несколько\s+)?дн\w+\b|\bпоследни\w+\s+дн\w+\b|\bна\s+этой\s+неделе\b"
 )
 
+# Второй, независимый путь распознать тот же хронический фон: перечисление
+# симптомов не всегда содержит связку "когда"/"при" ("ходить тяжело, сразу
+# задыхаюсь" — тоже нагрузочная одышка, просто без явного союза). У СН+ХБП
+# пациента отёки и скачущий сахар — тот же кластер, что "одышка при нагрузке"
+# в промпте агента (prompts.py, критерий concern) — если оба есть в одном
+# сообщении, это рутинное перечисление известных симптомов, а не новое острое
+# событие. Не убирает L0 совсем: сообщение всё равно идёт в агента с
+# safety_level=concern, у которого есть собственный второй эшелон защиты
+# (_apply_agent_safety_net в supervisor.py) на случай, если это перечисление
+# всё же маскирует что-то острое.
+_EDEMA_RE = _p(r"\bотек\w*|\bопух\w*|\bраздува\w*\s+ног")
+_GLUCOSE_FLUX_RE = _p(r"\bсахар\w*.{0,25}(прыга|скач|пляш|мен\w+ся|туда.сюда|то\s+вверх)")
+
+
+def _is_comorbid_symptom_recital(text: str) -> bool:
+    return bool(_EDEMA_RE.search(text) and _GLUCOSE_FLUX_RE.search(text))
+
 # Гипотетический вопрос ("а вдруг", "что если") про медицинский красный флаг —
 # не то же самое, что отчёт о том, что происходит прямо сейчас. Найдено на
 # patient-sim (s05_anxious): "а вдруг я потеряю сознание и никто не заметит?"
@@ -321,7 +338,9 @@ def classify(
         # тревогу и явно помечают причину, но не подменяют ответ кризисным
         # протоколом и не обрывают пайплайн: intent=None пропускает запрос
         # дальше (см. boundary_guard.py — short-circuit только на urgent).
-        if rule == "breathing" and _CHRONIC_QUALIFIER_RE.search(message):
+        if rule == "breathing" and (
+            _CHRONIC_QUALIFIER_RE.search(message) or _is_comorbid_symptom_recital(message)
+        ):
             return L0Decision(
                 rule="breathing_chronic", safety_level="concern", safety_kind="medical"
             )
