@@ -92,6 +92,9 @@ _URGENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "self_harm",
     ),
+    # ПРИМЕЧАНИЕ: "self_harm" из этой строки — единственный urgent-паттерн с
+    # проверкой на отрицание, см. _SELF_HARM_NEGATED_RE и его использование в
+    # classify(). Остальные urgent-паттерны сознательно её не имеют.
     (_p(r"\b(причинить\s+себе\s+вред|навредить\s+себе|порезать\s+себя)\b"), "self_harm"),
     (_p(r"\bповеш(усь|аюсь)\b|\bповесит?ься\b|\bготовлю\s+верёвк"), "suicidal_method"),
     (_p(r"\bсобираюсь\s+(вы)?прыгн"), "suicidal_method"),
@@ -206,6 +209,19 @@ _HYPOTHETICAL_MARKER_RE = _p(
 
 def _is_hypothetical_question(text: str) -> bool:
     return "?" in text and bool(_HYPOTHETICAL_MARKER_RE.search(text))
+
+
+# "self_harm" ловит подстроку "навредить себе"/"причинить себе вред" без учёта
+# грамматического отрицания прямо перед ней. Найдено на patient-sim
+# (s04_non_adherent): "...сколько можно есть и пить, чтобы НЕ навредить
+# себе?" — обычный вопрос про диету, не риск. Окно в 2 слова между "не" и
+# фразой — намеренно узкое, чтобы не гасить сигнал на "не хочу, но иногда
+# так тяжело, что могу навредить себе" (отрицание там относится к "хочу",
+# не к самому вреду). Остальные urgent-паттерны (suicidal_intent и т.д.)
+# этой проверки не имеют — читают широко по замыслу (см. их комментарий).
+_SELF_HARM_NEGATED_RE = _p(
+    r"\bне\s+(\w+\s+){0,2}(причинить\s+себе\s+вред|навредить\s+себе|порезать\s+себя)\b"
+)
 
 # Показатели. Давление ищем первым: «120 на 80» и «120/80» — одна и та же запись.
 _BP_RE = _p(r"\b(\d{2,3})\s*(?:/|\\|\s+на\s+)\s*(\d{2,3})\b")
@@ -330,6 +346,10 @@ def classify(
 
     rule = _match(_URGENT_PATTERNS, message)
     if rule:
+        if rule == "self_harm" and _SELF_HARM_NEGATED_RE.search(message):
+            return L0Decision(
+                rule="self_harm_negated", safety_level="concern", safety_kind="psychological"
+            )
         return L0Decision(intent="safety", rule=rule, safety_level="urgent", safety_kind="psychological")
 
     rule = _match(_MEDICAL_URGENT_PATTERNS, message)
