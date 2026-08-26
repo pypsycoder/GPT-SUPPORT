@@ -162,32 +162,30 @@ Frontend / Telegram
 - `strict_model_tier`
 - `db`
 
-### Supervisor Graph v2
+### Supervisor: одноагентная ветка
 
-Текущий graph внутри `supervisor`:
+`supervisor` делает один структурный LLM-вызов (`app/llm/agent/loop.py`,
+`Agent.run()`) вместо цепочки intake → delegation → expert. Модель возвращает
+плоскую карточку `AgentReply` (`app/llm/agent/schemas.py`) одним вызовом:
 
-1. `intake_analyze`
-2. `intake_validate`
-3. `intake_execute`
-4. `delegation_analyze` при `DELEGATE`
-5. `delegation_validate` при `DELEGATE`
-6. `invoke_emotional_expert` при `DELEGATE`
-7. `finalize_reply`
+- текст ответа пациенту;
+- `intent` (`emotional_support` / `education` / `smalltalk` / `safety`);
+- `safety_level` / `safety_kind` — второй эшелон защиты
+  (`_apply_agent_safety_net`) перекрывает ответ протоколом при `urgent`;
+- `technique_id` — прогресс по интерактивной технике;
+- `memory_candidates` — кандидаты в устойчивую память пациента.
 
-Текущая рабочая модель намеренно узкая:
-
-- `intake` ведет одну главную жалобу и один минимальный контекст;
-- `intake` не должен превращаться в multi-intent сборщик;
-- `delegation` занимается только передачей задачи эксперту;
-- `emotional_support` отвечает только за поддержку, стабилизацию и мягкий follow-up;
-- `finalize_reply` собирает итоговый ответ.
+Ранее рядом с этой веткой под флагом `LLM_SINGLE_AGENT` жила старая ветка
+Graph v2 (`intake_analyze → ... → finalize_reply`,
+`app/llm/langgraph_supervisor/`) — она удалена вместе с флагом, одноагентная
+ветка теперь единственная.
 
 ### Debug и трассировка
 
 В панели исследователя есть debug-chat и экспорт отчетов, а в `diagnostics` сохраняются:
 
-- graph path;
-- intake / delegation / expert card;
+- graph path (`["agent"]`);
+- карточка агента (`intent`, `safety_level`, `technique_id`, ...);
 - state delta;
 - model tier, account ids, latency, tokens.
 
@@ -195,9 +193,9 @@ Frontend / Telegram
 
 ### Что есть сейчас
 
-В Graph v2 реальным runtime-экспертом сейчас является `emotional_support`.
-
-В `app/llm/supervisor/experts.py` лежит детерминированный MVP-набор агентов (`emotional_support`, `planning`, `education`) как reference-слой старого supervisor-подхода. Это полезный материал для дальнейшей эволюции, но не текущий основной runtime graph.
+Реальным runtime-экспертом сейчас является одноагентная ветка `supervisor`
+(см. выше) — эмоциональная поддержка и лёгкое образование внутри одной
+карточки `AgentReply`.
 
 ### Ближайший фокус
 
@@ -303,7 +301,7 @@ python scripts/import_practices.py
 ## Полезные файлы
 
 - [app/llm/pipeline/STRUCTURE.md](D:/PROJECT/GPT-SUPPORT/app/llm/pipeline/STRUCTURE.md)
-- [app/llm/langgraph_supervisor/nodes.py](D:/PROJECT/GPT-SUPPORT/app/llm/langgraph_supervisor/nodes.py)
-- [app/llm/langgraph_supervisor/policy.py](D:/PROJECT/GPT-SUPPORT/app/llm/langgraph_supervisor/policy.py)
-- [app/llm/supervisor/experts.py](D:/PROJECT/GPT-SUPPORT/app/llm/supervisor/experts.py)
+- [app/llm/pipeline/stages/supervisor.py](D:/PROJECT/GPT-SUPPORT/app/llm/pipeline/stages/supervisor.py)
+- [app/llm/agent/loop.py](D:/PROJECT/GPT-SUPPORT/app/llm/agent/loop.py)
+- [app/llm/agent/schemas.py](D:/PROJECT/GPT-SUPPORT/app/llm/agent/schemas.py)
 - [app/researchers/router.py](D:/PROJECT/GPT-SUPPORT/app/researchers/router.py)

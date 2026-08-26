@@ -299,7 +299,7 @@ async def test_agent_run_recovers_on_second_attempt(stub_client):
 
 
 # --------------------------------------------------------------------------- #
-# Флаг и обход SAFETY
+# Маршрутизация в агента
 # --------------------------------------------------------------------------- #
 
 def _context(request_type: RequestType) -> PipelineContext:
@@ -313,32 +313,6 @@ def _context(request_type: RequestType) -> PipelineContext:
         priority=2,
     )
     return context
-
-
-def test_flag_is_off_by_default(monkeypatch):
-    monkeypatch.delenv(agent.ENV_FLAG, raising=False)
-    assert agent.single_agent_enabled() is False
-
-    monkeypatch.setenv(agent.ENV_FLAG, "1")
-    assert agent.single_agent_enabled() is True
-
-
-def test_safety_intent_goes_to_the_agent_too(monkeypatch):
-    """Настоящий L0-подтверждённый кризис сюда не доходит — его перехватывает
-    BoundaryGuardStage через early_response до этой стадии (см. docstring
-    _single_agent_applicable). SAFETY здесь — всегда «серая зона» L1/L2, и с
-    2026-08-25 она тоже идёт через одноагентную ветку, а не на старую."""
-    monkeypatch.setenv(agent.ENV_FLAG, "1")
-
-    assert supervisor_stage._single_agent_applicable(_context(RequestType.SAFETY)) is True
-    assert supervisor_stage._single_agent_applicable(_context(RequestType.EMOTIONAL)) is True
-    assert supervisor_stage._single_agent_applicable(_context(RequestType.CLINICAL)) is True
-
-
-def test_agent_not_applicable_when_flag_is_off(monkeypatch):
-    monkeypatch.delenv(agent.ENV_FLAG, raising=False)
-
-    assert supervisor_stage._single_agent_applicable(_context(RequestType.EMOTIONAL)) is False
 
 
 @pytest.mark.parametrize(
@@ -359,19 +333,12 @@ def test_intent_maps_to_legacy_agent_names(intent, expected):
 async def test_agent_failure_does_not_fall_back_to_legacy_branch(monkeypatch, stub_client):
     """Живым прогоном (фаза 1, LLM_test/reports/2026.08.24_21.59.md, ходы
     1/6/7) откат на старую ветку при сбое карточки маскировал сбой статистикой
-    intake→delegation→expert и утраивал латентность хода. Ветка теперь не
-    откатывается — отдаёт пациенту технический ответ сама, не трогая
-    run_first_module вовсе."""
-    monkeypatch.setenv(agent.ENV_FLAG, "1")
+    intake→delegation→expert и утраивал латентность хода. Ветка не откатывается
+    на неё — отдаёт пациенту технический ответ сама."""
     stub_client["install"](
         LLMResponseError("schema validation failed twice"),
         LLMResponseError("schema validation failed twice"),
     )
-
-    async def legacy_branch_should_not_run(payload):
-        raise AssertionError("run_first_module не должен вызываться без отката")
-
-    monkeypatch.setattr(supervisor_stage, "run_first_module", legacy_branch_should_not_run)
 
     context = await supervisor_stage.SupervisorStage().process(_context(RequestType.EMOTIONAL))
 

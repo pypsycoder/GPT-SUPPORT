@@ -41,9 +41,7 @@ def next_debug_report_path(reports_dir: Path, now: datetime | None = None) -> Pa
 
 def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path: list[Any] | None) -> str:
     supervisor = dict(router_card or {})
-    intake = dict(supervisor.get("intake") or {})
-    delegation = dict(supervisor.get("delegation") or {})
-    expert = dict(supervisor.get("expert") or {})
+    agent_card = dict(supervisor.get("agent") or {})
     lines: list[str] = []
 
     if graph_path:
@@ -51,48 +49,22 @@ def _format_router_card_markdown(router_card: dict[str, Any] | None, graph_path:
         if path_items:
             lines.append(f"- Path: {' -> '.join(path_items)}")
 
-    intake_card = dict(intake.get("card") or {})
-    if intake_card:
-        lines.append("- Intake:")
+    if agent_card:
+        lines.append("- Agent:")
         for key, label in [
-            ("problem", "Проблема"),
-            ("context", "Контекст"),
-            ("needs_clarification", "Нужно уточнение"),
-            ("question", "Вопрос"),
-            ("ready_to_delegate", "Готово к передаче"),
-            ("rationale", "Обоснование"),
+            ("intent", "Intent"),
+            ("technique_id", "Техника"),
+            ("safety_level", "Safety level"),
+            ("safety_kind", "Safety kind"),
+            ("safety_reason", "Safety reason"),
+            ("next_action", "Next action"),
+            ("memory_candidates", "Кандидаты в память"),
         ]:
-            value = intake_card.get(key)
+            value = agent_card.get(key)
             if value:
                 lines.append(f"  - {label}: {value}")
 
-    delegation_card = dict(delegation.get("card") or {})
-    if delegation_card:
-        lines.append("- Delegation:")
-        for key, label in [("expert", "Эксперт"), ("task", "Задача"), ("rationale", "Обоснование")]:
-            value = delegation_card.get(key)
-            if value:
-                lines.append(f"  - {label}: {value}")
-
-    expert_card = dict(expert.get("card") or {})
-    if expert_card:
-        lines.append("- Expert:")
-        for key, label in [
-            ("support", "Поддержка"),
-            ("step_now", "Шаг сейчас"),
-            ("follow_up", "Уточнение после помощи"),
-            ("needs_more_info", "Нужно ли уточнение"),
-            ("explanation", "Объяснение"),
-            ("cta_type", "CTA тип"),
-            ("cta_label", "CTA заголовок"),
-            ("cta_target", "CTA target"),
-            ("rationale", "Обоснование"),
-        ]:
-            value = expert_card.get(key)
-            if value:
-                lines.append(f"  - {label}: {value}")
-
-    return "\n".join(lines) if lines else "_Нет данных graph v2._"
+    return "\n".join(lines) if lines else "_Нет данных карточки агента._"
 
 
 def _format_human_trace_markdown(human_trace: list[dict[str, Any]] | None) -> str:

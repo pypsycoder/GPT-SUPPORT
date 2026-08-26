@@ -38,22 +38,11 @@ _SESSION_RESET_FIELDS: dict = {
     "last_clarification_reason": None,
     "last_goal_status": None,
     "last_bot_reply": None,
-    "last_expert_effectiveness": None,
-    "last_expert_strategy": None,
     "current_technique_id": None,
     "current_technique_turns": 0,
     "current_step_index": 0,
-    "last_expert_step": None,
     "recent_technique_ids": [],
     "anchor_goal": None,
-    "session_plan": None,
-    "on_branch": False,
-    "branch_type": None,
-    "branch_turns": 0,
-    "branch_return_intent": None,
-    "education_session_active": False,
-    "education_topic": None,
-    "education_turn_count": 0,
 }
 
 

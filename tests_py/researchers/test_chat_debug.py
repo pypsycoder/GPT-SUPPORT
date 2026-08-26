@@ -38,7 +38,7 @@ async def researcher_chat_session_ctx() -> AsyncSession:
     await engine.dispose()
 
 
-def test_researcher_chat_debug_returns_graph_v2_trace(monkeypatch):
+def test_researcher_chat_debug_returns_agent_trace(monkeypatch):
     async def runner():
         async with researcher_chat_session_ctx() as seed_session:
             patient = User(full_name="Patient Debug", patient_number=1001)
@@ -113,26 +113,15 @@ def test_researcher_chat_debug_returns_graph_v2_trace(monkeypatch):
                             "supervisor": {
                                 "enabled": True,
                                 "message_type": "full_message",
-                                "graph_path": ["intake_analyze", "intake_validate", "intake_execute"],
+                                "graph_path": ["agent"],
                                 "selected_agents": [],
                                 "needs_clarification": True,
-                                "intake": {
-                                    "card": {
-                                        "problem": "тревога",
-                                        "context": "причина пока не названа",
-                                        "needs_clarification": "да",
-                                        "question": "От чего тебе тревожно?",
-                                        "ready_to_delegate": "нет",
-                                        "rationale": "Нужен один уточняющий вопрос.",
-                                    },
-                                    "llm": {
-                                        "attempts_total": 1,
-                                        "succeeded_on_attempt": 1,
-                                        "final_status": "success",
-                                    },
+                                "agent": {
+                                    "intent": "emotional_support",
+                                    "safety_level": "none",
+                                    "safety_kind": "none",
+                                    "next_action": "уточнить причину тревоги",
                                 },
-                                "delegation": {},
-                                "expert": {},
                                 "state_after": {
                                     "goal": "тревога",
                                     "needs_clarification": True,
@@ -175,16 +164,13 @@ def test_researcher_chat_debug_returns_graph_v2_trace(monkeypatch):
             assert response.status_code == 200
             payload = response.json()
             supervisor_section = next(section for section in payload["human_trace"] if section["title"] == "Supervisor")
-            assert any(
-                "Graph path: intake_analyze -> intake_validate -> intake_execute." == item
-                for item in supervisor_section["items"]
-            )
+            assert any("Graph path: agent." == item for item in supervisor_section["items"])
             assert payload["supervisor_state"]["pending_question"]["question_text"] == "От чего тебе тревожно?"
 
     asyncio.run(runner())
 
 
-def test_researcher_chat_debug_can_save_graph_v2_report(monkeypatch, tmp_path: Path):
+def test_researcher_chat_debug_can_save_agent_report(monkeypatch, tmp_path: Path):
     async def runner():
         async with researcher_chat_session_ctx() as seed_session:
             patient = User(full_name="Patient Debug", patient_number=1002)
@@ -225,22 +211,15 @@ def test_researcher_chat_debug_can_save_graph_v2_report(monkeypatch, tmp_path: P
                                 "turn_number": 1,
                                 "user_message": "мне тревожно",
                                 "assistant_reply": "Сочувствую. От чего тебе тревожно?",
-                                "human_trace": [{"title": "Supervisor", "items": ["Graph path: intake_analyze -> intake_validate -> intake_execute."]}],
+                                "human_trace": [{"title": "Supervisor", "items": ["Graph path: agent."]}],
                                 "diagnostics_json": {
                                     "supervisor": {
-                                        "graph_path": ["intake_analyze", "intake_validate", "intake_execute"],
-                                        "intake": {
-                                            "card": {
-                                                "problem": "тревога",
-                                                "context": "причина пока не названа",
-                                                "needs_clarification": "да",
-                                                "question": "От чего тебе тревожно?",
-                                                "ready_to_delegate": "нет",
-                                                "rationale": "Нужен один уточняющий вопрос.",
-                                            }
+                                        "graph_path": ["agent"],
+                                        "agent": {
+                                            "intent": "emotional_support",
+                                            "safety_level": "none",
+                                            "next_action": "уточнить причину тревоги",
                                         },
-                                        "delegation": {},
-                                        "expert": {},
                                     }
                                 },
                                 "state_before": {},
@@ -257,8 +236,8 @@ def test_researcher_chat_debug_can_save_graph_v2_report(monkeypatch, tmp_path: P
             contents = saved_path.read_text(encoding="utf-8")
             assert "# Ход 1" in contents
             assert "## Graph" in contents
-            assert "Intake:" in contents
-            assert "Path: intake_analyze -> intake_validate -> intake_execute" in contents
+            assert "Agent:" in contents
+            assert "Path: agent" in contents
 
     asyncio.run(runner())
 
@@ -343,7 +322,7 @@ def test_researcher_chat_debug_keeps_router_tier_when_not_forced(monkeypatch):
     asyncio.run(runner())
 
 
-def test_researcher_chat_debug_returns_json_error_for_graph_v2_failure(monkeypatch):
+def test_researcher_chat_debug_returns_json_error_for_agent_failure(monkeypatch):
     async def runner():
         async with researcher_chat_session_ctx() as seed_session:
             patient = User(full_name="Patient Debug", patient_number=1003)
@@ -369,25 +348,12 @@ def test_researcher_chat_debug_returns_json_error_for_graph_v2_failure(monkeypat
             class FakePipeline:
                 async def process(self, request):
                     raise LLMResponseError(
-                        "supervisor intake analysis failed after 3 attempts",
+                        "agent card failed schema validation twice",
                         diagnostics={
                             "supervisor": {
                                 "enabled": True,
-                                "intake": {
-                                    "llm": {
-                                        "attempts_total": 3,
-                                        "succeeded_on_attempt": None,
-                                        "final_status": "failed_after_retries",
-                                        "failures": [
-                                            {
-                                                "attempt": 1,
-                                                "error_type": "ValueError",
-                                                "error_message": "missing required fields",
-                                                "raw_excerpt": "Internal Server Error",
-                                            }
-                                        ],
-                                    }
-                                },
+                                "graph_path": ["agent"],
+                                "error": "schema validation failed twice: missing required fields",
                             }
                         },
                     )
@@ -409,8 +375,7 @@ def test_researcher_chat_debug_returns_json_error_for_graph_v2_failure(monkeypat
 
             assert response.status_code == 502
             payload = response.json()
-            assert payload["detail"] == "supervisor intake analysis failed after 3 attempts"
-            assert payload["diagnostics_json"]["supervisor"]["intake"]["llm"]["final_status"] == "failed_after_retries"
-            assert payload["diagnostics_json"]["supervisor"]["intake"]["llm"]["failures"][0]["raw_excerpt"] == "Internal Server Error"
+            assert payload["detail"] == "agent card failed schema validation twice"
+            assert payload["diagnostics_json"]["supervisor"]["error"] == "schema validation failed twice: missing required fields"
 
     asyncio.run(runner())

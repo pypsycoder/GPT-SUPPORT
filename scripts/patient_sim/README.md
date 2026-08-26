@@ -24,7 +24,8 @@ python -m scripts.patient_sim.run_patient_sim --personas p01,p03 --no-judge
 LLM_AGENT_TOOLS`, что там заданы на момент запуска, это часть смысла: видно,
 как флаг влияет на результат.
 
-Отчёт пишется в `test-results/patient-sim/<дата>.md` (не в git —
+Отчёт пишется в `test-results/patient-sim/<дата>_<время окончания HHMMSS>.md`
+(не в git —
 см. `.gitignore`, как `LLM_test/`). Код выхода — 1, если хоть один сценарий
 получил FAIL (удобно для мониторинга cron-задачи).
 
@@ -81,4 +82,5 @@ pip install anthropic
 ```
 
 Запускать из корня репозитория (`D:\PROJECT\GPT-SUPPORT`). К утру в
-`test-results/patient-sim/<сегодняшняя-дата>.md` будет готовый отчёт.
+`test-results/patient-sim/<сегодняшняя-дата>_<время окончания HHMMSS>.md`
+будет готовый отчёт.

@@ -1,11 +1,10 @@
 """
-Memory write stage — шаг 5: gate записи в персистентную семантическую память.
+Memory write stage — gate записи в персистентную семантическую память.
 
-Кандидаты приходят только из одноагентной ветки (``AgentReply.memory_candidates``,
-см. ``app.llm.pipeline.stages.supervisor``): старая ветка ``langgraph_supervisor``
-такого поля не отдаёт. Стадия только читает БД для дедупа и добавляет объекты
-в сессию — коммит остаётся в роутере (``app/routers/chat.py``), как того
-требует CLAUDE.md.
+Кандидаты приходят из ``AgentReply.memory_candidates`` (см.
+``app.llm.pipeline.stages.supervisor``). Стадия только читает БД для дедупа и
+добавляет объекты в сессию — коммит остаётся в роутере (``app/routers/chat.py``),
+как того требует CLAUDE.md.
 """
 
 from __future__ import annotations

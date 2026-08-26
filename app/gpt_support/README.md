@@ -26,36 +26,32 @@
 Коротко по ответственности:
 
 - `boundary_guard`
-  режет prompt-injection и может завершить ход через `early_response`
+  L0 детерминированно ловит кризис/острое медицинское состояние, режет prompt-injection и может завершить ход через `early_response`
 - `classification`
-  определяет `request_type`, `model_tier`, `domain_hint`
+  определяет `request_type`, `model_tier`, `domain_hint` (каскад L0→L1→L2)
 - `supervisor`
-  запускает Graph v2 и формирует финальный `response_draft`
+  один структурный вызов агента (`AgentReply`) и формирует финальный `response_draft`
 - `memory_write`
   нормализует memory-диагностику и pending memory writes
 
 ## Что внутри supervisor
 
-Внутри `SupervisorStage` работает Graph v2:
-
-1. `intake_analyze`
-2. `intake_validate`
-3. `intake_execute`
-4. `delegation_analyze`
-5. `delegation_validate`
-6. `invoke_emotional_expert`
-7. `finalize_reply`
-
-Если пациент делегирован на эксперта, это все равно остается частью того же текущего pipeline. Отдельного legacy-orchestration пути больше нет.
+`SupervisorStage` делает один структурный LLM-вызов вместо цепочки узлов: агент
+(`app/llm/agent/loop.py`) получает промпт, собранный слоями (`prompt_assembly.py`,
+префиксное кэширование), и возвращает плоскую карточку `AgentReply` — текст
+ответа вместе с intent, safety-вердиктом, id техники и кандидатами в память.
+Второй эшелон (`_apply_agent_safety_net`) перекрывает ответ протоколом, если
+агент сам поднял `safety_level=urgent`.
 
 ## Какие модули сейчас важны
 
 | Путь | Назначение |
 |---|---|
 | `app/llm/pipeline/` | `LLMPipeline`, стадии, типы запросов/ответов, актуальная структура runtime |
-| `app/llm/langgraph_supervisor/` | Graph v2: intake, delegation, expert-flow |
+| `app/llm/agent/` | Одноагентная ветка: `loop.py` (вызов + ретраи), `schemas.py` (`AgentReply`), `prompts.py`, `techniques.py`, `judge.py` |
 | `app/llm/pool.py` | Пул аккаунтов и клиент провайдера |
-| `app/llm/router.py` | Классификация запросов (`RequestType`, `RouterResult`) |
+| `app/llm/router_cascade.py`, `router_l0.py`, `router_l1.py`, `router_l2.py` | Каскадная классификация запросов |
+| `app/llm/router.py` | Синхронный keyword-роутер — фолбэк каскада (`RequestType`, `RouterResult`) |
 | `app/llm/proactive.py` | Проактивные сообщения, тоже через текущий pipeline |
 | `app/llm/trace_humanizer.py` | Человекочитаемая трассировка diagnostics |
 
@@ -67,10 +63,12 @@
 - `app/llm/agent_v2.py`
 - legacy stages `context`, `intake`, `orchestration`, `validation`
 - dict-adapter над `LLMPipeline`
+- `app/llm/langgraph_supervisor/` (Graph v2: intake → delegation → expert) —
+  жила параллельно одноагентной ветке под флагом `LLM_SINGLE_AGENT`, теперь
+  удалена вместе с флагом
 
 ## Где смотреть детали
 
 - Подробная структура: `app/llm/pipeline/STRUCTURE.md`
-- Краткая схема потока: `SUPERVISOR_FLOW_DIAGRAM.md`
 
 Итог: `gpt_support/` теперь только вспомогательная директория, а не место, где живет актуальная LLM-архитектура.

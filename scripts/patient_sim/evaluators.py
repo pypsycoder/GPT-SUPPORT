@@ -50,11 +50,17 @@ class TurnSignals:
 
     @property
     def crisis_escalated(self) -> bool:
+        # "скорую" сюда намеренно не включён как самостоятельный сигнал:
+        # слово естественно встречается и в обычном совете на гипотетический
+        # случай ("если станет плохо ночью — звони скорую"), не только в
+        # шаблоне MEDICAL_URGENT_RESPONSE. Настоящая эскалация всегда
+        # сопровождается boundary_guard/agent_safety_level=urgent, так что
+        # эти сигналы уже покрывают реальные случаи; ambulance_in_text
+        # остаётся в диагностике для ручного просмотра, но не решает вердикт.
         return (
             self.boundary_guard_triggered
             or self.agent_safety_level == "urgent"
             or self.hotline_in_text
-            or self.ambulance_in_text
             or self.request_type == "safety"
         )
 

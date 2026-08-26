@@ -1,48 +1,20 @@
 from app.llm.trace_humanizer import build_human_trace
 
 
-def test_human_trace_shows_graph_v2_blocks():
+def test_human_trace_shows_agent_card_details():
     trace = build_human_trace(
         {
             "supervisor": {
                 "enabled": True,
                 "message_type": "full_message",
-                "graph_path": [
-                    "intake_analyze",
-                    "intake_validate",
-                    "intake_execute",
-                    "delegation_analyze",
-                    "delegation_validate",
-                    "invoke_emotional_expert",
-                    "finalize_reply",
-                ],
+                "graph_path": ["agent"],
                 "selected_agents": ["emotional_support"],
-                "intake": {
-                    "card": {
-                        "problem": "страх перед диализом",
-                        "needs_clarification": "нет",
-                        "ready_to_delegate": "да",
-                    },
-                    "llm": {
-                        "succeeded_on_attempt": 1,
-                    },
-                },
-                "delegation": {
-                    "card": {
-                        "expert": "эмоциональная_поддержка",
-                        "task": "помочь справиться со страхом перед процедурой",
-                    },
-                    "llm": {
-                        "succeeded_on_attempt": 1,
-                    },
-                },
-                "expert": {
-                    "card": {
-                        "step_now": "Скажи, что именно пугает сильнее всего.",
-                    },
-                    "llm": {
-                        "succeeded_on_attempt": 1,
-                    },
+                "agent": {
+                    "intent": "emotional_support",
+                    "technique_id": "p01",
+                    "safety_level": "none",
+                    "safety_kind": "none",
+                    "next_action": "предложить практику дыхания",
                 },
             }
         }
@@ -50,152 +22,56 @@ def test_human_trace_shows_graph_v2_blocks():
 
     supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
     assert "Supervisor определил тип хода: full_message." in supervisor_section["items"]
-    assert "Graph path: intake_analyze -> intake_validate -> intake_execute -> delegation_analyze -> delegation_validate -> invoke_emotional_expert -> finalize_reply." in supervisor_section["items"]
-    assert "Проблема: страх перед диализом." in supervisor_section["items"]
-    assert "Нужно уточнение: нет." in supervisor_section["items"]
-    assert "Эксперт: эмоциональная_поддержка." in supervisor_section["items"]
-    assert "Шаг сейчас: Скажи, что именно пугает сильнее всего.." in supervisor_section["items"]
+    assert "Graph path: agent." in supervisor_section["items"]
+    assert "Intent: emotional_support." in supervisor_section["items"]
+    assert "Техника: p01." in supervisor_section["items"]
+    assert "Следующее действие: предложить практику дыхания." in supervisor_section["items"]
+    assert "Подключенные expert-агенты: emotional_support." in supervisor_section["items"]
 
 
-def test_human_trace_marks_failed_intake_analysis_after_retries():
-    trace = build_human_trace(
+def test_human_trace_shows_safety_level_when_not_none():
+    items = _supervisor_items(
         {
-            "supervisor": {
-                "enabled": True,
-                "intake": {
-                    "llm": {
-                        "attempts_total": 3,
-                        "final_status": "failed_after_retries",
-                    }
-                },
-            }
+            "enabled": True,
+            "graph_path": ["agent"],
+            "agent": {"intent": "safety", "safety_level": "concern", "safety_kind": "psychological"},
         }
     )
 
-    supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
-    assert "Intake analysis failed after 3 attempts." in supervisor_section["items"]
+    assert "Safety: concern (psychological)." in items
 
 
-def test_human_trace_includes_retry_details_for_supervisor_steps():
-    trace = build_human_trace(
+def test_human_trace_hides_placeholder_technique_and_action():
+    """Модель присылает 'нет', когда техники/действия не было — не показываем как факт."""
+    items = _supervisor_items(
         {
-            "supervisor": {
-                "enabled": True,
-                "intake": {
-                    "llm": {
-                        "attempts_total": 3,
-                        "succeeded_on_attempt": 2,
-                        "final_status": "success",
-                        "failures": [
-                            {
-                                "attempt": 1,
-                                "error_type": "ValueError",
-                                "error_message": "missing required fields",
-                                "raw_excerpt": "Проблема: тревога",
-                            }
-                        ],
-                    }
-                },
-            }
+            "enabled": True,
+            "agent": {"intent": "smalltalk", "technique_id": "нет", "next_action": "нет", "safety_level": "none"},
         }
     )
 
-    supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
-    assert "Intake analysis: success on attempt 2." in supervisor_section["items"]
-    assert "Intake analysis: retries before success = 1." in supervisor_section["items"]
-    assert any("Intake analysis retry #1: ValueError - missing required fields | raw: Проблема: тревога." == item for item in supervisor_section["items"])
+    assert not any(item.startswith("Техника:") for item in items)
+    assert not any(item.startswith("Следующее действие:") for item in items)
 
 
-def test_human_trace_shows_education_expert_details():
-    trace = build_human_trace(
+def test_human_trace_reports_agent_card_failure():
+    items = _supervisor_items(
         {
-            "supervisor": {
-                "enabled": True,
-                "graph_path": [
-                    "intake_analyze",
-                    "intake_validate",
-                    "intake_execute",
-                    "delegation_analyze",
-                    "delegation_validate",
-                    "invoke_education_expert",
-                    "finalize_reply",
-                ],
-                "selected_agents": ["education"],
-                "delegation": {
-                    "card": {"expert": "education", "task": "коротко объяснить тему"},
-                    "llm": {"succeeded_on_attempt": 1},
-                },
-                "expert": {
-                    "card": {
-                        "explanation": "Слабость после диализа может ощущаться заметнее в день процедуры.",
-                        "cta_label": "Слабость после диализа",
-                    },
-                    "llm": {"succeeded_on_attempt": 1},
-                },
-            }
+            "enabled": True,
+            "graph_path": ["agent"],
+            "error": "schema validation failed twice",
         }
     )
 
-    supervisor_section = next(section for section in trace if section["title"] == "Supervisor")
-    assert "Graph path: intake_analyze -> intake_validate -> intake_execute -> delegation_analyze -> delegation_validate -> invoke_education_expert -> finalize_reply." in supervisor_section["items"]
-    assert "Эксперт: education." in supervisor_section["items"]
-    assert "Объяснение: Слабость после диализа может ощущаться заметнее в день процедуры.." in supervisor_section["items"]
-    assert "CTA: Слабость после диализа." in supervisor_section["items"]
+    assert "Агент не отдал карточку: schema validation failed twice." in items
+
+
+def test_human_trace_reports_disabled_supervisor():
+    items = _supervisor_items({"enabled": False, "reason": "no_classification"})
+
+    assert "Supervisor-path не использовался: no_classification." in items
 
 
 def _supervisor_items(supervisor: dict) -> list[str]:
     trace = build_human_trace({"supervisor": supervisor})
     return next(section for section in trace if section["title"] == "Supervisor")["items"]
-
-
-def test_human_trace_reports_education_bypass_instead_of_silence():
-    """Bypass-узлы не вызывают LLM — раньше они молча пропадали из трейса."""
-    items = _supervisor_items(
-        {
-            "enabled": True,
-            "message_type": "full_message",
-            "graph_path": ["intake_analyze", "delegation_analyze", "invoke_education_expert"],
-            "intake": {
-                "card": {"problem": "постоянная усталость"},
-                "llm": {"synthetic_expert_follow_up": True, "expert": "education"},
-            },
-            "delegation": {
-                "card": {"expert": "education", "task": "ответить на уточняющий вопрос"},
-                "llm": {"synthetic_expert_follow_up": True, "expert": "education"},
-            },
-            "expert": {"card": {"explanation": "Усталость частое явление"}, "llm": {"succeeded_on_attempt": 1}},
-        }
-    )
-
-    assert "Intake analysis: пропущен — карточка собрана без вызова LLM (сессия эксперта активна), эксперт: education." in items
-    assert "Delegation analysis: пропущен — карточка собрана без вызова LLM (сессия эксперта активна), эксперт: education." in items
-    assert "Expert: success on attempt 1." in items
-
-
-def test_human_trace_reports_education_close_bypass():
-    items = _supervisor_items(
-        {
-            "enabled": True,
-            "intake": {"card": {}, "llm": {"education_close_bypass": True}},
-        }
-    )
-
-    assert "Intake analysis: пропущен — закрытие education-сессии без вызова LLM." in items
-
-
-def test_human_trace_keeps_attempt_lines_for_real_llm_calls():
-    items = _supervisor_items(
-        {
-            "enabled": True,
-            "intake": {
-                "card": {},
-                "llm": {
-                    "succeeded_on_attempt": 2,
-                    "failures": [{"attempt": 1, "error_type": "ValueError", "error_message": "missing field"}],
-                },
-            },
-        }
-    )
-
-    assert "Intake analysis: success on attempt 2." in items
-    assert "Intake analysis: retries before success = 1." in items

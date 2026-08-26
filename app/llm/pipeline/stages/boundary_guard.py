@@ -22,8 +22,6 @@ def _previous_intent(context: PipelineContext) -> str | None:
     agents = [str(a) for a in (state.get("last_selected_agents") or []) if str(a).strip()]
     if agents:
         return agents[0]
-    if state.get("education_session_active"):
-        return "education"
     return None
 
 

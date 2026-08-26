@@ -50,25 +50,12 @@ class CurrentState:
     last_clarification_reason: str | None = None
     last_goal_status: str | None = None
     last_bot_reply: str | None = None
-    last_expert_effectiveness: str | None = None
-    last_expert_strategy: str | None = None
     current_technique_id: str | None = None
     current_technique_turns: int = 0
     current_step_index: int = 0
-    last_expert_step: str | None = None
     recent_technique_ids: list[str] = field(default_factory=list)
     # Session Arc
     anchor_goal: str | None = None
-    session_plan: str | None = None
-    # Branch tracking
-    on_branch: bool = False
-    branch_type: str | None = None
-    branch_turns: int = 0
-    branch_return_intent: str | None = None
-    # Education session tracking
-    education_session_active: bool = False
-    education_topic: str | None = None
-    education_turn_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,22 +73,11 @@ class CurrentState:
             "last_clarification_reason": self.last_clarification_reason,
             "last_goal_status": self.last_goal_status,
             "last_bot_reply": self.last_bot_reply,
-            "last_expert_effectiveness": self.last_expert_effectiveness,
-            "last_expert_strategy": self.last_expert_strategy,
             "current_technique_id": self.current_technique_id,
             "current_technique_turns": int(self.current_technique_turns),
             "current_step_index": int(self.current_step_index),
-            "last_expert_step": self.last_expert_step,
             "recent_technique_ids": list(self.recent_technique_ids),
             "anchor_goal": self.anchor_goal,
-            "session_plan": self.session_plan,
-            "on_branch": bool(self.on_branch),
-            "branch_type": self.branch_type,
-            "branch_turns": int(self.branch_turns),
-            "branch_return_intent": self.branch_return_intent,
-            "education_session_active": bool(self.education_session_active),
-            "education_topic": self.education_topic,
-            "education_turn_count": int(self.education_turn_count),
         }
 
     @classmethod
@@ -136,27 +112,12 @@ class CurrentState:
                 if payload.get("last_bot_reply") is not None
                 else None
             ),
-            last_expert_effectiveness=(
-                str(payload.get("last_expert_effectiveness")).strip()
-                if payload.get("last_expert_effectiveness") is not None
-                else None
-            ),
-            last_expert_strategy=(
-                str(payload.get("last_expert_strategy")).strip()
-                if payload.get("last_expert_strategy") is not None
-                else None
-            ),
             current_technique_id=(
                 str(payload.get("current_technique_id") or payload.get("last_technique_id") or "").strip()
                 or None
             ),
             current_technique_turns=int(payload.get("current_technique_turns") or 0),
             current_step_index=int(payload.get("current_step_index") or 0),
-            last_expert_step=(
-                str(payload.get("last_expert_step")).strip()
-                if payload.get("last_expert_step") is not None
-                else None
-            ),
             recent_technique_ids=[
                 str(item) for item in (payload.get("recent_technique_ids") or []) if str(item).strip()
             ],
@@ -165,30 +126,6 @@ class CurrentState:
                 if payload.get("anchor_goal") is not None
                 else None
             ),
-            session_plan=(
-                str(payload.get("session_plan")).strip()
-                if payload.get("session_plan") is not None
-                else None
-            ),
-            on_branch=bool(payload.get("on_branch")),
-            branch_type=(
-                str(payload.get("branch_type")).strip()
-                if payload.get("branch_type") is not None
-                else None
-            ),
-            branch_turns=int(payload.get("branch_turns") or 0),
-            branch_return_intent=(
-                str(payload.get("branch_return_intent")).strip()
-                if payload.get("branch_return_intent") is not None
-                else None
-            ),
-            education_session_active=bool(payload.get("education_session_active")),
-            education_topic=(
-                str(payload.get("education_topic")).strip()
-                if payload.get("education_topic") is not None
-                else None
-            ),
-            education_turn_count=int(payload.get("education_turn_count") or 0),
         )
 
 

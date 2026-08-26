@@ -18,63 +18,6 @@ def _format_stage(stage: dict[str, Any]) -> str:
     return f"{name}: {status}, {int(latency_ms)} мс."
 
 
-# Узлы intake/delegation умеют собирать карточку без обращения к LLM, когда
-# сессия эксперта уже активна (bypass в nodes.py). Такая диагностика не содержит
-# статистики попыток — без явной строки узел просто пропадал из трейса, и это
-# читалось как «вывод графа отвалился».
-_BYPASS_MARKERS: dict[str, str] = {
-    "synthetic_expert_follow_up": "карточка собрана без вызова LLM (сессия эксперта активна)",
-    "education_close_bypass": "закрытие education-сессии без вызова LLM",
-}
-
-
-def _bypass_reason(llm: dict[str, Any]) -> str | None:
-    for marker, reason in _BYPASS_MARKERS.items():
-        if llm.get(marker):
-            expert = str(llm.get("expert") or "").strip()
-            return f"{reason}, эксперт: {expert}" if expert else reason
-    return None
-
-
-def _append_llm_attempts(items: list[str], label: str, llm: dict[str, Any] | None) -> None:
-    llm = dict(llm or {})
-    if not llm:
-        return
-
-    bypass_reason = _bypass_reason(llm)
-    if bypass_reason:
-        items.append(f"{label}: пропущен — {bypass_reason}.")
-        return
-
-    succeeded_on_attempt = llm.get("succeeded_on_attempt")
-    attempts_total = int(llm.get("attempts_total") or 0)
-    failures = _as_list(llm.get("failures"))
-    retry_count = len(failures)
-
-    if succeeded_on_attempt:
-        items.append(f"{label}: success on attempt {int(succeeded_on_attempt)}.")
-        if retry_count:
-            items.append(f"{label}: retries before success = {retry_count}.")
-    elif llm.get("final_status") == "failed_after_retries":
-        items.append(f"{label} failed after {attempts_total or 3} attempts.")
-
-    for failure in failures:
-        attempt = failure.get("attempt")
-        error_type = str(failure.get("error_type") or "Error").strip()
-        error_message = str(failure.get("error_message") or "").strip()
-        raw_excerpt = str(failure.get("raw_excerpt") or "").strip()
-        line = f"{label} retry"
-        if attempt:
-            line += f" #{attempt}"
-        line += f": {error_type}"
-        if error_message:
-            line += f" - {error_message}"
-        if raw_excerpt:
-            line += f" | raw: {raw_excerpt}"
-        line += "."
-        items.append(line)
-
-
 def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]]:
     diagnostics = diagnostics or {}
     sections: list[dict[str, Any]] = []
@@ -91,33 +34,19 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
             if graph_path:
                 supervisor_items.append("Graph path: " + " -> ".join(str(item) for item in graph_path) + ".")
 
-            intake = supervisor.get("intake") or {}
-            intake_card = intake.get("card") or {}
-            _append_llm_attempts(supervisor_items, "Intake analysis", intake.get("llm"))
-            if intake_card.get("problem"):
-                supervisor_items.append(f"Проблема: {intake_card['problem']}.")
-            if intake_card.get("needs_clarification"):
-                supervisor_items.append(f"Нужно уточнение: {intake_card['needs_clarification']}.")
-            if intake_card.get("ready_to_delegate"):
-                supervisor_items.append(f"Готово к передаче: {intake_card['ready_to_delegate']}.")
+            agent = supervisor.get("agent") or {}
+            if agent.get("intent"):
+                supervisor_items.append(f"Intent: {agent['intent']}.")
+            if agent.get("technique_id") and str(agent["technique_id"]).strip() not in ("нет", ""):
+                supervisor_items.append(f"Техника: {agent['technique_id']}.")
+            if agent.get("safety_level") and agent["safety_level"] != "none":
+                supervisor_items.append(f"Safety: {agent['safety_level']} ({agent.get('safety_kind') or 'none'}).")
+            if agent.get("next_action") and str(agent["next_action"]).strip() not in ("нет", ""):
+                supervisor_items.append(f"Следующее действие: {agent['next_action']}.")
 
-            delegation = supervisor.get("delegation") or {}
-            delegation_card = delegation.get("card") or {}
-            _append_llm_attempts(supervisor_items, "Delegation analysis", delegation.get("llm"))
-            if delegation_card.get("expert"):
-                supervisor_items.append(f"Эксперт: {delegation_card['expert']}.")
-            if delegation_card.get("task"):
-                supervisor_items.append(f"Задача эксперта: {delegation_card['task']}.")
-
-            expert = supervisor.get("expert") or {}
-            expert_card = expert.get("card") or {}
-            _append_llm_attempts(supervisor_items, "Expert", expert.get("llm"))
-            if expert_card.get("explanation"):
-                supervisor_items.append(f"Объяснение: {expert_card['explanation']}.")
-            if expert_card.get("step_now"):
-                supervisor_items.append(f"Шаг сейчас: {expert_card['step_now']}.")
-            if expert_card.get("cta_label"):
-                supervisor_items.append(f"CTA: {expert_card['cta_label']}.")
+            error = supervisor.get("error")
+            if error:
+                supervisor_items.append(f"Агент не отдал карточку: {error}.")
 
             selected_agents = [str(item) for item in _as_list(supervisor.get("selected_agents")) if str(item).strip()]
             if selected_agents:
@@ -143,7 +72,7 @@ def build_human_trace(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]
     response_info = diagnostics.get("response") or {}
     response_source = str(response_info.get("source") or "").strip()
     if response_source == "supervisor":
-        pipeline_items.append("Финальный ответ сформирован supervisor graph v2.")
+        pipeline_items.append("Финальный ответ сформирован агентом.")
     elif response_source:
         pipeline_items.append(f"Финальный ответ сформирован через {response_source}.")
 

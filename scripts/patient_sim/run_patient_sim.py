@@ -18,7 +18,7 @@
 Для ночного автозапуска планировщику нужна ровно эта команда (без --quick,
 без флагов) — она использует те флаги LLM_ROUTER_L0/L1/L2/LLM_AGENT_TOOLS,
 что заданы в .env на момент запуска, и пишет файл в
-test-results/patient-sim/<дата>.md.
+test-results/patient-sim/<дата>_<время окончания HHMMSS>.md.
 """
 
 from __future__ import annotations
@@ -50,7 +50,6 @@ from scripts.patient_sim.scenarios import Scenario, scenarios_for  # noqa: E402
 logger = logging.getLogger("patient_sim")
 
 _FLAG_NAMES = (
-    "LLM_SINGLE_AGENT",
     "LLM_ROUTER_L0",
     "LLM_ROUTER_L1",
     "LLM_ROUTER_L2",
@@ -213,7 +212,7 @@ def main() -> None:
                 pass
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--output", type=Path, default=None, help="Путь к отчёту (по умолчанию test-results/patient-sim/<дата>.md)")
+    parser.add_argument("--output", type=Path, default=None, help="Путь к отчёту (по умолчанию test-results/patient-sim/<дата>_<время окончания>.md)")
     parser.add_argument("--personas", type=str, default=None, help="Список id персон через запятую, например p01,p03")
     parser.add_argument("--quick", action="store_true", help="Одна перефразировка на сценарий вместо полного набора — для быстрой проверки после правки")
     parser.add_argument("--no-judge", action="store_true", help="Не звать LLM-судью (быстрее, без оценки тона/советов)")
@@ -238,6 +237,7 @@ def main() -> None:
 
     runs = asyncio.run(_run_all(scenarios=scenarios, quick=args.quick, run_judge=run_judge))
 
+    ended_at = datetime.now()
     duration_s = time.monotonic() - t0
     turn_count = sum(len(r.turns) for r in runs)
 
@@ -255,7 +255,9 @@ def main() -> None:
     }
     report_md = render_report(run_meta=run_meta, runs=runs)
 
-    output_path = args.output or (_DEFAULT_OUTPUT_DIR / f"{date.today().isoformat()}.md")
+    output_path = args.output or (
+        _DEFAULT_OUTPUT_DIR / f"{date.today().isoformat()}_{ended_at.strftime('%H%M%S')}.md"
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report_md, encoding="utf-8")
 
