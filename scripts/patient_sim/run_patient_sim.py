@@ -40,6 +40,13 @@ from app.core.config import load_environment  # noqa: E402
 
 load_environment()
 
+# Ключ для динамического пациента (patient_agent.py) — намеренно отдельный
+# .env, не общий конфиг приложения: это dev-only ключ только для этого
+# харнесса. override=False — не перебивает то, что уже задано в окружении.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+
 from scripts.patient_sim.evaluators import evaluate_scenario, evaluate_turn  # noqa: E402
 from scripts.patient_sim.patient_agent import PatientAgent, describe_mode  # noqa: E402
 from scripts.patient_sim.personas import PERSONAS, Persona  # noqa: E402
