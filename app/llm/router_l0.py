@@ -123,11 +123,16 @@ _MEDICAL_URGENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_p(r"\bтаблетк\w*\s+(соседк|подруг|жены|мужа|чуж)"), "wrong_medication"),
     (_p(r"\b(проглотил|выпил|приняла?)\w*\s+.{0,20}много\s+таблет"), "overdose"),
     # --- Дыхание и грудь. Для диализного пациента это отдельный красный флаг ---
+    # "breathing" — единственное правило здесь с исключением по хроничности,
+    # см. _CHRONIC_QUALIFIER_RE и его использование в classify(): у диализного
+    # пациента с СН/диабетом одышка при нагрузке — обычный многодневный фон,
+    # а не то же самое, что "не могу дышать прямо сейчас".
     (
         _p(
             r"\bзадыхаюсь\b|\bзадохнусь\b|\bнечем\s+дышать\b|\bне\s+могу\s+дышать\b"
             r"|\bдышать\s+(очень\s+)?(тяжело|трудно)\b|\bтяжело\s+дышать\b"
-            r"|\bнехватка\s+воздуха\b|\bдыхание\s+затруднено\b|\bсильная\s+одышка\b"
+            r"|\bнехватка\s+воздуха\b|\bвоздуха\s+не\s+хватает\b|\bдыхание\s+затруднено\b"
+            r"|\bсильная\s+одышка\b"
         ),
         "breathing",
     ),
@@ -161,6 +166,29 @@ _CONCERN_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_p(r"\bруки\s+опускаются\b"), "hopelessness"),
     (_p(r"\bникому\s+не\s+нужен\b"), "isolation"),
 )
+
+# Многодневный/нагрузочный фон при "breathing" — не то же самое, что острое
+# "не могу дышать прямо сейчас". У СН/ХБП-пациентов одышка при ходьбе —
+# рутинный симптом, requiring лечащую команду, а не скорую немедленно.
+_CHRONIC_QUALIFIER_RE = _p(
+    r"\bособенно\s+когда\b|\bкогда\s+хож\w+\b|\bпри\s+ходьбе\b|\bпри\s+нагрузке\b"
+    r"|\bпри\s+физ\w*\s+нагрузк|\bкогда\s+иду\b|\bесли\s+иду\b|\bкогда\s+двига\w+\b"
+    r"|\bуже\s+(несколько\s+)?дн\w+\b|\bпоследни\w+\s+дн\w+\b|\bна\s+этой\s+неделе\b"
+)
+
+# Гипотетический вопрос ("а вдруг", "что если") про медицинский красный флаг —
+# не то же самое, что отчёт о том, что происходит прямо сейчас. Найдено на
+# patient-sim (s05_anxious): "а вдруг я потеряю сознание и никто не заметит?"
+# уходило в тот же кризисный медпротокол, что реальная потеря сознания.
+# Применяется только к _MEDICAL_URGENT_PATTERNS — психологические urgent-паттерны
+# намеренно читают широко и хуже reflect гипотетичность (см. их комментарий выше).
+_HYPOTHETICAL_MARKER_RE = _p(
+    r"\bа\s+вдруг\b|\bчто\s+если\b|\bчто\s+будет,?\s+если\b|\bа\s+если\b|\bесли\s+вдруг\b"
+)
+
+
+def _is_hypothetical_question(text: str) -> bool:
+    return "?" in text and bool(_HYPOTHETICAL_MARKER_RE.search(text))
 
 # Показатели. Давление ищем первым: «120 на 80» и «120/80» — одна и та же запись.
 _BP_RE = _p(r"\b(\d{2,3})\s*(?:/|\\|\s+на\s+)\s*(\d{2,3})\b")
@@ -289,6 +317,18 @@ def classify(
 
     rule = _match(_MEDICAL_URGENT_PATTERNS, message)
     if rule:
+        # Ни один из этих двух случаев не гасит сигнал совсем — оба поднимают
+        # тревогу и явно помечают причину, но не подменяют ответ кризисным
+        # протоколом и не обрывают пайплайн: intent=None пропускает запрос
+        # дальше (см. boundary_guard.py — short-circuit только на urgent).
+        if rule == "breathing" and _CHRONIC_QUALIFIER_RE.search(message):
+            return L0Decision(
+                rule="breathing_chronic", safety_level="concern", safety_kind="medical"
+            )
+        if _is_hypothetical_question(message):
+            return L0Decision(
+                rule=f"{rule}_hypothetical", safety_level="concern", safety_kind="medical"
+            )
         return L0Decision(intent="safety", rule=rule, safety_level="urgent", safety_kind="medical")
 
     vitals = parse_vitals(message)
