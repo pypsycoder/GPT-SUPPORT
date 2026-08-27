@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import time
 
-from app.llm import router_l0
+from app.llm import crisis_semantic, router_l0
 from app.llm.safety_responses import CRISIS_RESPONSE, MEDICAL_URGENT_RESPONSE
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 
@@ -150,6 +150,38 @@ class BoundaryGuardStage(PipelineStage):
                     user_input[:50],
                 )
                 return context
+
+            # L0 не дал urgent (regex не совпал ни на чём) — второй, семантический
+            # эшелон: kNN по эмбеддингам ловит перефразировки, которых нет ни в
+            # одном regex-паттерне. Найдено ночью 2026-08-27: L0 пропускал 7 из 7
+            # канонических эвфемизмов s01_suicide_indirect до отдельного фикса
+            # (e47078d/82ce752) — это же в принципе может повториться на восьмой,
+            # не угаданной формулировке; семантический слой — попытка закрыть
+            # именно этот класс пропуска, а не заменить regex.
+            if crisis_semantic.crisis_semantic_enabled():
+                semantic = await crisis_semantic.classify(user_input)
+                if semantic.is_crisis:
+                    context.early_response = CRISIS_RESPONSE
+                    context.early_response_source = "boundary_guard_crisis_semantic"
+                    context.diagnostics["boundary_guard"] = {
+                        "triggered": True,
+                        "type": "crisis_signal_semantic",
+                        "reason": "crisis_semantic",
+                        "confidence": round(semantic.confidence, 3),
+                        "margin": round(semantic.margin, 3),
+                        "nearest_positive": semantic.nearest_positive,
+                        "latency_ms": int((time.monotonic() - started) * 1000),
+                    }
+                    logger.warning(
+                        "[boundary_guard] crisis_semantic urgent patient=%d "
+                        "confidence=%.3f margin=%.3f nearest=%s input=%s",
+                        context.request.patient_id,
+                        semantic.confidence,
+                        semantic.margin,
+                        (semantic.nearest_positive or "")[:60],
+                        user_input[:50],
+                    )
+                    return context
 
         elif any(pattern in normalized for pattern in _CRISIS_PATTERNS):
             context.early_response = CRISIS_RESPONSE
