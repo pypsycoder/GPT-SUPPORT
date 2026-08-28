@@ -95,3 +95,8 @@ config.yaml
 settings_local.py
 nul
 LLM_test/
+
+# 🧪 Локальные веса ONNX-моделей (напр. антисуицидальная/crisis-модель) —
+# не пушим, храним только локально
+app/gpt_support/local_models/*
+!app/gpt_support/local_models/README.md
