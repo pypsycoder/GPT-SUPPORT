@@ -116,10 +116,3 @@ async def test_provider_error_returns_unresolved_decision_not_raise(monkeypatch)
     decision = await router_l1.classify("что угодно")
 
     assert decision == router_l1.L1Decision()
-
-
-async def test_l1_enabled_reads_env_flag(monkeypatch):
-    monkeypatch.delenv(router_l1.ENV_FLAG, raising=False)
-    assert router_l1.l1_enabled() is False
-    monkeypatch.setenv(router_l1.ENV_FLAG, "1")
-    assert router_l1.l1_enabled() is True

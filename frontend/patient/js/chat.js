@@ -117,6 +117,8 @@
 
       '<div class="chat-messages" id="chat-messages"></div>' +
 
+      '<div class="chat-ai-disclaimer">Это сообщение сгенерировано искусственным интеллектом. Он может ошибаться. Проверяйте его ответы.</div>' +
+
       '<div class="chat-quick-actions" id="chat-quick-actions">' +
         '<button class="chat-quick-btn" data-text="Как я себя чувствую">Как я себя чувствую</button>' +
         '<button class="chat-quick-btn" data-text="Сон">Сон</button>' +

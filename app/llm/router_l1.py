@@ -1,5 +1,5 @@
 """
-L1 — kNN по эмбеддингам прототипов (00_MANUAL.md, часть 8).
+L1 — kNN по эмбеддингам прототипов (см. pipeline/STRUCTURE.md, «Роутер»).
 
 Прототипы (``router_prototypes.SEED_PROTOTYPES``) эмбеддятся лениво при
 первом вызове и кэшируются в процессе — тот же паттерн, что
@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from dataclasses import dataclass
 
 from app.llm.embeddings import cosine_similarity, get_text_embedding, get_text_embeddings_batch
@@ -31,16 +30,9 @@ from app.llm.router_prototypes import SEED_PROTOTYPES
 
 logger = logging.getLogger("gpt-support-llm.router_l1")
 
-ENV_FLAG = "LLM_ROUTER_L1"
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
-
 # "с потолка", часть 8 манула — проверять на своих данных.
 DEFAULT_THRESHOLD = 0.62
 DEFAULT_MARGIN = 0.05
-
-
-def l1_enabled() -> bool:
-    return str(os.getenv(ENV_FLAG, "")).strip().lower() in _TRUTHY
 
 
 @dataclass(slots=True)

@@ -148,10 +148,3 @@ async def test_search_education_retrieval_error_becomes_tool_error_not_raise(mon
     )
 
     assert "tool_failed" in result
-
-
-def test_agent_tools_enabled_reads_env_flag(monkeypatch):
-    monkeypatch.delenv(tools.ENV_FLAG, raising=False)
-    assert tools.agent_tools_enabled() is False
-    monkeypatch.setenv(tools.ENV_FLAG, "1")
-    assert tools.agent_tools_enabled() is True

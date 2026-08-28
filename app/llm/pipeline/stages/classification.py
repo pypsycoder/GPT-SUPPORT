@@ -8,7 +8,6 @@ import logging
 import time
 from dataclasses import replace
 
-from app.llm import router_l0
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 from app.llm.router import ModelTier, RequestType, classify_request
 from app.llm.supervisor import CurrentState
@@ -28,7 +27,7 @@ def _apply_l0_safety(context: PipelineContext) -> str | None:
     «на всякий случай» не трогаем: правило про повышение приоритета в силе.
     """
     decision = context.l0
-    if decision is None or not router_l0.l0_enabled():
+    if decision is None:
         return None
     if context.classification.request_type is not RequestType.SAFETY:
         return None

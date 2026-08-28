@@ -77,16 +77,20 @@
   }
 
   // # подгрузка chat.css и chat.js (один раз)
+  // Версию бампать при каждом деплойном изменении chat.css/chat.js,
+  // чтобы браузеры пользователей не отдавали закэшированную версию.
+  var CHAT_WIDGET_VERSION = '2026-08-27-1';
+
   function loadChatWidget() {
-    if (!document.querySelector('link[href="/frontend/patient/css/chat.css"]')) {
+    if (!document.querySelector('link[href^="/frontend/patient/css/chat.css"]')) {
       var link = document.createElement('link');
       link.rel = 'stylesheet';
-      link.href = '/frontend/patient/css/chat.css';
+      link.href = '/frontend/patient/css/chat.css?v=' + CHAT_WIDGET_VERSION;
       document.head.appendChild(link);
     }
-    if (!document.querySelector('script[src="/frontend/patient/js/chat.js"]')) {
+    if (!document.querySelector('script[src^="/frontend/patient/js/chat.js"]')) {
       var script = document.createElement('script');
-      script.src = '/frontend/patient/js/chat.js';
+      script.src = '/frontend/patient/js/chat.js?v=' + CHAT_WIDGET_VERSION;
       document.body.appendChild(script);
     }
   }

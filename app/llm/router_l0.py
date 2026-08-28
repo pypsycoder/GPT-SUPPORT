@@ -28,21 +28,11 @@ L0 не гадает: неуверенность стоит дешевле ош�
 from __future__ import annotations
 
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("gpt-support-llm.router_l0")
-
-ENV_FLAG = "LLM_ROUTER_L0"
-
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
-
-
-def l0_enabled() -> bool:
-    """Включён ли L0. Выключен — работает прежний поиск по подстрокам."""
-    return str(os.getenv(ENV_FLAG, "")).strip().lower() in _TRUTHY
 
 # Порог систолического: гипертонический криз.
 BP_SYSTOLIC_CRITICAL = 180

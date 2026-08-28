@@ -15,9 +15,8 @@
     python -m scripts.patient_sim.run_patient_sim --personas p01,p03 --no-judge
     python -m scripts.patient_sim.run_patient_sim --output my_report.md
 
-Для ночного автозапуска планировщику нужна ровно эта команда (без --quick,
-без флагов) — она использует те флаги LLM_ROUTER_L0/L1/L2/LLM_AGENT_TOOLS,
-что заданы в .env на момент запуска, и пишет файл в
+Для ночного автозапуска планировщику нужна ровно эта команда (без --quick),
+она пишет файл в
 test-results/patient-sim/<дата>_<время окончания HHMMSS>.md.
 """
 
@@ -26,7 +25,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 import sys
 import time
 from datetime import date, datetime
@@ -56,22 +54,7 @@ from scripts.patient_sim.scenarios import Scenario, scenarios_for  # noqa: E402
 
 logger = logging.getLogger("patient_sim")
 
-_FLAG_NAMES = (
-    "LLM_ROUTER_L0",
-    "LLM_ROUTER_L1",
-    "LLM_ROUTER_L2",
-    "LLM_AGENT_TOOLS",
-)
-
 _DEFAULT_OUTPUT_DIR = ROOT_DIR / "test-results" / "patient-sim"
-
-
-def _flags_summary() -> str:
-    parts = []
-    for name in _FLAG_NAMES:
-        value = str(os.getenv(name, "")).strip().lower() in {"1", "true", "yes", "on"}
-        parts.append(f"{name}={'on' if value else 'off'}")
-    return ", ".join(parts)
 
 
 def _judge_mode(run_judge: bool) -> str:
@@ -252,7 +235,6 @@ def main() -> None:
         "date": date.today().isoformat(),
         "started_at": started_at.strftime("%Y-%m-%d %H:%M:%S"),
         "duration_s": duration_s,
-        "flags_summary": _flags_summary(),
         "patient_agent_mode": describe_mode(),
         "judge_mode": _judge_mode(run_judge),
         "scenario_count": len(scenarios),

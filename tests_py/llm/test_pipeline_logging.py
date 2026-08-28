@@ -30,7 +30,7 @@ async def pipeline_logging_session_ctx() -> AsyncSession:
 
 
 @pytest.mark.asyncio
-async def test_boundary_guard_account_id_fits_the_column(monkeypatch):
+async def test_boundary_guard_account_id_fits_the_column():
     """Живым прогоном (фаза 2, LLM_test/reports): boundary_guard теговал
     account_id как early_response_source.upper() — "BOUNDARY_GUARD_MEDICAL_URGENT"
     (29 симв.) шире реальной колонки llm_request_logs.account_id VARCHAR(20).
@@ -39,8 +39,6 @@ async def test_boundary_guard_account_id_fits_the_column(monkeypatch):
     без обработки, и пациент в кризисе получал 500 вместо ответа. sqlite (эта
     тестовая БД) молча проглатывает превышение длины, поэтому здесь проверяем
     содержимое явно, а не полагаемся на движок, чтобы поймать регресс."""
-    monkeypatch.delenv("LLM_ROUTER_L0", raising=False)
-
     async with pipeline_logging_session_ctx() as session:
         patient = User(full_name="Patient Boundary", patient_number=2002)
         session.add(patient)

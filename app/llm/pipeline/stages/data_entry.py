@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 import time
 
-from app.llm import router_l0
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 from app.llm.router_l0 import BP_DIASTOLIC_HIGH, BP_SYSTOLIC_HIGH
 
@@ -90,7 +89,7 @@ class DataEntryStage(PipelineStage):
         started = time.monotonic()
         decision = context.l0
 
-        if not router_l0.l0_enabled() or decision is None or not decision.vitals:
+        if decision is None or not decision.vitals:
             context.diagnostics["data_entry"] = {"triggered": False, "reason": "nothing_parsed"}
             return context
 

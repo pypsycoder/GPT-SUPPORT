@@ -14,7 +14,7 @@ RAG на каждый ход с текстом длиннее 10 символо�
 
 Ошибки инструмента не поднимаются наружу из `invoke()`: модель должна
 увидеть ошибку как данные и решить, что делать. Падение цикла из-за кривого
-аргумента — худший сценарий в проде (00_MANUAL.md, часть 7.3).
+аргумента — худший сценарий в проде (см. pipeline/STRUCTURE.md, «Инструменты»).
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -32,14 +31,7 @@ from app.llm import structured
 
 logger = logging.getLogger("gpt-support-llm.tools")
 
-ENV_FLAG = "LLM_AGENT_TOOLS"
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
-
 Handler = Callable[..., Awaitable[Any]]
-
-
-def agent_tools_enabled() -> bool:
-    return str(os.getenv(ENV_FLAG, "")).strip().lower() in _TRUTHY
 
 
 @dataclass(slots=True)

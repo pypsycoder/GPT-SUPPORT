@@ -117,21 +117,6 @@ def test_strip_fence(raw, expected):
 
 
 # --------------------------------------------------------------------------- #
-# Флаг
-# --------------------------------------------------------------------------- #
-
-def test_structured_disabled_by_default(monkeypatch):
-    monkeypatch.delenv(structured.ENV_FLAG, raising=False)
-    assert structured.structured_enabled() is False
-
-    monkeypatch.setenv(structured.ENV_FLAG, "1")
-    assert structured.structured_enabled() is True
-
-    monkeypatch.setenv(structured.ENV_FLAG, "off")
-    assert structured.structured_enabled() is False
-
-
-# --------------------------------------------------------------------------- #
 # GigaChatClient.structured()
 # --------------------------------------------------------------------------- #
 
@@ -236,22 +221,3 @@ async def test_structured_without_repair_raises_immediately(recorded_calls):
         )
 
     assert len(calls) == 1
-
-
-# --------------------------------------------------------------------------- #
-# Фикс 1: lite не держит схему — откат на текстовые карточки
-# --------------------------------------------------------------------------- #
-
-def test_structured_disabled_for_lite_tier(monkeypatch):
-    monkeypatch.setenv(structured.ENV_FLAG, "1")
-
-    assert structured.structured_enabled_for_tier("lite") is False
-    assert structured.structured_enabled_for_tier("LITE") is False
-    assert structured.structured_enabled_for_tier("pro") is True
-    assert structured.structured_enabled_for_tier("max") is True
-
-
-def test_structured_tier_check_respects_the_flag(monkeypatch):
-    monkeypatch.delenv(structured.ENV_FLAG, raising=False)
-
-    assert structured.structured_enabled_for_tier("pro") is False

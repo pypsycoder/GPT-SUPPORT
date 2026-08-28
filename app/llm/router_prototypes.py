@@ -1,5 +1,5 @@
 """
-Затравочные прототипы для L1 (kNN по эмбеддингам, 00_MANUAL.md часть 8).
+Затравочные прототипы для L1 (kNN по эмбеддингам, см. pipeline/STRUCTURE.md, «Роутер»).
 
 Источник — LLM_test/cases/intent_labels.json, отфильтровано по
 confidence == "high" и needs_review == False, метка — поле

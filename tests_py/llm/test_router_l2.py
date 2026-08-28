@@ -56,13 +56,6 @@ async def test_provider_error_returns_none_not_raise(monkeypatch):
     assert result is None
 
 
-async def test_l2_enabled_reads_env_flag(monkeypatch):
-    monkeypatch.delenv(router_l2.ENV_FLAG, raising=False)
-    assert router_l2.l2_enabled() is False
-    monkeypatch.setenv(router_l2.ENV_FLAG, "1")
-    assert router_l2.l2_enabled() is True
-
-
 def test_schema_rejects_out_of_enum_request_type():
     with pytest.raises(ValueError):
         router_l2.RouterL2Reply(request_type="not_a_real_type")

@@ -65,8 +65,7 @@ def test_units_are_rendered():
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_stage_short_circuits_on_a_reading(monkeypatch):
-    monkeypatch.setenv(router_l0.ENV_FLAG, "1")
+async def test_stage_short_circuits_on_a_reading():
     context = await DataEntryStage().process(_ctx("давление 125 на 85"))
 
     assert context.early_response_source == "data_entry"
@@ -75,8 +74,7 @@ async def test_stage_short_circuits_on_a_reading(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stage_is_silent_when_flag_is_off(monkeypatch):
-    monkeypatch.delenv(router_l0.ENV_FLAG, raising=False)
+async def test_stage_is_silent_when_l0_parsed_nothing():
     context = PipelineContext(request=LLMRequest(patient_id=1, user_input="давление 125 на 85"))
     context.l0 = None
 
@@ -96,8 +94,7 @@ async def test_stage_is_silent_when_flag_is_off(monkeypatch):
         "Давление",                              # нечего записывать
     ],
 )
-async def test_stage_does_not_intercept_non_entries(monkeypatch, text):
-    monkeypatch.setenv(router_l0.ENV_FLAG, "1")
+async def test_stage_does_not_intercept_non_entries(text):
     context = await DataEntryStage().process(_ctx(text))
 
     assert context.early_response is None
@@ -105,9 +102,8 @@ async def test_stage_does_not_intercept_non_entries(monkeypatch, text):
 
 
 @pytest.mark.asyncio
-async def test_critical_bp_still_short_circuits(monkeypatch):
+async def test_critical_bp_still_short_circuits():
     """Высокое давление — запись с шаблоном, а не повод звать модель."""
-    monkeypatch.setenv(router_l0.ENV_FLAG, "1")
     context = await DataEntryStage().process(_ctx("У меня давление 200 на 100"))
 
     assert context.early_response_source == "data_entry"
@@ -148,9 +144,8 @@ def test_prepare_ignores_unknown_type():
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_reading_with_emotion_is_not_answered_by_template(monkeypatch):
+async def test_reading_with_emotion_is_not_answered_by_template():
     """«Давление 200 на 100, мне очень страшно» — сухой шаблон тут неуместен."""
-    monkeypatch.setenv(router_l0.ENV_FLAG, "1")
     context = await DataEntryStage().process(_ctx("давление 200 на 100, мне очень страшно"))
 
     assert context.early_response is None
@@ -158,9 +153,8 @@ async def test_reading_with_emotion_is_not_answered_by_template(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reading_with_emotion_is_still_recorded(monkeypatch):
+async def test_reading_with_emotion_is_still_recorded():
     """Отвечает модель, но цифры терять нельзя."""
-    monkeypatch.setenv(router_l0.ENV_FLAG, "1")
     context = await DataEntryStage().process(_ctx("давление 200 на 100, мне очень страшно"))
 
     assert context.pending_vitals == [{"type": "BP", "systolic": 200, "diastolic": 100}]
@@ -168,9 +162,8 @@ async def test_reading_with_emotion_is_still_recorded(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_question_about_numbers_is_not_recorded(monkeypatch):
+async def test_question_about_numbers_is_not_recorded():
     """Человек спрашивает, а не отчитывается — записывать нечего."""
-    monkeypatch.setenv(router_l0.ENV_FLAG, "1")
     context = await DataEntryStage().process(_ctx("Если давление 129 на 89 это норма?"))
 
     assert context.early_response is None

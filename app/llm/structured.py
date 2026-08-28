@@ -14,40 +14,17 @@ https://developers.sber.ru/docs/ru/gigachat/guides/structured-output
    это обеспечивает через Pydantic (все поля обязательные).
 3. **Не смешивать ``functions`` и ``response_format`` в одном запросе.**
    Поведение непредсказуемо.
-
-Модуль — новая ветка рядом со старой. Включается ``LLM_STRUCTURED_OUTPUT=1``;
-при выключенном флаге ``policy`` собирает и парсит карточки как раньше.
 """
 
 from __future__ import annotations
 
 import copy
-import os
 from typing import Any
 
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-ENV_FLAG = "LLM_STRUCTURED_OUTPUT"
-
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
-
-
-# GigaChat-2 (тир lite) не соблюдает response_format: на схемах от шести полей
-# возвращает текстовую карточку вместо JSON. Валидация падает, срабатывает
-# repair — и вызов стоит вдвое дороже. Замер на пилоте: lite 3 починки из 3
-# карточек, pro — 0 из 5. Трёхпольная схема делегации на lite проходит, но
-# полагаться на это нельзя.
-#
-# Шаг 6-7 нашёл частичное лекарство: явная инструкция про формат ниже
-# (JSON_ONLY_INSTRUCTION) убрала аналогичный сбой на lite для однопольной
-# схемы router_l2 (было падало почти на каждом вызове, стало 0 из ~10 живых
-# прогонов). Этот список не пересмотрен под открытие: 6+-польные карточки
-# старой ветки не переизмерялись с этой инструкцией, а не только без неё —
-# флип этой константы без отдельной живой проверки на всех ALL_SCHEMAS
-# рискован.
-UNSUPPORTED_TIERS = frozenset({"lite"})
 
 # Найдено вживую (шаг 6-7, см. router_l2.py и памятку проекта): без этой
 # явной инструкции модель — особенно на lite или после function_call в
@@ -59,23 +36,6 @@ UNSUPPORTED_TIERS = frozenset({"lite"})
 JSON_ONLY_INSTRUCTION = (
     "Верни ОДИН JSON-объект строго по переданной схеме, без markdown и без пояснений."
 )
-
-
-def structured_enabled() -> bool:
-    """Включён ли структурный вывод (флаг окружения)."""
-    return str(os.getenv(ENV_FLAG, "")).strip().lower() in _TRUTHY
-
-
-def structured_enabled_for_tier(model_tier: str | None) -> bool:
-    """Структурный вывод для конкретного тира.
-
-    Тир, который не держит схему, откатывается на текстовые карточки — вместе
-    с форматом системного промпта, иначе модель получит инструкцию про JSON,
-    а парсить мы будем строки.
-    """
-    if not structured_enabled():
-        return False
-    return str(model_tier or "").strip().lower() not in UNSUPPORTED_TIERS
 
 
 # Живым прогоном (шаг 7, после обмена с функцией в истории) поймано: GigaChat

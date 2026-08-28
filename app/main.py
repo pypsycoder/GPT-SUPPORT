@@ -98,6 +98,12 @@ def create_app() -> FastAPI:
     async def healthcheck() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        from fastapi.responses import FileResponse
+
+        return FileResponse(FRONTEND_DIR / "patient" / "img" / "favicon.ico")
+
     app.include_router(vitals_router, prefix=API_V1_PREFIX)
     app.include_router(users_api_router, prefix=API_V1_PREFIX)
     app.include_router(auth_router, prefix=API_V1_PREFIX)

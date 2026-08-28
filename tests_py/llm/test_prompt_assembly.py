@@ -259,18 +259,3 @@ def test_with_fingerprint_combines_thread_key_and_fingerprint():
 def test_with_fingerprint_is_noop_without_fingerprint():
     assert pa.with_fingerprint("p42-default", "") == "p42-default"
     assert pa.with_fingerprint("", "abc123") == ""
-
-
-# --------------------------------------------------------------------------- #
-# Флаг окружения и интеграция с policy
-# --------------------------------------------------------------------------- #
-
-def test_layers_disabled_by_default(monkeypatch):
-    monkeypatch.delenv(pa.ENV_FLAG, raising=False)
-    assert pa.layers_enabled() is False
-
-    monkeypatch.setenv(pa.ENV_FLAG, "1")
-    assert pa.layers_enabled() is True
-
-    monkeypatch.setenv(pa.ENV_FLAG, "off")
-    assert pa.layers_enabled() is False

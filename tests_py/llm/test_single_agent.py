@@ -12,7 +12,7 @@ from app.llm.agent.schemas import AgentReply
 from app.llm.errors import LLMResponseError
 from app.llm.pipeline.stages import supervisor as supervisor_stage
 from app.llm.pipeline.types import LLMRequest, PipelineContext
-from app.llm.pool import StructuredResult
+from app.llm.pool import FunctionCallResult, StructuredResult
 from app.llm.router import ModelTier, RequestType, RouterResult
 
 
@@ -209,6 +209,12 @@ class _StubClient:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
+
+    async def call_with_functions(self, messages, system_prompt, **kwargs):
+        # Инструменты всегда включены — модель просто решает их не звать.
+        return FunctionCallResult(
+            content="", function_call=None, functions_state_id=None, finish_reason="stop"
+        )
 
 
 @pytest.fixture()

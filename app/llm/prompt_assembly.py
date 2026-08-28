@@ -19,30 +19,17 @@
 Слой 4 всегда последний, слой 3 только дописывается в конец. Слои 0-2
 пересобираются редко и целиком — при пересборке кэш обнуляется осознанно
 (меняется ``prefix_fingerprint()``, а значит и ключ сессии).
-
-ОТКЛЮЧАЕМОСТЬ
--------------
-Модуль — новая ветка рядом со старой. Включается переменной окружения
-``LLM_PROMPT_LAYERS=1``; при выключенном флаге вызывающий код собирает
-``messages`` как раньше (см. ``policy._call_structured_llm``).
-
-Референс: ``new_agent_comcept/ref/prompt_assembly.py``.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal
 
 Role = Literal["system", "user", "assistant", "function"]
-
-ENV_FLAG = "LLM_PROMPT_LAYERS"
-
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 # Подтверждение ассистента после стабильного блока. Константа: любая
 # вариативность здесь ломает префикс.
@@ -50,11 +37,6 @@ STABLE_ACK = "Принято. Учитываю эти данные."
 
 DEFAULT_WINDOW_TURNS = 12
 DEFAULT_WINDOW_CHARS = 6000
-
-
-def layers_enabled() -> bool:
-    """Включена ли послойная сборка промпта (флаг окружения)."""
-    return str(os.getenv(ENV_FLAG, "")).strip().lower() in _TRUTHY
 
 
 # --------------------------------------------------------------------------- #

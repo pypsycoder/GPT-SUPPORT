@@ -68,7 +68,6 @@ def render_report(*, run_meta: dict[str, Any], runs: list[IterationRun]) -> str:
     lines.append(f"# Отчёт patient-sim — {run_meta['date']}")
     lines.append("")
     lines.append(f"- Запущен: {run_meta['started_at']} · длительность {run_meta['duration_s']:.0f}с")
-    lines.append(f"- Флаги LLM-роутера: {run_meta['flags_summary']}")
     lines.append(f"- Режим пациента-агента: {run_meta['patient_agent_mode']}")
     lines.append(f"- Судья (LLM-оценка тона/советов): {run_meta['judge_mode']}")
     lines.append(f"- Сценариев: {run_meta['scenario_count']} · перефразировок всего: {len(runs)} · ходов всего: {run_meta['turn_count']}")
@@ -155,7 +154,7 @@ def render_report(*, run_meta: dict[str, Any], runs: list[IterationRun]) -> str:
         "роутинг, data_entry и текст ответа одноагентной ветки. Ни в `chat_messages`, ни в "
         "`chat_supervisor_states`, ни в `patient_facts`, ни в витальные таблицы ничего не пишется. "
         "Все ходы отправлены от лица выделенного тестового пациента (id из `PATIENT_SIM_PATIENT_ID`, "
-        "по умолчанию 6 — тот же, которым пользуется ручное тестирование по MANUAL_TEST_PLAN.md) — "
+        "по умолчанию 6 — тот же, которым пользуется ручное тестирование LLM-пайплайна) — "
         "это нужно только для FK сырой телеметрии GigaChat-вызовов (`llm.llm_call_log`); персоны и "
         "сценарии остаются различимы там по `thread_id`/`session_key`._"
     )

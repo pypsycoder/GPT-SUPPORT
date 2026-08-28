@@ -13,7 +13,6 @@
 | Слой | Технология |
 |---|---|
 | Backend | FastAPI (ASGI, uvicorn) |
-| Telegram-бот | aiogram 3.4 |
 | БД | PostgreSQL (asyncpg) |
 | ORM | SQLAlchemy 2.0 async |
 | Миграции | Alembic |

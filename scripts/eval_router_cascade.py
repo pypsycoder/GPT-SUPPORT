@@ -10,9 +10,8 @@
      живых учётных данных GigaChat (эмбеддинги + Lite), без них L1/L2
      возвращают "не уверен" и всё падает в откат на старый роутер.
 
-Запуск (нужны включённые флаги и реальный доступ к GigaChat):
-    LLM_ROUTER_L0=1 LLM_ROUTER_L1=1 LLM_ROUTER_L2=1 \
-        python scripts/eval_router_cascade.py [--labels путь.json]
+Запуск (нужен реальный доступ к GigaChat — эмбеддинги для L1 и Lite для L2):
+    python scripts/eval_router_cascade.py [--labels путь.json]
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ from app.core.config import load_environment
 
 load_environment()
 
-from app.llm import router_l1, router_l2  # noqa: E402
 from app.llm.router import classify_request  # noqa: E402
 from app.llm.router_cascade import classify_request_async  # noqa: E402
 
@@ -66,7 +64,8 @@ DEFAULT_LABELS = ROOT_DIR / "LLM_test" / "cases" / "intent_labels.json"
 # "давление 200 на 100" размечено как router_request_type=safety, хотя
 # intent (с обоснованием-rationale) для той же строки — data_entry.
 # Поэтому truth строим сами из intent, у которого есть rationale и который
-# размечался как раз для критики роутера (см. 00_MANUAL.md, часть 1.2).
+# размечался как раз для критики роутера (см. app/llm/pipeline/STRUCTURE.md,
+# «Роутер» — почему старый keyword-роутер требовал замены).
 _INTENT_TO_REQUEST_TYPE = {
     "smalltalk": "simple",
     "data_entry": "clinical",
@@ -151,13 +150,6 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = json.loads(args.labels.read_text(encoding="utf-8"))["labels"]
-
-    if not router_l1.l1_enabled() and not router_l2.l2_enabled():
-        print(
-            "ВНИМАНИЕ: LLM_ROUTER_L1 и LLM_ROUTER_L2 выключены — каскад "
-            "полностью откатится на старый роутер, числа будут совпадать "
-            "с ним построчно. Запустите с этими флагами для реального замера.\n"
-        )
 
     stats = asyncio.run(evaluate(rows))
 

@@ -312,6 +312,16 @@
   30% { transform: translateY(-5px); }
 }
 
+/* ---- AI Disclaimer ---- */
+.chat-ai-disclaimer {
+  flex-shrink: 0;
+  padding: 4px 14px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #9ca3af;
+  text-align: center;
+}
+
 /* ---- Quick Actions ---- */
 .chat-quick-actions {
   display: flex;

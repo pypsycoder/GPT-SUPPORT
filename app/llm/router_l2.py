@@ -1,9 +1,9 @@
 """
-L2 — последний уровень каскада: Lite + structured output (00_MANUAL.md, часть 8).
+L2 — последний уровень каскада: Lite + structured output (см. pipeline/STRUCTURE.md, «Роутер»).
 
 Системный промпт константный → при общем ``session_id="router-shared"`` он
 уходит в кэш один раз для всех пациентов (никаких данных пациента в
-константе нет — только литерал строки, ПДн не касается, часть 13 манула).
+константе нет — только литерал строки, ПДн не касается, см. pipeline/STRUCTURE.md, «Ограничения и риски»).
 
 Схема — одно обязательное поле, по той же причине, что и ``AgentReply``
 (``app/llm/agent/schemas.py`` уже задокументировал на своём замере: лишнее
@@ -15,7 +15,6 @@ L2 — последний уровень каскада: Lite + structured outpu
 from __future__ import annotations
 
 import logging
-import os
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -24,9 +23,6 @@ from app.llm.errors import LLMError
 from app.llm.structured import JSON_ONLY_INSTRUCTION
 
 logger = logging.getLogger("gpt-support-llm.router_l2")
-
-ENV_FLAG = "LLM_ROUTER_L2"
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 SHARED_SESSION_ID = "router-shared"
 
@@ -58,10 +54,6 @@ _SYSTEM_PROMPT = (
     # добавка для однопольной схемы, не проверялась отдельно от инструкции.
     f'{JSON_ONLY_INSTRUCTION} Схема: {{"request_type": "..."}}.'
 )
-
-
-def l2_enabled() -> bool:
-    return str(os.getenv(ENV_FLAG, "")).strip().lower() in _TRUTHY
 
 
 class RouterL2Reply(BaseModel):

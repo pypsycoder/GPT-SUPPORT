@@ -4,7 +4,7 @@ Revision ID: 20260820_01
 Revises: 20260819_01
 Create Date: 2026-08-20
 
-Шаг 5 миграции на эффективную работу с GigaChat (new_agent_comcept/00_MANUAL.md).
+Персистентная память LLM-слоя (см. app/llm/pipeline/STRUCTURE.md, «Память»).
 Working-память (chat_messages) и состояние хода (chat_supervisor_states) уже
 персистентны — не хватало только семантической (устойчивые факты) и
 эпизодической (свёртка вытесненных из окна ходов) памяти. См.

@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any
 
-from app.llm import agent, memory_store, prompt_assembly, router_l0, safety_responses, tools
+from app.llm import agent, memory_store, prompt_assembly, safety_responses
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.pool import session_key
 from app.llm.pipeline.types import PipelineContext, PipelineStage
@@ -234,7 +234,6 @@ async def _run_single_agent(
     education_rag_context: list[str],
     education_grounding_diagnostics: dict[str, Any],
     started: float,
-    use_agent_tools: bool = False,
 ) -> PipelineContext:
     """Один структурный вызов вместо intake → delegation → expert.
 
@@ -277,7 +276,7 @@ async def _run_single_agent(
         technique_state=technique_state,
         technique_context=str(current_state.slots.get("intake_context") or ""),
         l0_note=_l0_note(context.l0),
-        tools_available=use_agent_tools,
+        tools_available=True,
     )
     run = await agent.Agent(
         model_tier=model_tier, strict_model_tier=strict_model_tier
@@ -285,8 +284,8 @@ async def _run_single_agent(
         layers,
         patient_id=request.patient_id,
         thread_key=session_key(request.patient_id, request.thread_id),
-        allowed_tools=["search_education"] if use_agent_tools else None,
-        db=request.db if use_agent_tools else None,
+        allowed_tools=["search_education"],
+        db=request.db,
     )
 
     if not run.ok or run.reply is None:
@@ -310,7 +309,7 @@ async def _run_single_agent(
             "execution_kind": "агент_ошибка",
             "education_grounding": education_grounding_diagnostics,
             "prompt_layers": {
-                "enabled": prompt_assembly.layers_enabled(),
+                "enabled": True,
                 "profile_chars": len(profile_block),
                 "window_turns": len(history_turns),
                 "prefix_fingerprints": [run.prefix_fp] if run.prefix_fp else [],
@@ -388,13 +387,13 @@ async def _run_single_agent(
         "execution_kind": "агент",
         "education_grounding": education_grounding_diagnostics,
         "prompt_layers": {
-            "enabled": prompt_assembly.layers_enabled(),
+            "enabled": True,
             "profile_chars": len(profile_block),
             "window_turns": len(history_turns),
             "prefix_fingerprints": [run.prefix_fp] if run.prefix_fp else [],
         },
         "l0": {
-            "enabled": router_l0.l0_enabled(),
+            "enabled": True,
             "intent": getattr(context.l0, "intent", None),
             "rule": getattr(context.l0, "rule", None),
             "safety_level": getattr(context.l0, "safety_level", "none"),
@@ -414,7 +413,7 @@ async def _run_single_agent(
             "llm_calls": run.llm_calls,
             "repair_attempts": run.repair_attempts,
             "attempts_total": run.attempts,
-            "tools_enabled": use_agent_tools,
+            "tools_enabled": True,
             "tool_hops": run.hops,
         },
         "state_delta": _changed_state(before_state, after_state),
@@ -474,16 +473,14 @@ class SupervisorStage(PipelineStage):
         current_state = CurrentState.from_dict(context.supervisor_state)
         message_type = _derive_message_type(context.request.user_input, current_state)
 
-        # Ветка с включёнными инструментами не грузит RAG заранее —
-        # search_education агент вызывает сам, только если нужно.
-        use_agent_tools = tools.agent_tools_enabled()
-
+        # RAG заранее не грузим — search_education агент вызывает сам, только
+        # если урок действительно нужен.
         (
             education_rag_context,
             education_rag_grounding_items,
             education_grounding_diagnostics,
             patient_context,
-        ) = await _load_education_grounding(context, skip_rag=use_agent_tools)
+        ) = await _load_education_grounding(context, skip_rag=True)
 
         context.education_rag_context = education_rag_context
         context.education_rag_grounding_items = education_rag_grounding_items
@@ -515,5 +512,4 @@ class SupervisorStage(PipelineStage):
             education_rag_context=education_rag_context,
             education_grounding_diagnostics=education_grounding_diagnostics,
             started=started,
-            use_agent_tools=use_agent_tools,
         )

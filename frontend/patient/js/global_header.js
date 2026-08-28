@@ -1,5 +1,24 @@
 (function () {
+    function ensureFavicons() {
+        const icons = [
+            { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/frontend/patient/img/favicon-32.png' },
+            { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/frontend/patient/img/favicon-16.png' },
+            { rel: 'apple-touch-icon', href: '/frontend/patient/img/apple-touch-icon.png' },
+        ];
+        icons.forEach(spec => {
+            const sel = spec.sizes
+                ? `link[rel="${spec.rel}"][sizes="${spec.sizes}"]`
+                : `link[rel="${spec.rel}"]`;
+            if (document.head.querySelector(sel)) return;
+            const link = document.createElement('link');
+            Object.entries(spec).forEach(([k, v]) => link.setAttribute(k, v));
+            document.head.appendChild(link);
+        });
+    }
+
     function initGlobalHeader() {
+        ensureFavicons();
+
         const container = document.getElementById('global-header');
         if (!container) return;
 

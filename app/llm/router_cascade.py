@@ -1,5 +1,5 @@
 """
-Каскадный роутер (00_MANUAL.md, часть 8): L0 → L1 → L2 → старый keyword-роутер.
+Каскадный роутер (см. pipeline/STRUCTURE.md, «Роутер»): L0 → L1 → L2 → старый keyword-роутер.
 
 Каждый следующий уровень дороже и вызывается только если предыдущий не дал
 уверенного ответа. Заменяет то, что раньше решали
@@ -75,10 +75,10 @@ def _apply_floor(
 
 
 async def classify_request_async(text: str, source: str) -> RouterResult:
-    """Асинхронная замена ``classify_request`` — с каскадом L0/L1/L2.
+    """Асинхронная замена ``classify_request`` — с каскадом L0 → L1 → L2.
 
-    Единственная точка входа для нового роутинга. При отключённых флагах или
-    любой ошибке ведёт себя ровно как старый ``classify_request``.
+    Единственная точка входа для нового роутинга. При любой ошибке на любом
+    уровне ведёт себя ровно как старый ``classify_request``.
     """
     if source == "button":
         return classify_request(text, source)
@@ -89,34 +89,30 @@ async def classify_request_async(text: str, source: str) -> RouterResult:
         floor_tier: ModelTier | None = None
         floor_priority: int | None = None
 
-        if router_l0.l0_enabled():
-            decision = router_l0.classify(text)
-            if decision.safety_level == "urgent":
-                return RouterResult(RequestType.SAFETY, ModelTier.MAX, domain, 3)
-            if decision.safety_level == "concern":
-                floor_tier = ModelTier.PRO
-                floor_priority = 2
-            if decision.intent == "data_entry":
-                # Регрессия, пойманная при написании MANUAL_TEST_PLAN.md: без
-                # этой ветки L0 только поднимал планку (concern), но никогда
-                # не резолвил тип сам — "давление 200 на 100" при ОДНОМ
-                # включённом LLM_ROUTER_L0 (без L1/L2) проваливалось в старый
-                # classify_request и оставалось SAFETY. L0 явно резолвит
-                # data_entry (см. router_l0.classify) — CLINICAL прямо здесь,
-                # не дожидаясь L1/L2/отката.
-                result = RouterResult(RequestType.CLINICAL, ModelTier.PRO, domain, 2)
-                return _apply_floor(result, floor_tier, floor_priority)
+        decision = router_l0.classify(text)
+        if decision.safety_level == "urgent":
+            return RouterResult(RequestType.SAFETY, ModelTier.MAX, domain, 3)
+        if decision.safety_level == "concern":
+            floor_tier = ModelTier.PRO
+            floor_priority = 2
+        if decision.intent == "data_entry":
+            # Без этой ветки L0 только поднимал планку (concern), но никогда
+            # не резолвил тип сам — "давление 200 на 100" проваливалось в
+            # старый classify_request и оставалось SAFETY. L0 явно резолвит
+            # data_entry (см. router_l0.classify) — CLINICAL прямо здесь,
+            # не дожидаясь L1/L2/отката.
+            result = RouterResult(RequestType.CLINICAL, ModelTier.PRO, domain, 2)
+            return _apply_floor(result, floor_tier, floor_priority)
 
         request_type_str: str | None = None
         resolved_by = "fallback"
 
-        if router_l1.l1_enabled():
-            l1_decision = await router_l1.classify(text)
-            if l1_decision.resolved:
-                request_type_str = l1_decision.request_type
-                resolved_by = "l1"
+        l1_decision = await router_l1.classify(text)
+        if l1_decision.resolved:
+            request_type_str = l1_decision.request_type
+            resolved_by = "l1"
 
-        if request_type_str is None and router_l2.l2_enabled():
+        if request_type_str is None:
             l2_type = await router_l2.classify(text)
             if l2_type is not None:
                 request_type_str = l2_type
