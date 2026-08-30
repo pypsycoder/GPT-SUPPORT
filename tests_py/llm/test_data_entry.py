@@ -57,7 +57,6 @@ def test_several_vitals_in_one_message():
 def test_units_are_rendered():
     assert "1200 мл" in build_reply([{"type": "WATER", "value": 1200}], None)
     assert "70.5 кг" in build_reply([{"type": "WEIGHT", "value": 70.5}], None)
-    assert "3.0 ч" in build_reply([{"type": "SLEEP", "value": 3.0}], None)
 
 
 # --------------------------------------------------------------------------- #
@@ -121,6 +120,27 @@ def test_sleep_is_not_written_as_a_vital():
 
     assert "SLEEP" not in vitals_writer._WRITERS
     assert vitals_writer._prepare(1, {"type": "SLEEP", "value": 3.0}) is None
+
+
+@pytest.mark.asyncio
+async def test_sleep_report_gets_a_tracker_button_not_a_false_confirmation():
+    """«Спал 3 часа» → короткая реплика + кнопка в трекер сна, без «Записал»."""
+    context = await DataEntryStage().process(_ctx("я спал 3 часа сегодня"))
+
+    assert context.early_response_source == "sleep_entry"
+    assert "Записал" not in context.early_response
+    assert context.pending_vitals == []
+    assert context.early_response_buttons == [
+        {"label": "Внести данные о сне", "action": "open_sleep"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sleep_with_distress_is_left_to_the_model():
+    context = await DataEntryStage().process(_ctx("поспал 4 часа, сил совсем нет"))
+
+    assert context.early_response is None
+    assert context.early_response_buttons is None
 
 
 def test_prepare_builds_schemas_for_supported_types():

@@ -37,8 +37,16 @@ _LABELS = {
     "PULSE": "пульс",
     "WEIGHT": "вес",
     "WATER": "вода",
-    "SLEEP": "сон",
 }
+
+# Ответ на отчёт о длительности сна («спал 4 часа»). Записать как есть нельзя —
+# схема сна требует время отхода ко сну и подъёма, — поэтому не «Записал», а
+# короткая реплика с кнопкой в трекер сна.
+SLEEP_ENTRY_REPLY = (
+    "Про сон лучше отметить в трекере — там указываешь, во сколько лёг и встал "
+    "и как спалось. Так запись будет точной."
+)
+SLEEP_ENTRY_BUTTONS = [{"label": "Внести данные о сне", "action": "open_sleep"}]
 
 
 def _render_value(item: dict) -> str:
@@ -48,8 +56,6 @@ def _render_value(item: dict) -> str:
     value = item.get("value")
     if kind == "WATER":
         return f"{int(value)} мл"
-    if kind == "SLEEP":
-        return f"{value} ч"
     if kind == "WEIGHT":
         return f"{value} кг"
     return str(value)
@@ -88,6 +94,18 @@ class DataEntryStage(PipelineStage):
     async def process(self, context: PipelineContext) -> PipelineContext:
         started = time.monotonic()
         decision = context.l0
+
+        if decision is not None and decision.intent == "sleep_entry":
+            context.early_response = SLEEP_ENTRY_REPLY
+            context.early_response_source = "sleep_entry"
+            context.early_response_buttons = [dict(b) for b in SLEEP_ENTRY_BUTTONS]
+            context.diagnostics["data_entry"] = {
+                "triggered": True,
+                "kind": "sleep_entry",
+                "latency_ms": int((time.monotonic() - started) * 1000),
+            }
+            logger.info("[data_entry] patient=%d — сон: кнопка в трекер, без записи", context.request.patient_id)
+            return context
 
         if decision is None or not decision.vitals:
             context.diagnostics["data_entry"] = {"triggered": False, "reason": "nothing_parsed"}

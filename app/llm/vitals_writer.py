@@ -49,8 +49,9 @@ def _prepare(patient_id: int, item: dict[str, Any]):
         return VitalsService.prepare_weight_data(user_id=patient_id, weight=float(item["value"]))
     if kind == "WATER":
         return VitalsService.prepare_water_data(user_id=patient_id, volume_ml=int(item["value"]))
-    # SLEEP живёт в отдельной схеме sleep_tracker с обязательными полями отхода
-    # ко сну и пробуждения — из одной цифры «спал 3 часа» её не собрать.
+    # Всё остальное L0 писать не умеет. Сон, например, живёт в отдельной схеме
+    # sleep_tracker с обязательным временем отхода ко сну и подъёма — из одной
+    # цифры «спал 3 часа» её не собрать, поэтому L0 сон и не парсит.
     return None
 
 

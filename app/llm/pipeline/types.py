@@ -48,6 +48,9 @@ class LLMResponse:
     supervisor_state_delta: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     education_cta: dict[str, Any] | None = None
+    # Inline-кнопки под ответом (например, «Внести данные о сне» → трекер сна).
+    # Заполняется ранним ответом стадии, не связано с pending_vitals.
+    buttons: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -68,6 +71,9 @@ class PipelineContext:
     diagnostics: dict[str, Any] = field(default_factory=dict)
     early_response: str | None = None
     early_response_source: str | None = None
+    # Кнопки, которые едут вместе с ранним ответом стадии (не undo-кнопки
+    # показателей — те собирает роутер из pending_vitals).
+    early_response_buttons: list[dict[str, Any]] | None = None
     # True, если response_draft — техническая заглушка сбоя (например,
     # старая ветка не смогла разобрать intake-карточку), а не содержательный
     # ответ. Такой текст не должен получать постфикс с телефоном доверия —

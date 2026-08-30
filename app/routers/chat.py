@@ -219,6 +219,10 @@ async def send_message(
                 {"label": "Отменить", "action": "undo_vitals", "payload": {"entries": created}}
             ]
 
+    # undo-кнопки показателей и кнопки раннего ответа (например, «Внести данные
+    # о сне») не пересекаются — sleep_entry никогда не несёт pending_vitals.
+    reply_buttons = undo_buttons or llm_response.buttons
+
     db.add(
         ChatMessage(
             patient_id=body.patient_id,
@@ -229,7 +233,7 @@ async def send_message(
             model_used=llm_response.model,
             domain=llm_response.domain,
             request_type=router_result.request_type.value,
-            buttons_json=undo_buttons,
+            buttons_json=reply_buttons,
         )
     )
     await _write_supervisor_state(
@@ -249,7 +253,7 @@ async def send_message(
         response_time_ms=llm_response.response_time_ms,
         domain=llm_response.domain,
         model=llm_response.model,
-        buttons=undo_buttons,
+        buttons=reply_buttons,
         education_cta=llm_response.education_cta,
     )
 

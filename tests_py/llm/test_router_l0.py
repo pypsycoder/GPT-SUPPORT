@@ -105,11 +105,43 @@ def test_bp_formats(text, expected):
     assert router_l0.parse_vitals(text)[0] == expected
 
 
-def test_pulse_weight_water_and_sleep():
+def test_pulse_weight_and_water():
     assert router_l0.parse_vitals("пульс 71")[0] == {"type": "PULSE", "value": 71}
     assert router_l0.parse_vitals("вес 70,5")[0] == {"type": "WEIGHT", "value": 70.5}
     assert router_l0.parse_vitals("выпил 1200 мл")[0] == {"type": "WATER", "value": 1200}
-    assert router_l0.parse_vitals("я спал 3 часа сегодня")[0] == {"type": "SLEEP", "value": 3.0}
+
+
+def test_sleep_is_not_parsed_as_a_vital():
+    """«Спал 3 часа» нельзя записать как показатель (нужно время отхода/подъёма)."""
+    assert router_l0.parse_vitals("я спал 3 часа сегодня") == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "я спал 3 часа сегодня",
+        "поспал часов 5",
+        "сон был 6 ч",
+        "спал 4.5 часа",
+    ],
+)
+def test_sleep_duration_report_gets_sleep_entry_intent(text):
+    decision = router_l0.classify(text)
+    assert decision.intent == "sleep_entry"
+    assert decision.rule == "sleep_duration_reported"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "сколько часов сна мне нужно?",           # вопрос
+        "спал 3 часа и чувствую себя разбитым",   # эмоция рядом
+        "поспал 4 часа, сил совсем нет",          # concern
+        "хорошо выспался, всё отлично",           # без длительности
+    ],
+)
+def test_sleep_mention_without_a_plain_report_is_left_to_the_model(text):
+    assert router_l0.classify(text).intent != "sleep_entry"
 
 
 @pytest.mark.parametrize(

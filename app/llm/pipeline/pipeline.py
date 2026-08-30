@@ -168,6 +168,7 @@ class LLMPipeline:
             account_id=account_id,
             requested_model_tier=requested_tier,
             actual_model_tier=actual_tier,
+            buttons=list(context.early_response_buttons) if context.early_response_buttons else None,
             pending_vitals=list(context.pending_vitals) or None,
             pending_st_memory=pending_st_memory,
             pending_lt_memory=pending_lt_memory,
