@@ -15,9 +15,9 @@ Motivator — проактивные сообщения при простое а
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm import ChatMessage
@@ -130,14 +130,16 @@ def _build_motivator_message(domain: str, days: int) -> dict:
 
 
 async def _was_motivator_sent_today(patient_id: int, db: AsyncSession) -> bool:
-    today_start = datetime.combine(date.today(), datetime.min.time())
+    # «Сегодня» = с полуночи по часам БД (func.date(func.now())):
+    # chat_messages.created_at пишется server_default NOW(), сравнивать надо в
+    # том же поясе, а не по наивному времени Python-процесса.
     result = await db.execute(
         select(ChatMessage)
         .where(
             ChatMessage.patient_id == patient_id,
             ChatMessage.role == "assistant",
             ChatMessage.request_type == "motivator",
-            ChatMessage.created_at >= today_start,
+            ChatMessage.created_at >= func.date(func.now()),
         )
         .limit(1)
     )

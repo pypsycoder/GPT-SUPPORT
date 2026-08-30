@@ -220,8 +220,11 @@
     перезагрузке истории (`ChatMessageOut`, 2026-08-30)
   - [x] STRUCTURE.md → 5 стадий (2026-08-29) + daily_context (2026-08-30)
   - [x] `prompts/proactive_anomaly.txt` создан 2026-08-30
-  - [~] часовые пояса: `get_daily_context_for_llm` + координатор сведены к МСК
-    (2026-08-30); `proactive.py` `utcnow()` в дедупе 6ч — осталось
+  - [x] часовые пояса: `get_daily_context_for_llm` + координатор сведены к МСК;
+    `motivator._was_motivator_sent_today` → `func.date(func.now())` (часы БД, в
+    одном поясе с `created_at`, а не наивное время Python) (2026-08-30).
+    `proactive.py` `utcnow()` в дедупе 6ч оставлен — код мёртвый после cutover,
+    а `func.now()`-арифметика ломает sqlite-тесты
   - [ ] миграция `llm.llm_request_logs.account_id` VARCHAR(20)→(64) — по явному
     запросу (сейчас срез `[:20]` в `pipeline.py` уже защищает от 500)
 
