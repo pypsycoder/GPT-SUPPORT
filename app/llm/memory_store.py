@@ -330,6 +330,12 @@ async def maybe_compact(
                     _DigestUpdate,
                     step="summarizer",
                     patient_id=patient_id,
+                    # Общий session_id: системный промпт суммаризатора константный,
+                    # а пользовательская часть (свёртка + вытесненные ходы) каждый
+                    # раз новая — кэшируется только префикс. Без X-Session-ID сервер
+                    # клал этот вызов мимо кэша (`session_key IS NULL`, ~430 тыс.
+                    # prompt-токенов за 14 дней). Тот же приём, что и в judge.
+                    session_id="summarizer-shared",
                 )
             except LLMError as exc:
                 logger.warning(

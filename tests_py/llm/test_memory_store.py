@@ -335,6 +335,10 @@ def test_maybe_compact_summarizes_evicted_turns_and_advances_cursor(monkeypatch)
             system_prompt = fake_client.structured.call_args.args[1]
             assert "JSON" in system_prompt
 
+            # X-Session-ID по константному префиксу — иначе серверный кэш мимо
+            # (SPRINT1_INVESTIGATIONS.md §2, приём из judge).
+            assert fake_client.structured.call_args.kwargs["session_id"] == "summarizer-shared"
+
     asyncio.run(runner())
 
 

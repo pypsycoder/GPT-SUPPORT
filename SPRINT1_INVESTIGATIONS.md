@@ -105,10 +105,11 @@ created_at)`. rn=1 — холодный, rn≥2 — тёплый.
 
 ### Что чинить (низкий приоритет)
 
-1. **`summarizer` / `summarizer_repair` не передают `X-Session-ID`**
-   (`session_key IS NULL`) → серверный кэш мимо. 50 + 32 вызова, ~430 тыс.
-   prompt-токенов за 14 дней. Это фоновый разовый вызов, но X-Session-ID по
-   треду добавить дёшево.
+1. ~~**`summarizer` / `summarizer_repair` не передают `X-Session-ID`**~~
+   Исправлено 2026-08-30: `memory_store.maybe_compact` зовёт `client.structured`
+   с `session_id="summarizer-shared"` (системный промпт суммаризатора
+   константный — общий кэш, как у judge). Repair-вызов наследует тот же
+   `session_id` внутри `structured()`.
 2. **`agent_tools` на Max — 31.6 %** против 77.5 % на Pro. Выборка старая
    (август, 94 вызова). Проверить после следующего прогона `patient-sim`, если
    Max ещё используется этим шагом.
