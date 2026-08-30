@@ -81,6 +81,10 @@ class ChatMessageOut(BaseModel):
     model_used: Optional[str]
     domain: Optional[str]
     request_type: Optional[str]
+    # Inline-кнопки сообщения (утренний дайджест, мотиватор, «Внести данные о
+    # сне», «Отменить» после записи показателей). Фронт (`chat.js`) читает их
+    # при перезагрузке истории — без этого поля кнопки не восстанавливаются.
+    buttons_json: Optional[list] = None
     created_at: str
 
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
@@ -295,6 +299,7 @@ async def get_history(
             model_used=m.model_used,
             domain=m.domain,
             request_type=m.request_type,
+            buttons_json=m.buttons_json,
             created_at=m.created_at.isoformat(),
         )
         for m in messages
