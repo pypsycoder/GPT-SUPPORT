@@ -192,6 +192,21 @@ def test_rag_absence_is_stated_explicitly():
     assert "Обучающих фрагментов по теме не найдено." in content
 
 
+def test_daily_context_lands_in_volatile_layer_not_the_prefix():
+    base = agent.build_layers(user_message="привет")
+    withctx = agent.build_layers(
+        user_message="привет",
+        daily_context="Контекст дня: сегодня день диализа; утренние лекарства не отмечены.",
+    )
+
+    assert "сегодня день диализа" in withctx.volatile[-1].content
+    assert "сегодня день диализа" not in base.volatile[-1].content
+    # день меняется — префикс (system+profile+summary) обязан остаться прежним
+    assert base.prefix_fingerprint() == withctx.prefix_fingerprint()
+    # реплика пациента всё равно последняя
+    assert withctx.volatile[-1].content.rstrip().endswith("привет")
+
+
 # --------------------------------------------------------------------------- #
 # Agent.run()
 # --------------------------------------------------------------------------- #

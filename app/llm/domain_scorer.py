@@ -15,7 +15,7 @@ Domain Scorer — расчёт числовых показателей сост�
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select, func, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -481,8 +481,6 @@ async def get_last_activity_dates(
     None — если в домене никогда не было активности.
     Используется мотиватором для детекции простоя.
     """
-    from datetime import date  # noqa: F811
-
     queries: dict[str, str] = {
         "vitals": (
             "SELECT MAX(DATE(measured_at)) FROM vitals.bp_measurements"
@@ -519,4 +517,32 @@ async def get_last_activity_dates(
             results[domain] = None
 
     return results
+
+
+async def has_tracked_data(patient_id: int, db: AsyncSession) -> bool:
+    """Есть ли у пациента хоть какие-то отслеживаемые данные.
+
+    Холодный старт: новый пациент с пустой БД не должен получать проактивные
+    сообщения «из ничего» — ни доменные нуджи («давно не отмечали сон»), ни
+    разбор недели («сон отмечался нерегулярно»), потому что он ещё ничего не
+    начинал. Кризисные/аномальные ветки от этого гейта не зависят — им и так
+    нужны свежие измерения.
+    """
+    row = await db.execute(
+        text(
+            """
+            SELECT
+                EXISTS(SELECT 1 FROM vitals.bp_measurements WHERE user_id = :pid)
+             OR EXISTS(SELECT 1 FROM medications.medication_intakes WHERE patient_id = :pid)
+             OR EXISTS(SELECT 1 FROM medications.medication_prescriptions
+                       WHERE patient_id = :pid AND status = 'active')
+             OR EXISTS(SELECT 1 FROM sleep.sleep_records WHERE patient_id = :pid)
+             OR EXISTS(SELECT 1 FROM practices.practice_completions WHERE patient_id = :pid)
+             OR EXISTS(SELECT 1 FROM education.lesson_progress
+                       WHERE user_id = :pid AND is_completed = TRUE)
+            """
+        ),
+        {"pid": patient_id},
+    )
+    return bool(row.scalar())
 

@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from fastapi import APIRouter, Cookie, Depends, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -42,6 +42,7 @@ from app.auth.session_policy import (
     SESSION_TTL,
     session_cookie_secure,
 )
+from app.llm.on_login import run_login_proactive
 from app.users.models import User
 from app.researchers.models import Researcher
 
@@ -117,6 +118,7 @@ async def patient_login(
     body: PatientLoginRequest,
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_async_session),
 ):
     """Authenticate a patient by patient_number + PIN."""
@@ -154,6 +156,11 @@ async def patient_login(
 
     _set_session_cookie(response, key="patient_session", value=token)
     _set_csrf_cookie(response, value=csrf_token)
+
+    # Проактив (утренний дайджест + мотиватор) — фоном после входа, чтобы ждал
+    # пациента в чате. Идемпотентно (дедуп по дню внутри каждой доставки).
+    if not needs_consent and not needs_onboarding:
+        background_tasks.add_task(run_login_proactive, user.id)
 
     return PatientLoginResponse(needs_consent=needs_consent, needs_onboarding=needs_onboarding)
 

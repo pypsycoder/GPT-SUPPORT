@@ -252,10 +252,23 @@ async def _run_single_agent(
         if isinstance(item, dict) and item.get("role") and item.get("content")
     ]
     digest = ""
+    daily_context = ""
     if request.db is not None:
         digest = await memory_store.get_digest(
             request.db, patient_id=request.patient_id, thread_id=request.thread_id
         )
+        # Контекст дня из утреннего дайджеста — чтобы агент знал про день
+        # диализа / невыполненные лекарства / фокус недели, даже когда само
+        # проактивное сообщение уже вытеснено из окна диалога. Волатильный слой.
+        try:
+            from app.llm.morning_service import get_daily_context_for_llm
+
+            daily_context = await get_daily_context_for_llm(request.patient_id, request.db)
+        except Exception as exc:  # noqa: BLE001 — необязательный контекст
+            logger.warning(
+                "[supervisor] daily_context недоступен patient=%d: %s",
+                request.patient_id, exc,
+            )
 
     technique_state = agent.TechniqueState(
         current_id=current_state.current_technique_id,
@@ -276,6 +289,7 @@ async def _run_single_agent(
         technique_state=technique_state,
         technique_context=str(current_state.slots.get("intake_context") or ""),
         l0_note=_l0_note(context.l0),
+        daily_context=daily_context,
         tools_available=True,
     )
     run = await agent.Agent(
@@ -312,6 +326,7 @@ async def _run_single_agent(
                 "enabled": True,
                 "profile_chars": len(profile_block),
                 "window_turns": len(history_turns),
+                "daily_context_used": bool(daily_context),
                 "prefix_fingerprints": [run.prefix_fp] if run.prefix_fp else [],
             },
             "error": run.error,
@@ -356,6 +371,20 @@ async def _run_single_agent(
     # видит сообщение целиком и замечает то, что регулярки пропускают.
     safety_net = _apply_agent_safety_net(context, reply_card)
     patient_reply = safety_net["reply"]
+
+    # CTA «Открыть урок» — только когда агент сам определил education-интент.
+    # Отдельный лёгкий проход по RAG (агент грузит материалы инструментом, а не
+    # заранее, поэтому structured grounding до этого момента пуст).
+    education_cta = None
+    if reply_card.intent == "education" and request.db is not None:
+        try:
+            from app.llm import context_builder
+
+            education_cta = await context_builder.build_education_cta(
+                request.patient_id, request.user_input, request.db
+            )
+        except Exception as exc:  # noqa: BLE001 — необязательный CTA
+            logger.warning("[supervisor] education_cta failed patient=%d: %s", request.patient_id, exc)
 
     updated_state = CurrentState.from_dict(current_state.to_dict())
     updated_state.last_bot_reply = patient_reply or None
@@ -409,6 +438,7 @@ async def _run_single_agent(
             "safety_kind": reply_card.safety_kind,
             "safety_reason": reply_card.safety_reason,
             "next_action": reply_card.next_action,
+            "education_cta": education_cta,
             "memory_candidates": list(reply_card.memory_candidates),
             "llm_calls": run.llm_calls,
             "repair_attempts": run.repair_attempts,
@@ -437,7 +467,7 @@ async def _run_single_agent(
         used_pending_answer=False,
         needs_clarification=False,
         diagnostics=diagnostics,
-        education_cta=None,
+        education_cta=education_cta,
     )
     context.supervisor_state = after_state
     context.response_draft = patient_reply

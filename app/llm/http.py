@@ -21,11 +21,35 @@ _CLIENT_TIMEOUTS: dict[str, float] = {
 
 _CLIENT_RETRIES: dict[str, int] = {
     "oauth": 1,
-    "chat": 1,
+    "chat": 2,  # 429 (лимит потоков GigaChat, один ключ) стоит переждать не раз
     "embeddings": 1,
 }
 
 _RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+
+# Верхняя граница ожидания перед ретраем — чтобы 429 в реактивном чате не
+# превращался в минутную паузу для пациента.
+_MAX_BACKOFF_SEC = 8.0
+
+
+def _retry_after_seconds(response: "httpx.Response") -> float | None:
+    """Значение заголовка ``Retry-After`` в секундах (только числовой формат)."""
+    raw = response.headers.get("retry-after", "").strip()
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return None
+
+
+def _backoff_seconds(status_code: int, attempt: int, response: "httpx.Response | None") -> float:
+    """Пауза перед ретраем. 429 — экспонента (+Retry-After), остальное — быстро."""
+    if status_code == 429:
+        server_hint = _retry_after_seconds(response) if response is not None else None
+        computed = min(2.0 * (2 ** (attempt - 1)), _MAX_BACKOFF_SEC)
+        return min(max(server_hint or 0.0, computed), _MAX_BACKOFF_SEC)
+    return 0.2 * attempt
 
 
 def get_ssl_verify() -> bool | str:
@@ -79,6 +103,7 @@ async def request_json_with_policy(
     last_exc: LLMTransportError | LLMResponseError | None = None
 
     for attempt in range(1, attempts + 1):
+        backoff = 0.2 * attempt
         try:
             response = await client.request(
                 method,
@@ -97,12 +122,14 @@ async def request_json_with_policy(
             status_code = exc.response.status_code
             last_exc = LLMResponseError(f"{operation} failed with status {status_code}")
             retryable = should_retry_http_status(status_code)
+            backoff = _backoff_seconds(status_code, attempt, exc.response)
             logger.warning(
-                "[http] %s status=%s attempt=%d/%d",
+                "[http] %s status=%s attempt=%d/%d%s",
                 operation,
                 status_code,
                 attempt,
                 attempts,
+                f" backoff={backoff:.1f}s" if attempt < attempts and retryable else "",
             )
         except httpx.HTTPError as exc:
             last_exc = LLMTransportError(f"{operation} transport failed")
@@ -114,7 +141,7 @@ async def request_json_with_policy(
             logger.warning("[http] %s invalid JSON attempt=%d/%d: %s", operation, attempt, attempts, exc)
 
         if attempt < attempts and retryable:
-            await asyncio.sleep(0.2 * attempt)
+            await asyncio.sleep(backoff)
             continue
 
         if last_exc is not None:

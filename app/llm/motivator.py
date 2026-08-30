@@ -144,6 +144,22 @@ async def _was_motivator_sent_today(patient_id: int, db: AsyncSession) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def deliver_motivator_messages_bg(patient_id: int) -> None:
+    """Обёртка ``deliver_motivator_messages`` со своей сессией; ничего не пробрасывает.
+
+    Для вызова из ``BackgroundTasks`` (после логина, при первом за день открытии
+    чата). Шаблонное сообщение без обращения к модели. Идемпотентность —
+    ``_was_motivator_sent_today`` (одно сообщение `motivator` в день на пациента).
+    """
+    from core.db.engine import async_session_maker
+
+    try:
+        async with async_session_maker() as db:
+            await deliver_motivator_messages(patient_id, db)
+    except Exception:  # noqa: BLE001 — фон: сбой не должен ронять запрос
+        logger.exception("[motivator] deliver_motivator_messages_bg failed patient=%d", patient_id)
+
+
 async def deliver_motivator_messages(patient_id: int, db: AsyncSession) -> None:
     """
     Проверяет простой по доменам и сохраняет одно мотивационное сообщение.

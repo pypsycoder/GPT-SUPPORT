@@ -16,26 +16,34 @@
 
 - `patient_id`
 - `user_input`
-- `source`
+- `source` (`text` | `button` | `system`)
 - `supervisor_state`
 - `router_result`
 - `strict_model_tier`
 - `db`
+- `patient_gender`
+- `thread_id` (по умолчанию `default`; `debug-*` — песочница исследователя)
 
 ## Основной pipeline
 
-Порядок стадий фиксированный:
+Порядок стадий фиксированный (`app/llm/pipeline/pipeline.py`, `LLMPipeline.stages`):
 
 1. `boundary_guard`
 2. `classification`
-3. `supervisor`
-4. `memory_write`
+3. `data_entry`
+4. `supervisor`
+5. `memory_write`
+
+Любая стадия, выставившая `context.early_response`, завершает pipeline —
+оставшиеся стадии не выполняются.
 
 ### 1. `boundary_guard`
 
 - режет prompt-injection и служебные запросы;
 - L0 (`app/llm/router_l0.py`) детерминированно ловит кризис/острое медицинское
-  состояние и может завершить pipeline через `early_response`.
+  состояние и может завершить pipeline через `early_response`;
+- опциональный семантический второй эшелон детекции суицид-риска
+  (`app/llm/crisis_semantic.py`, kNN по эмбеддингам, флаг `LLM_CRISIS_SEMANTIC`).
 
 ### 2. `classification`
 
@@ -43,7 +51,20 @@
   см. `app/llm/router_cascade.py`);
 - инициализирует `supervisor_state`.
 
-### 3. `supervisor`
+### 3. `data_entry`
+
+- срабатывает только когда L0 уверенно сказал `data_entry` — числа разобраны
+  регуляркой (`router_l0.parse_vitals`: АД, пульс, вес, вода) и это не вопрос
+  о норме;
+- кладёт показатели в `context.pending_vitals` и отдаёт готовый
+  `early_response` («Записал: давление 125/85…») без обращения к модели;
+  запись в карту делает роутер (`vitals_writer.write` + commit);
+- на кризисных цифрах АД — фиксированный шаблон, не генерация;
+- «давление 200 на 100, мне страшно» (`vitals_with_emotion`) — цифры сохраняет,
+  но ответ оставляет супервизору; во всех прочих случаях молча пропускает ход
+  дальше.
+
+### 4. `supervisor`
 
 - один структурный вызов агента (`app/llm/agent/loop.py`, `Agent.run()`)
   вместо цепочки intake → delegation → expert;
@@ -51,10 +72,14 @@
   technique_id, memory_candidates) одним вызовом;
 - второй эшелон защиты (`_apply_agent_safety_net`) перекрывает ответ протоколом,
   если агент сам поднял `safety_level=urgent`;
+- в волатильный слой промпта агента, рядом с `l0_note`, кладётся **контекст
+  дня** (`morning_service.get_daily_context_for_llm`): день диализа,
+  невыполненные лекарства, мягкий фокус недели, достижения — чтобы агент знал
+  про них, даже когда утреннее проактивное сообщение вытеснено из окна;
 - строит финальный `response_draft`, обновляет `supervisor_state`, пишет
   диагностику хода.
 
-### 4. `memory_write`
+### 5. `memory_write`
 
 - нормализует memory-диагностику;
 - сохраняет кандидатов в устойчивую память из `AgentReply.memory_candidates`.
@@ -161,6 +186,9 @@
 профиля старый кэш всё равно бесполезен, честнее начать новый. Диагностика:
 `precached_prompt_tokens` на каждом вызове; со 2-го хода в треде ждём
 `cache_hit` 0.5–0.8, стабильный ноль → ищи нестабильный байт в префиксе.
+Замер 2026-08-29 (`SPRINT1_INVESTIGATIONS.md` §2): тёплый ход — 0.80
+(`agent`/Pro — 0.88), `prefix_fp` стабилен. Исключение: `summarizer` не
+передаёт `X-Session-ID` — кэш мимо by design (фоновый разовый вызов).
 
 ### Память
 

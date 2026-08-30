@@ -9,13 +9,14 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import pool
-from app.llm import memory_store, vitals_writer
+from app.llm import memory_store, rate_limit, vitals_writer
+from app.llm.on_login import run_login_proactive
 from app.llm.router_cascade import classify_request_async
 from app.models.llm import ChatMessage, ChatSupervisorState
 from app.users.models import User
@@ -178,6 +179,8 @@ async def send_message(
             detail="Нет доступа к чату другого пациента",
         )
 
+    rate_limit.check(current_user.id)
+
     router_result = await classify_request_async(body.message, body.source)
     supervisor_state = await _read_supervisor_state(db, body.patient_id)
     llm_response = await _llm_pipeline.process(
@@ -254,6 +257,7 @@ async def send_message(
 @router.get("/history/{patient_id}", response_model=list[ChatMessageOut])
 async def get_history(
     patient_id: int,
+    background_tasks: BackgroundTasks,
     limit: int = 20,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -263,6 +267,12 @@ async def get_history(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к истории другого пациента",
         )
+
+    # Ленивый триггер проактива при входе — страховка на случай, если фоновый
+    # вызов после логина не отработал (рестарт, вход вчера с живой сессией).
+    # Идемпотентно: каждая доставка отсекает повтор за день.
+    if current_user.is_onboarded and current_user.consent_personal_data:
+        background_tasks.add_task(run_login_proactive, patient_id)
 
     result = await db.execute(
         select(ChatMessage)
@@ -285,6 +295,34 @@ async def get_history(
         )
         for m in messages
     ]
+
+
+class MarkReadResponse(BaseModel):
+    updated: int
+
+
+@router.post("/mark-read", response_model=MarkReadResponse)
+async def mark_read(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> MarkReadResponse:
+    """Отметить все сообщения ассистента прочитанными.
+
+    Фронт зовёт при открытии чата — гасит бейдж `assistant` в сайдбаре.
+    Проактив (`morning` / `motivator` / `proactive`) кладёт свои сообщения с
+    `is_read=False`, здесь они и закрываются.
+    """
+    result = await db.execute(
+        update(ChatMessage)
+        .where(
+            ChatMessage.patient_id == current_user.id,
+            ChatMessage.role == "assistant",
+            ChatMessage.is_read.is_(False),
+        )
+        .values(is_read=True)
+    )
+    await db.commit()
+    return MarkReadResponse(updated=result.rowcount or 0)
 
 
 class ConfirmVitalsRequest(BaseModel):

@@ -76,7 +76,11 @@ async def generate_daily_queue(
       2. WARNING аномалии  (request_type=PROACTIVE, model=LITE)
       3. Домены с худшим score < 0.5 (request_type=PROACTIVE, model=LITE)
     """
-    from app.llm.domain_scorer import calculate_domain_scores, get_priority_domains
+    from app.llm.domain_scorer import (
+        calculate_domain_scores,
+        get_priority_domains,
+        has_tracked_data as _has_tracked_data,
+    )
 
     messages: list[ProactiveMessage] = []
 
@@ -96,7 +100,9 @@ async def generate_daily_queue(
         messages.append(_make_anomaly_message(patient_id, alert))
 
     # --- Домены с плохим score ---
-    if len(messages) < 3:
+    # Холодный старт: без данных доменные сообщения «из ничего» не шлём
+    # (аномалии выше — им и так нужны свежие измерения).
+    if len(messages) < 3 and await _has_tracked_data(patient_id, db):
         try:
             scores = await calculate_domain_scores(patient_id, db)
             logger.info(
@@ -255,6 +261,7 @@ async def deliver_proactive_messages(patient_id: int, db: AsyncSession) -> None:
                 model_used=llm_response.model,
                 domain=llm_response.domain,
                 request_type="proactive",
+                is_read=False,
             )
             db.add(assistant_msg)
             await db.flush()

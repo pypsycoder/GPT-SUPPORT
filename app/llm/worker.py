@@ -1,10 +1,19 @@
+"""Отдельный процесс-планировщик (запасной путь).
+
+В проде на одном инстансе uvicorn планировщик стартует в lifespan
+``app/main.py`` за флагом ``SCHEDULER_ENABLED``. Этот модуль оставлен как
+запасной путь для деплоя, где API и планировщик разнесены по процессам:
+
+    python -m app.llm.worker
+
+Advisory-lock и функции старта/остановки — общие с lifespan
+(``app.llm.scheduler``), поэтому два пути никогда не поднимут планировщик дважды.
+"""
+
 from __future__ import annotations
 
 import asyncio
 import logging
-
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.config import load_environment
 
@@ -12,48 +21,16 @@ from app.core.config import load_environment
 load_environment()
 
 from app.core.config import settings
-from app.llm.scheduler import start_scheduler, stop_scheduler
+from app.llm.scheduler import (
+    acquire_scheduler_lock,
+    release_scheduler_lock,
+    start_scheduler,
+    stop_scheduler,
+)
 from core.db.engine import engine
 
 
 logger = logging.getLogger("gpt-support-llm.worker")
-_scheduler_lock_conn: AsyncConnection | None = None
-
-
-async def acquire_scheduler_lock() -> bool:
-    global _scheduler_lock_conn
-
-    if _scheduler_lock_conn is not None:
-        return True
-
-    conn = await engine.connect()
-    result = await conn.execute(
-        text("SELECT pg_try_advisory_lock(:lock_id)"),
-        {"lock_id": settings.scheduler_lock_id},
-    )
-    has_lock = bool(result.scalar())
-    if not has_lock:
-        await conn.close()
-        return False
-
-    _scheduler_lock_conn = conn
-    return True
-
-
-async def release_scheduler_lock() -> None:
-    global _scheduler_lock_conn
-
-    if _scheduler_lock_conn is None:
-        return
-
-    try:
-        await _scheduler_lock_conn.execute(
-            text("SELECT pg_advisory_unlock(:lock_id)"),
-            {"lock_id": settings.scheduler_lock_id},
-        )
-    finally:
-        await _scheduler_lock_conn.close()
-        _scheduler_lock_conn = None
 
 
 async def run_worker() -> None:

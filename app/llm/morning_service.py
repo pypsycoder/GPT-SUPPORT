@@ -34,6 +34,53 @@ def _time_of_day(now: datetime) -> str:
     return "evening"
 
 
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    if 11 <= n % 100 <= 19:
+        return many
+    rem = n % 10
+    if rem == 1:
+        return one
+    if 2 <= rem <= 4:
+        return few
+    return many
+
+
+def _build_achievement_lines(ctx: dict) -> list[str]:
+    """Достижения недели — короткие фразы, идут ПЕРЕД проблемными строками.
+
+    Считаем по тем же данным, что и бейджи достижений (`badge_service`):
+    занятия, практики, регулярность сна и лекарств, серия по лекарствам.
+    Возвращаем не больше двух — дайджест не должен превращаться в отчёт.
+    """
+    parts: list[str] = []
+
+    lessons = int(ctx.get("recent_lessons_completed", 0) or 0)
+    practices = int(ctx.get("recent_practices_completed", 0) or 0)
+    sleep_days = int(ctx.get("recent_sleep_days_logged", 0) or 0)
+    med_days = int(ctx.get("recent_medication_days_logged", 0) or 0)
+    active_meds = int(ctx.get("recent_active_medications", 0) or 0)
+    streak = int(ctx.get("streak_medications", 0) or 0)
+
+    if lessons >= 1:
+        parts.append(f"прошли {lessons} {_plural(lessons, 'занятие', 'занятия', 'занятий')}")
+    if practices >= 1:
+        parts.append(f"выполнили {practices} {_plural(practices, 'практику', 'практики', 'практик')}")
+    if sleep_days >= 5:
+        parts.append("почти каждый день отмечали сон")
+    if active_meds > 0 and med_days >= 6:
+        parts.append("лекарства отмечались стабильно")
+
+    # Серию упоминаем только если у дайджеста не будет отдельного блока про неё
+    # (тот блок в build_morning_message срабатывает при отсутствии пропусков).
+    has_own_streak_block = not (
+        ctx.get("missed_yesterday") or int(ctx.get("morning_meds_pending", 0) or 0) > 0
+    )
+    if streak >= 5 and not has_own_streak_block and len(parts) < 2:
+        parts.append(f"серия по лекарствам — {streak} {_plural(streak, 'день', 'дня', 'дней')}")
+
+    return parts[:2]
+
+
 def _build_weekly_summary(ctx: dict) -> dict:
     summary_lines: list[str] = []
     focus_topic: str | None = None
@@ -63,8 +110,16 @@ def _build_weekly_summary(ctx: dict) -> dict:
     elif focus_topic == "routine":
         cta_text = "Хотите вместе мягко восстановить ритм на сегодня?"
 
+    achievement_lines = _build_achievement_lines(ctx)
+    achievement_summary = ""
+    if achievement_lines:
+        joined = " и ".join(achievement_lines)
+        achievement_summary = f"На этой неделе вы {joined} — здорово."
+
     return {
         "summary_lines": summary_lines[:2],
+        "achievement_lines": achievement_lines,
+        "achievement_summary": achievement_summary,
         "focus_topic": focus_topic,
         "cta_text": cta_text,
     }
@@ -242,6 +297,38 @@ async def build_daily_context(
     )
     recent_bp_days_logged: int = int(bp_days_row.scalar() or 0)
 
+    # Достижения недели — по тем же данным, что и бейджи (badge_service).
+    lessons_row = await session.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM education.lesson_progress
+            WHERE user_id = :uid
+              AND is_completed = TRUE
+              AND DATE(updated_at) BETWEEN :start_date AND :end_date
+            """
+        ),
+        {"uid": patient_id, "start_date": trend_start, "end_date": trend_end},
+    )
+    recent_lessons_completed: int = int(lessons_row.scalar() or 0)
+
+    practices_row = await session.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM practices.practice_completions
+            WHERE patient_id = :pid
+              AND DATE(completed_at) BETWEEN :start_date AND :end_date
+            """
+        ),
+        {"pid": patient_id, "start_date": trend_start, "end_date": trend_end},
+    )
+    recent_practices_completed: int = int(practices_row.scalar() or 0)
+
+    from app.llm.domain_scorer import has_tracked_data
+
+    has_history: bool = await has_tracked_data(patient_id, session)
+
     ctx = {
         "time_of_day": _time_of_day(datetime.now(tz=MOSCOW_TZ)),
         "dialysis_today": dialysis_today,
@@ -255,9 +342,19 @@ async def build_daily_context(
         "recent_active_medications": recent_active_medications,
         "recent_medication_days_logged": recent_medication_days_logged,
         "recent_bp_days_logged": recent_bp_days_logged,
+        "recent_lessons_completed": recent_lessons_completed,
+        "recent_practices_completed": recent_practices_completed,
+        "has_history": has_history,
     }
     ctx.update(_build_weekly_summary(ctx))
     return ctx
+
+
+_COLD_START_TEXT = (
+    "Здесь можно отмечать давление, вес, приём лекарств и сон, проходить короткие "
+    "занятия и практики. Начните с того, что ближе — а я буду рядом, если понадобится "
+    "поддержка или просто поговорить."
+)
 
 
 def build_morning_message(ctx: dict) -> dict:
@@ -266,6 +363,13 @@ def build_morning_message(ctx: dict) -> dict:
     blocks_used = 0
 
     lines.append(_GREETINGS[ctx["time_of_day"]])
+
+    # Холодный старт: у пациента ещё нет ни одной записи. Разбор недели и упрёки
+    # «вчера ничего не отмечено» тут неуместны — вместо них короткое знакомство.
+    if not ctx.get("has_history", True):
+        lines.append(_COLD_START_TEXT)
+        buttons.append({"label": "Открыть трекеры", "action": "open_trackers"})
+        return {"text": "\n".join(lines), "buttons": buttons}
 
     if ctx["dialysis_today"]:
         lines.append("Сегодня день диализа.")
@@ -302,6 +406,10 @@ def build_morning_message(ctx: dict) -> dict:
             lines.append(f"Вы уже {s} дней подряд отмечаете лекарства.")
         blocks_used += 1
 
+    # Достижения недели — перед проблемными строками: сначала что получилось.
+    if ctx.get("achievement_summary"):
+        lines.append(ctx["achievement_summary"])
+
     if ctx.get("summary_lines") and blocks_used < 3:
         lines.append(" ".join(ctx["summary_lines"]))
 
@@ -322,7 +430,7 @@ def build_morning_message(ctx: dict) -> dict:
             }
             buttons.append({"label": label_map[focus_topic], "action": action})
 
-    if blocks_used == 0 and not ctx.get("summary_lines"):
+    if blocks_used == 0 and not ctx.get("summary_lines") and not ctx.get("achievement_summary"):
         lines.append("Вчера вы всё отметили — так держать.")
 
     return {
@@ -415,6 +523,24 @@ async def ensure_morning_message(patient_id: int, session: AsyncSession) -> None
     logger.info("[morning] сообщение создано patient=%d", patient_id)
 
 
+async def ensure_morning_message_bg(patient_id: int) -> None:
+    """Обёртка ``ensure_morning_message`` со своей сессией; ничего не пробрасывает.
+
+    Для вызова из ``BackgroundTasks`` (после логина пациента, при первом за день
+    открытии чата), где сессия запроса уже закрыта. Идемпотентность и отсечка по
+    времени — внутри ``ensure_morning_message`` (xact advisory-lock +
+    ``_is_morning_sent_today`` + ``now.hour < 6``), поэтому повторные вызовы за
+    день дубля не создают.
+    """
+    from core.db.engine import async_session_maker
+
+    try:
+        async with async_session_maker() as session:
+            await ensure_morning_message(patient_id, session)
+    except Exception:  # noqa: BLE001 — фон: сбой не должен ронять запрос
+        logger.exception("[morning] ensure_morning_message_bg failed patient=%d", patient_id)
+
+
 async def deliver_morning_message(patient_id: int, session: AsyncSession) -> None:
     today = datetime.now(tz=MOSCOW_TZ).date()
     await session.execute(text("SELECT pg_advisory_xact_lock(:pid)"), {"pid": patient_id})
@@ -446,7 +572,8 @@ async def deliver_morning_message(patient_id: int, session: AsyncSession) -> Non
 
 
 async def get_daily_context_for_llm(patient_id: int, session: AsyncSession) -> str:
-    today = date.today()
+    # Дата по МСК — как при записи (ensure_morning_message / _upsert_daily_context).
+    today = datetime.now(tz=MOSCOW_TZ).date()
     row = await session.execute(
         text(
             """
@@ -472,6 +599,8 @@ async def get_daily_context_for_llm(patient_id: int, session: AsyncSession) -> s
         parts.append("утренние лекарства не отмечены")
     if ctx.get("missed_yesterday"):
         parts.append(f"вчера пропущено: {', '.join(ctx['missed_yesterday'])}")
+    if ctx.get("achievement_lines"):
+        parts.append("за неделю: " + ", ".join(ctx["achievement_lines"]))
     if ctx.get("summary_lines"):
         parts.append("; ".join(ctx["summary_lines"]))
     if ctx.get("streak_medications", 0) >= 3:

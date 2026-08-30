@@ -436,3 +436,73 @@ class ChatSummary(Base):
 
     def __repr__(self) -> str:
         return f"<ChatSummary patient={self.patient_id} thread={self.thread_id}>"
+
+
+class ProactiveDelivery(Base):
+    """Журнал проактивных доставок — единый дедуп координатора (Фаза 2).
+
+    Одна строка на факт доставки одного проактивного сообщения. Координатор
+    (``app.llm.proactive_coordinator``) перед отправкой смотрит, какие
+    ``dedup_key`` уже отправлены пациенту за ``context_date``, и не повторяет
+    их. Раньше каждая подсистема (morning / proactive / motivator) вела свой
+    дедуп по ``chat_messages.request_type`` — общего потолка и общей защиты от
+    дублей темы не было.
+
+    ``dedup_key`` — стабильный идентификатор повода: ``morning``,
+    ``anomaly:systolic_bp``, ``idle:sleep``, ``domain:emotion``, ``praise``.
+    """
+
+    __tablename__ = "proactive_deliveries"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "patient_id", "context_date", "dedup_key", name="uq_pd_patient_date_key"
+        ),
+        sa.Index("ix_pd_patient_date", "patient_id", "context_date"),
+        {"schema": "llm"},
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+
+    patient_id: Mapped[int] = mapped_column(
+        sa.Integer,
+        sa.ForeignKey("users.users.id", ondelete="CASCADE", name="fk_pd_patient_id"),
+        nullable=False,
+    )
+
+    context_date: Mapped[datetime] = mapped_column(sa.Date, nullable=False)
+
+    kind: Mapped[str] = mapped_column(
+        sa.String(20),
+        nullable=False,
+        comment="crisis | anomaly | misses | idle | praise | domain",
+    )
+
+    dedup_key: Mapped[str] = mapped_column(
+        sa.String(60),
+        nullable=False,
+        comment="Стабильный идентификатор повода: 'morning', 'anomaly:systolic_bp', 'idle:sleep'",
+    )
+
+    domain: Mapped[str | None] = mapped_column(sa.String(40), nullable=True)
+
+    trigger: Mapped[str] = mapped_column(
+        sa.String(20),
+        nullable=False,
+        comment="login | cron_morning | cron_afternoon | cron_evening",
+    )
+
+    message_id: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        sa.ForeignKey("llm.chat_messages.id", ondelete="SET NULL", name="fk_pd_message_id"),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, server_default=sa.text("NOW()")
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ProactiveDelivery patient={self.patient_id} date={self.context_date} "
+            f"key={self.dedup_key}>"
+        )

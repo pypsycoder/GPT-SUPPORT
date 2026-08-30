@@ -438,6 +438,45 @@ async def _build_rag_grounding_items(
     return grounding_items
 
 
+async def build_education_cta(
+    patient_id: int, query: str, db: AsyncSession
+) -> dict | None:
+    """CTA-кнопка «Открыть урок» под ответом агента при education-интенте.
+
+    Отдельный лёгкий проход по RAG (эмбеддинг + пара запросов) — зовётся из
+    ``SupervisorStage`` только когда агент сам определил ``intent == "education"``.
+    Возвращает форму, которую ждёт фронт (`chat.js appendEducationCta`):
+    ``{"type": "lesson", "lesson_id": int, "label": str}`` или ``None``.
+    """
+    query = str(query or "").strip()
+    if len(query) < 3:
+        return None
+
+    from app.rag.retriever import retrieve_relevant_modules_with_meta
+
+    try:
+        result = await retrieve_relevant_modules_with_meta(query, patient_id, db, top_k=3)
+    except (RetrievalError, SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
+        logger.warning("[education_cta] retrieval failed patient=%d: %s", patient_id, exc)
+        return None
+
+    modules = list(result.get("modules") or [])
+    if not modules:
+        return None
+
+    items = await _build_rag_grounding_items(patient_id, modules, db)
+    for item in items:
+        cta = item.get("cta") or {}
+        target = cta.get("cta_target") or {}
+        if cta.get("cta_type") == "lesson" and target.get("lesson_id"):
+            return {
+                "type": "lesson",
+                "lesson_id": int(target["lesson_id"]),
+                "label": str(cta.get("cta_label") or item.get("lesson_title") or "Открыть урок"),
+            }
+    return None
+
+
 def select_patient_summary_for_prompt(
     context: dict,
     *,

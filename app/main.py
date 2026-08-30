@@ -50,7 +50,14 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from app.core.config import settings
     from app.llm.http import aclose_shared_http_clients, get_shared_http_client
+    from app.llm.scheduler import (
+        acquire_scheduler_lock,
+        release_scheduler_lock,
+        start_scheduler,
+        stop_scheduler,
+    )
     from app.llm.technique_library import refresh_technique_cache
 
     # Warm up shared HTTP transports for provider calls to avoid recreating clients per request.
@@ -58,10 +65,28 @@ async def lifespan(_: FastAPI):
     get_shared_http_client("chat")
     get_shared_http_client("embeddings")
     await refresh_technique_cache()
+
+    # Проактивный планировщик. Стартует только при SCHEDULER_ENABLED=true и только
+    # в одном процессе кластера — advisory-lock отсекает лишние воркеры
+    # (`uvicorn --workers N`) и параллельный `python -m app.llm.worker`.
+    scheduler_active = False
+    if settings.scheduler_enabled:
+        if await acquire_scheduler_lock():
+            start_scheduler()
+            scheduler_active = True
+            logger.info("Proactive scheduler started (app lifespan).")
+        else:
+            logger.info("Proactive scheduler already held by another instance — not started here.")
+    else:
+        logger.info("SCHEDULER_ENABLED is off — proactive scheduler not started.")
+
     logger.info("GPT Support API started.")
     try:
         yield
     finally:
+        if scheduler_active:
+            stop_scheduler()
+            await release_scheduler_lock()
         await aclose_shared_http_clients()
 
 

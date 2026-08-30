@@ -115,6 +115,7 @@ def build_agent_user_prompt(
     session_goal: str | None,
     technique_block: str = "",
     l0_note: str = "",
+    daily_context: str = "",
     tools_available: bool = False,
 ) -> str:
     """Волатильный слой: всё, что меняется от хода к ходу.
@@ -135,6 +136,12 @@ def build_agent_user_prompt(
 
     if last_bot_reply:
         parts.append(f"Твоя предыдущая реплика (не повторяй дословно):\n{last_bot_reply}")
+
+    # Контекст дня из утреннего дайджеста: день диализа, невыполненные задачи,
+    # мягкий фокус недели, достижения. Здесь, в волатильном слое, потому что за
+    # день меняется — в стабильный профиль класть нельзя (ломает префикс-кэш).
+    if daily_context:
+        parts.append(daily_context)
 
     if l0_note:
         parts.append(l0_note)

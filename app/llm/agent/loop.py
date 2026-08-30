@@ -79,6 +79,7 @@ def build_layers(
     technique_state: TechniqueState | None = None,
     technique_context: str = "",
     l0_note: str = "",
+    daily_context: str = "",
     tools_available: bool = False,
 ) -> prompt_assembly.PromptLayers:
     """Слои промпта агента — та же дисциплина, что и в старой ветке (шаг 2)."""
@@ -95,6 +96,7 @@ def build_layers(
         session_goal=session_goal,
         technique_block=technique_block,
         l0_note=l0_note,
+        daily_context=daily_context,
         tools_available=tools_available,
     )
     return prompt_assembly.PromptLayers(
