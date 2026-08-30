@@ -143,6 +143,17 @@ async def test_sleep_with_distress_is_left_to_the_model():
     assert context.early_response_buttons is None
 
 
+@pytest.mark.asyncio
+async def test_routine_report_gets_a_tracker_button():
+    context = await DataEntryStage().process(_ctx("сегодня соблюдал распорядок дня"))
+
+    assert context.early_response_source == "routine_entry"
+    assert context.pending_vitals == []
+    assert context.early_response_buttons == [
+        {"label": "Открыть распорядок дня", "action": "open_schedule"}
+    ]
+
+
 def test_prepare_builds_schemas_for_supported_types():
     from app.llm import vitals_writer
 

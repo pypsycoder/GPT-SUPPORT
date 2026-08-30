@@ -48,6 +48,14 @@ SLEEP_ENTRY_REPLY = (
 )
 SLEEP_ENTRY_BUTTONS = [{"label": "Внести данные о сне", "action": "open_sleep"}]
 
+# Ответ на отчёт о выполнении распорядка дня («соблюдал распорядок»). Полную
+# верификацию из чата не собрать — кнопка в трекер распорядка.
+ROUTINE_ENTRY_REPLY = (
+    "Отметить, как прошёл день, удобнее в трекере распорядка — там выбираешь "
+    "выполненные активности и добавляешь незапланированное."
+)
+ROUTINE_ENTRY_BUTTONS = [{"label": "Открыть распорядок дня", "action": "open_schedule"}]
+
 
 def _render_value(item: dict) -> str:
     kind = item.get("type")
@@ -95,16 +103,24 @@ class DataEntryStage(PipelineStage):
         started = time.monotonic()
         decision = context.l0
 
-        if decision is not None and decision.intent == "sleep_entry":
-            context.early_response = SLEEP_ENTRY_REPLY
-            context.early_response_source = "sleep_entry"
-            context.early_response_buttons = [dict(b) for b in SLEEP_ENTRY_BUTTONS]
+        _button_only = {
+            "sleep_entry": (SLEEP_ENTRY_REPLY, SLEEP_ENTRY_BUTTONS, "сон"),
+            "routine_entry": (ROUTINE_ENTRY_REPLY, ROUTINE_ENTRY_BUTTONS, "распорядок"),
+        }
+        if decision is not None and decision.intent in _button_only:
+            reply, buttons, label = _button_only[decision.intent]
+            context.early_response = reply
+            context.early_response_source = decision.intent
+            context.early_response_buttons = [dict(b) for b in buttons]
             context.diagnostics["data_entry"] = {
                 "triggered": True,
-                "kind": "sleep_entry",
+                "kind": decision.intent,
                 "latency_ms": int((time.monotonic() - started) * 1000),
             }
-            logger.info("[data_entry] patient=%d — сон: кнопка в трекер, без записи", context.request.patient_id)
+            logger.info(
+                "[data_entry] patient=%d — %s: кнопка в трекер, без записи",
+                context.request.patient_id, label,
+            )
             return context
 
         if decision is None or not decision.vitals:

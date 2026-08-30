@@ -133,6 +133,16 @@ async def test_sleep_report_short_circuits_with_a_tracker_button(stub_llm):
     assert resp.buttons == [{"label": "Внести данные о сне", "action": "open_sleep"}]
 
 
+async def test_routine_report_short_circuits_with_a_tracker_button(stub_llm):
+    client = stub_llm(_ok_result(_card()))
+
+    resp, stages = await _run("сегодня соблюдал распорядок дня")
+
+    assert stages == ["boundary_guard", "classification", "data_entry"]
+    assert client.structured_calls == 0
+    assert resp.buttons == [{"label": "Открыть распорядок дня", "action": "open_schedule"}]
+
+
 # --------------------------------------------------------------------------- #
 # Полный проход — модель зовётся один раз
 # --------------------------------------------------------------------------- #

@@ -147,6 +147,34 @@ def test_sleep_mention_without_a_plain_report_is_left_to_the_model(text):
 @pytest.mark.parametrize(
     "text",
     [
+        "сегодня соблюдал распорядок дня",
+        "выполнил весь распорядок",
+        "справился со всеми делами на день",
+        "хочу отметить день",
+    ],
+)
+def test_routine_completion_report_gets_routine_entry_intent(text):
+    decision = router_l0.classify(text)
+    assert decision.intent == "routine_entry"
+    assert decision.rule == "routine_completion_reported"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "как лучше распланировать день?",          # совет, не отметка
+        "не смог выполнить распорядок сегодня",    # отрицание
+        "весь день пролежал, сил нет",             # distress, без явного «распорядок»
+        "распорядок дня совсем меня вымотал",      # жалоба
+    ],
+)
+def test_routine_mention_without_a_plain_completion_is_left_to_the_model(text):
+    assert router_l0.classify(text).intent != "routine_entry"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "А что с пульсом? 71 это нормально?",
         "Если давление 129 на 89 это норма?",
         "давление 125 на 85 это опасно",

@@ -202,8 +202,13 @@
   `SupervisorStage` зовёт его при `reply_card.intent == "education"` и кладёт в
   `SupervisorTurnResult.education_cta` (было захардкожено `None`). Тесты:
   `test_education_cta.py`.
-- [ ] **Распорядок дня из чата.** L0-паттерны для d230-формулировок + мост в
-  `routine.daily_verifications` по образцу `vitals_writer`.
+- [x] **Распорядок дня из чата — кнопка в трекер** *(2026-08-30)*. По образцу
+  сна: L0 распознаёт отчёт о выполнении распорядка (`_ROUTINE_ENTRY_RE`, intent
+  `routine_entry`; отрицание `_ROUTINE_NEGATION_RE` / distress / эмоция / вопрос
+  → мимо, к модели). `DataEntryStage` → короткая реплика + кнопка «Открыть
+  распорядок дня» (`open_schedule` → `/patient/routine`), без LLM.
+  `router_cascade`: `routine_entry` → SIMPLE/LITE. Полная запись в
+  `routine.daily_verifications` из чата не собирается (нужны активности плана).
 - [ ] **`crisis_semantic`.** Проверить на `safety-bench` / `patient-sim` →
   `LLM_CRISIS_SEMANTIC=true` → убрать флаг совсем (как коммит `2316a40` с
   остальными флагами каскада).
@@ -321,7 +326,7 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
   дедуп). После — удалить `deliver_morning_message` / `deliver_proactive_messages`
   / `deliver_motivator_messages` / `ensure_morning_message_bg` /
   `deliver_motivator_messages_bg` и их тесты.
-- [ ] Фаза 4: `education_cta`, routine из чата, `crisis_semantic`, гигиена.
+- [ ] Фаза 4 остаток: `crisis_semantic` (нужен safety-bench), миграция `account_id`.
 - [ ] Фаза 5: инструментирование под исследование (нужна постановка).
 
 ## Приложение — связь с находками аудита
@@ -340,7 +345,7 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
 | ✅ | Канала доставки проактива нет | — доставка только веб (сообщение ждёт в истории чата); внешний канал снят с плана 2026-08-30 |
 | ✅ | Сон из чата: «сказал записал — не записал» | 1 — ложный «Записал» убран + кнопка в трекер сна (2026-08-30); запись через диалог снята из плана |
 | ✅ | `education_cta` захардкожен `None` | 4 — `build_education_cta` + вызов в супервизоре (2026-08-30) |
-| ⬜ | Распорядок дня из чата не вносится | 4 |
+| ✅ | Распорядок дня из чата не вносится | 4 — кнопка в трекер по образцу сна (2026-08-30) |
 | ⬜ | `crisis_semantic` выключен флагом | 4 |
 | ⬜ | `account_id` VARCHAR(20) | 4 |
 | ✅ | Рейт-лимита на `/api/chat/message` нет | 4 — `app/llm/rate_limit.py` (2026-08-30) |

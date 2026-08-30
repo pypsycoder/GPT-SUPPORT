@@ -103,11 +103,12 @@ async def classify_request_async(text: str, source: str) -> RouterResult:
             # не дожидаясь L1/L2/отката.
             result = RouterResult(RequestType.CLINICAL, ModelTier.PRO, domain, 2)
             return _apply_floor(result, floor_tier, floor_priority)
-        if decision.intent == "sleep_entry":
-            # «спал 4 часа» — pipeline ответит кнопкой в трекер сна и оборвётся
-            # ранним ответом. Модель не зовём, L1/L2 гонять незачем.
+        if decision.intent in ("sleep_entry", "routine_entry"):
+            # Отчёт о сне / распорядке — pipeline ответит кнопкой в трекер и
+            # оборвётся ранним ответом. Модель не зовём, L1/L2 гонять незачем.
+            hint = "sleep" if decision.intent == "sleep_entry" else "routine"
             return _apply_floor(
-                RouterResult(RequestType.SIMPLE, ModelTier.LITE, "sleep", 1),
+                RouterResult(RequestType.SIMPLE, ModelTier.LITE, hint, 1),
                 floor_tier, floor_priority,
             )
 
