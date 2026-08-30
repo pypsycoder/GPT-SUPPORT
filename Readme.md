@@ -1,6 +1,6 @@
 # GPT Support
 
-Платформа поддержки пациентов на гемодиализе. В проекте объединены patient-facing web UI, панель исследователя, Telegram-бот, обучающие модули, шкалы, витальные показатели, трекинг сна, рутина, медикаменты и LLM-слой для диалоговой поддержки.
+Платформа поддержки пациентов на гемодиализе. В проекте объединены patient-facing web UI, панель исследователя, обучающие модули, шкалы, витальные показатели, трекинг сна, рутина, медикаменты и LLM-слой для диалоговой поддержки.
 
 Этот `Readme.md` — каноническая сводка по текущему состоянию проекта. Содержимое из `UPD_Readme.md` слито сюда и приведено к актуальной архитектуре.
 
@@ -9,7 +9,6 @@
 | Слой | Технологии |
 | --- | --- |
 | Backend | FastAPI, uvicorn |
-| Bot | aiogram 3.x |
 | БД | PostgreSQL, asyncpg |
 | ORM | SQLAlchemy 2.0 async |
 | Миграции | Alembic |
@@ -24,12 +23,6 @@ pip install -r requirements.txt
 cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload
-```
-
-Telegram-бот запускается отдельно:
-
-```bash
-python -m app.bots.tg_bot.main
 ```
 
 Тесты:
@@ -61,7 +54,7 @@ $env:GIGACHAT_ALLOW_INSECURE_SSL="true"; uvicorn app.main:app --reload
 ## Архитектура верхнего уровня
 
 ```text
-Frontend / Telegram
+Frontend (web)
         |
         v
     FastAPI API
@@ -74,9 +67,8 @@ Frontend / Telegram
 
 - `app/routers/chat.py`
 - `app/researchers/router.py`
-- `app/llm/proactive.py`
+- `app/llm/proactive_coordinator.py`
 - `app/pages/router.py`
-- `app/bots/tg_bot/`
 
 Во всех основных LLM-сценариях запросы идут в `LLMPipeline.process(LLMRequest)`.
 
@@ -121,7 +113,7 @@ Frontend / Telegram
 
 | Домен | Таблицы | Показатели |
 | --- | --- | --- |
-| Профиль и доступ | `users.users`, `users.researchers`, `users.sessions` | ФИО, возраст, пол, диализный центр, Telegram ID, внешние идентификаторы, номер пациента, PIN-hash, блокировка, onboarding, согласия на данные и использование бота, сессии входа. |
+| Профиль и доступ | `users.users`, `users.researchers`, `users.sessions` | ФИО, возраст, пол, диализный центр, внешние идентификаторы и контакты, номер пациента, PIN-hash, блокировка, onboarding, согласия на обработку данных, сессии входа. |
 | Диализ | `public.centers`, `public.dialysis_schedules` | Центр, город, timezone, дни недели диализа, смена `morning/afternoon/evening`, период действия расписания, автор изменения и причина закрытия расписания. |
 | Витальные | `vitals.bp_measurements`, `vitals.pulse_measurements`, `vitals.weight_measurements`, `vitals.water_intake` | АД: `systolic`, `diastolic`, опциональный `pulse`; пульс: `bpm`; вес: `weight`; жидкость: `volume_ml`, `liquid_type`. У всех записей есть `measured_at`, `session_id`, `context`, `created_at`, `updated_at`. |
 | Шкалы | `scales.scale_results` | HADS, KOP-25A, PSQI, PSS-10, WCQ и другие шкалы: код шкалы, версия, дата измерения, сырые ответы `answers_json`, рассчитанный результат `result_json` с итоговыми баллами, субшкалами, уровнями и интерпретациями. |

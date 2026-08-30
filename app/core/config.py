@@ -36,7 +36,6 @@ class Settings:
     app_name: str
     environment: str
     database_url: str
-    bot_token: str | None
     scheduler_enabled: bool
     scheduler_lock_id: int
     csrf_enabled: bool
@@ -57,11 +56,6 @@ class Settings:
         if not self.database_url:
             raise RuntimeError("DATABASE_URL is required")
         return self.database_url
-
-    def require_bot_token(self) -> str:
-        if not self.bot_token:
-            raise RuntimeError("BOT_TOKEN is required")
-        return self.bot_token
 
 
 def _read_environment() -> str:
@@ -86,7 +80,6 @@ def build_settings() -> Settings:
         app_name=os.getenv("APP_NAME", "GPT Health Support"),
         environment=_read_environment(),
         database_url=os.getenv("DATABASE_URL", "").strip(),
-        bot_token=os.getenv("BOT_TOKEN", "").strip() or None,
         scheduler_enabled=_parse_bool(os.getenv("SCHEDULER_ENABLED"), default=False),
         scheduler_lock_id=_read_scheduler_lock_id(),
         csrf_enabled=_parse_bool(os.getenv("CSRF_ENABLED"), default=False),

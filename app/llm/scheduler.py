@@ -86,12 +86,14 @@ async def _get_active_patient_ids() -> list[int]:
     patient_ids: list[int] = []
     try:
         async with async_session_maker() as db:
+            # Доставка проактива — только веб (сообщение ждёт в истории чата),
+            # поэтому по telegram_id НЕ фильтруем: раньше это молча выкидывало
+            # из рассылки всех, у кого нет Telegram.
             result = await db.execute(
                 select(User.id).where(
                     User.is_onboarded == True,           # noqa: E712
                     User.is_locked == False,             # noqa: E712
                     User.consent_personal_data == True,  # noqa: E712
-                    User.telegram_id.isnot(None),
                 )
             )
             patient_ids = list(result.scalars().all())

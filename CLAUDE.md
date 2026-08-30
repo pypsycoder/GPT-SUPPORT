@@ -246,7 +246,6 @@ async def create_item_me(
 
 ```bash
 uvicorn app.main:app --reload          # API
-python -m app.bots.tg_bot.main         # Telegram-бот
 pytest                                  # Тесты
 alembic upgrade head                    # Миграции (только по запросу)
 ```
