@@ -143,6 +143,17 @@ class LLMPipeline:
         ):
             response_text = f"{response_text.rstrip()}{_SAFETY_POSTFIX}"
 
+        # Плашка от LLM-классификатора суицид-риска (ideation_active/passive).
+        # Guard "8-800-2000-122 not in" сам покрывает случаи, когда агент уже
+        # эскалировал (crisis_response содержит номер) или сработал _SAFETY_POSTFIX.
+        if (
+            context.safety_footer
+            and not context.early_response
+            and not context.response_is_fallback_error
+            and "8-800-2000-122" not in response_text
+        ):
+            response_text = f"{response_text.rstrip()}{context.safety_footer}"
+
         requested_tier = context.classification.model_tier.value if context.classification else "pro"
         actual_tier = context.response_actual_model_tier
         requested_model = MODEL_NAMES.get(requested_tier, "unknown")

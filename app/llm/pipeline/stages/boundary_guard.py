@@ -9,11 +9,47 @@ from __future__ import annotations
 import logging
 import time
 
-from app.llm import crisis_semantic, router_l0
-from app.llm.safety_responses import CRISIS_RESPONSE, MEDICAL_URGENT_RESPONSE
+from app.llm import router_l0, safety_classifier
+from app.llm.safety_responses import (
+    CRISIS_RESPONSE,
+    MEDICAL_URGENT_RESPONSE,
+    SAFETY_FOOTER_ACTIVE,
+    SAFETY_FOOTER_PASSIVE,
+)
 from app.llm.pipeline.types import PipelineContext, PipelineStage
 
 logger = logging.getLogger("gpt-support-llm.pipeline.boundary_guard")
+
+# Интенты, где реплика — заведомо не про суицид-риск (числовая запись / кнопка
+# в трекер). L0 их резолвит сам; LLM-классификатор на них не тратим.
+_SKIP_SAFETY_LLM_INTENTS = frozenset({"data_entry", "sleep_entry", "routine_entry"})
+
+
+async def _recent_bot_turns(request, limit: int = 2) -> list[str]:
+    """Последние реплики бота в треде — контекст для классификатора («да» после
+    прямого вопроса про мысли о смерти). db=None (patient-sim) → пусто."""
+    db = getattr(request, "db", None)
+    if db is None:
+        return []
+    try:
+        from sqlalchemy import select
+
+        from app.models.llm import ChatMessage
+
+        rows = await db.execute(
+            select(ChatMessage.content)
+            .where(
+                ChatMessage.patient_id == request.patient_id,
+                ChatMessage.thread_id == getattr(request, "thread_id", "default"),
+                ChatMessage.role == "assistant",
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limit)
+        )
+        return [str(c)[:600] for (c,) in rows.all()][::-1]
+    except Exception as exc:  # noqa: BLE001 — контекст необязателен, не роняем стадию
+        logger.debug("[boundary_guard] recent bot turns lookup failed: %s", exc)
+        return []
 
 
 def _previous_intent(context: PipelineContext) -> str | None:
@@ -130,38 +166,6 @@ class BoundaryGuardStage(PipelineStage):
             )
             return context
 
-        # L0 не дал urgent (regex не совпал ни на чём) — второй, семантический
-        # эшелон: kNN по эмбеддингам ловит перефразировки, которых нет ни в
-        # одном regex-паттерне. Найдено ночью 2026-08-27: L0 пропускал 7 из 7
-        # канонических эвфемизмов s01_suicide_indirect до отдельного фикса
-        # (e47078d/82ce752) — это же в принципе может повториться на восьмой,
-        # не угаданной формулировке; семантический слой — попытка закрыть
-        # именно этот класс пропуска, а не заменить regex.
-        if crisis_semantic.crisis_semantic_enabled():
-            semantic = await crisis_semantic.classify(user_input)
-            if semantic.is_crisis:
-                context.early_response = CRISIS_RESPONSE
-                context.early_response_source = "boundary_guard_crisis_semantic"
-                context.diagnostics["boundary_guard"] = {
-                    "triggered": True,
-                    "type": "crisis_signal_semantic",
-                    "reason": "crisis_semantic",
-                    "confidence": round(semantic.confidence, 3),
-                    "margin": round(semantic.margin, 3),
-                    "nearest_positive": semantic.nearest_positive,
-                    "latency_ms": int((time.monotonic() - started) * 1000),
-                }
-                logger.warning(
-                    "[boundary_guard] crisis_semantic urgent patient=%d "
-                    "confidence=%.3f margin=%.3f nearest=%s input=%s",
-                    context.request.patient_id,
-                    semantic.confidence,
-                    semantic.margin,
-                    (semantic.nearest_positive or "")[:60],
-                    user_input[:50],
-                )
-                return context
-
         if any(pattern in normalized for pattern in _PROMPT_INJECTION_PATTERNS):
             context.early_response = _BOUNDARY_VIOLATION_RESPONSE
             context.early_response_source = "boundary_guard_direct"
@@ -196,9 +200,76 @@ class BoundaryGuardStage(PipelineStage):
             )
             return context
 
+        # Второй эшелон детекции суицид-риска: LLM-классификатор (GigaChat-2 Lite,
+        # рубрика safety-bench) поверх L0-regex. Ловит перефразировки, которых нет
+        # ни в одном паттерне. Embedding-слой (crisis_semantic) на его месте не
+        # прошёл валидацию и убран — docs/agent/CRISIS_SEMANTIC_VALIDATION.md.
+        # Градация ответа (docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md §3):
+        #   plan_or_imminent  → обрыв до генерации (как L0-urgent)
+        #   ideation_active   → агент отвечает + жёсткая плашка в конец
+        #   ideation_passive  → агент отвечает + мягкая плашка + concern-тир
+        #   distress          → concern-тир (подсказка агенту), без плашки
+        if (
+            safety_classifier.enabled()
+            and getattr(decision, "intent", None) not in _SKIP_SAFETY_LLM_INTENTS
+        ):
+            ctx_turns = await _recent_bot_turns(context.request)
+            assessment = await safety_classifier.classify(user_input, context=ctx_turns)
+            diag = {
+                "type": "safety_llm",
+                "level": assessment.level,
+                "subject": assessment.subject,
+                "confidence": round(assessment.confidence, 3),
+                "classifier_latency_ms": assessment.latency_ms,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "available": assessment.available,
+            }
+
+            if assessment.interrupt:
+                context.early_response = CRISIS_RESPONSE
+                context.early_response_source = "boundary_guard_safety_llm"
+                diag.update(triggered=True, action="interrupt")
+                context.diagnostics["boundary_guard"] = diag
+                logger.warning(
+                    "[boundary_guard] safety_llm interrupt patient=%d level=%s conf=%.2f input=%s",
+                    context.request.patient_id, assessment.level,
+                    assessment.confidence, user_input[:60],
+                )
+                return context
+
+            if assessment.active_ideation or assessment.passive_ideation:
+                context.safety_footer = (
+                    SAFETY_FOOTER_ACTIVE if assessment.active_ideation else SAFETY_FOOTER_PASSIVE
+                )
+                _raise_l0_concern(decision, f"safety_llm:{assessment.level}")
+                diag.update(triggered=True, action="footer")
+                logger.warning(
+                    "[boundary_guard] safety_llm %s patient=%d conf=%.2f — плашка + concern",
+                    assessment.level, context.request.patient_id, assessment.confidence,
+                )
+            elif assessment.distress:
+                _raise_l0_concern(decision, "safety_llm:distress")
+                diag.update(triggered=True, action="hint")
+            else:
+                diag.update(triggered=False, action="none")
+
+            context.diagnostics["boundary_guard"] = diag
+            return context
+
         context.diagnostics["boundary_guard"] = {
             "triggered": False,
             "reason": "passed_all_checks",
             "latency_ms": int((time.monotonic() - started) * 1000),
         }
         return context
+
+
+def _raise_l0_concern(decision, rule: str) -> None:
+    """Поднять уровень L0 до concern (не понижает urgent). Через этот же канал
+    classification поднимает тир до PRO, а supervisor даёт агенту подсказку
+    (_l0_note)."""
+    if getattr(decision, "safety_level", "none") == "urgent":
+        return
+    decision.safety_level = "concern"
+    if not getattr(decision, "rule", None):
+        decision.rule = rule

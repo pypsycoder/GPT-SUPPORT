@@ -17,6 +17,11 @@ from core.db.engine import async_session_maker
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "integration: tests that use the configured database or app wiring")
     config.addinivalue_line("markers", "unit: fast isolated tests")
+    config.addinivalue_line(
+        "markers",
+        "real_safety_classifier: не глушить boundary_guard → safety_classifier.classify "
+        "(тест сам мокает или проверяет реальный слой)",
+    )
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

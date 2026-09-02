@@ -42,8 +42,14 @@
 - режет prompt-injection и служебные запросы;
 - L0 (`app/llm/router_l0.py`) детерминированно ловит кризис/острое медицинское
   состояние и может завершить pipeline через `early_response`;
-- опциональный семантический второй эшелон детекции суицид-риска
-  (`app/llm/crisis_semantic.py`, kNN по эмбеддингам, флаг `LLM_CRISIS_SEMANTIC`).
+- 2-й эшелон суицид-риска — LLM-классификатор `app/llm/safety_classifier.py`
+  (GigaChat-2 Lite, рубрика `prompts/safety_classifier.txt`, флаг `LLM_SAFETY_LLM`
+  default ON). Зовётся, если L0 не дал `urgent` и это не запись показателей.
+  Градация: `plan_or_imminent` → обрыв (`early_response`); `ideation_active` →
+  агент отвечает + жёсткая плашка (`context.safety_footer`); `ideation_passive` →
+  агент + мягкая плашка + `concern`-тир; `distress` → `concern`-тир (подсказка
+  агенту). Embedding-слой `crisis_semantic` на этом месте не прошёл валидацию и
+  убран (`docs/agent/CRISIS_SEMANTIC_VALIDATION.md`, `docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md`).
 
 ### 2. `classification`
 

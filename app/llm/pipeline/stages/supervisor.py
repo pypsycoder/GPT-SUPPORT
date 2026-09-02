@@ -135,11 +135,25 @@ def _l0_note(decision) -> str:
         lines.append(_ALERT_NOTES[decision.alert])
 
     if decision.safety_level == "concern":
-        lines.append(
-            "В сообщении есть признак истощения или безнадёжности "
-            f"({decision.rule}). Отнесись внимательнее, но не приписывай человеку "
-            "того, чего он не говорил."
-        )
+        rule = str(getattr(decision, "rule", "") or "")
+        if rule == "safety_llm:ideation_active":
+            lines.append(
+                "Отдельный классификатор увидел в сообщении активные мысли о том, чтобы "
+                "покончить с собой (способ не назван). Ответь бережно и по существу, "
+                "мягко подтолкни к живой помощи. Плашку с телефоном доверия допишут после тебя."
+            )
+        elif rule == "safety_llm:ideation_passive":
+            lines.append(
+                "Отдельный классификатор увидел пассивное желание не жить («лучше бы не "
+                "просыпаться», «зачем продолжать»). Ответь тепло, признай тяжесть, не "
+                "уходи в протокол — плашку допишут после тебя."
+            )
+        else:
+            lines.append(
+                "В сообщении есть признак истощения или безнадёжности "
+                f"({decision.rule}). Отнесись внимательнее, но не приписывай человеку "
+                "того, чего он не говорил."
+            )
 
     if decision.intent == "continuation" and decision.continued_intent:
         lines.append(

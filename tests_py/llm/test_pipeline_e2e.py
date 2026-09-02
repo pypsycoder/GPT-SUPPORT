@@ -16,6 +16,7 @@ from app.llm.errors import LLMResponseError
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import FunctionCallResult, StructuredResult
 from app.llm.router import ModelTier, RequestType, RouterResult
+from app.llm.safety_classifier import SafetyAssessment
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.unit]
@@ -61,7 +62,7 @@ class _StubClient:
 def stub_llm(monkeypatch):
     holder: dict = {}
 
-    def _install(*outcomes):
+    def _install(*outcomes, safety=None):
         client = _StubClient(outcomes)
         holder["client"] = client
 
@@ -69,6 +70,15 @@ def stub_llm(monkeypatch):
             return client
 
         monkeypatch.setattr(agent.loop.pool, "get_available", _fake_get_available)
+
+        # 2-й эшелон safety (boundary_guard → safety_classifier.classify) — свой
+        # мок, чтобы не тратить outcome агента и не считаться в structured_calls.
+        result = safety or SafetyAssessment(level="none", subject="self", available=True)
+
+        async def _fake_safety(text, context=None):
+            return result
+
+        monkeypatch.setattr("app.llm.pipeline.stages.boundary_guard.safety_classifier.classify", _fake_safety)
         return client
 
     return _install
@@ -160,6 +170,77 @@ async def test_normal_message_runs_all_five_stages_and_calls_the_model_once(stub
     assert resp.response == "Слышу тебя. Что сейчас тяжелее всего?"
     assert resp.tokens_input == 700 and resp.tokens_output == 90
     assert resp.supervisor_state is not None
+
+
+async def test_safety_llm_passive_ideation_appends_soft_footer(stub_llm):
+    from app.llm.safety_responses import SAFETY_FOOTER_PASSIVE
+
+    stub_llm(
+        _ok_result(_card(reply="Слышу, как тебе тяжело. Расскажи, что сейчас происходит?")),
+        safety=SafetyAssessment(level="ideation_passive", subject="self", available=True),
+    )
+
+    resp, stages = await _run(
+        "устал бороться, зачем вообще продолжать все эти процедуры",
+        router_result=RouterResult(RequestType.EMOTIONAL, ModelTier.PRO, "emotion", 2),
+    )
+
+    assert stages[-1] == "memory_write"
+    assert resp.response.startswith("Слышу, как тебе тяжело.")
+    assert resp.response.rstrip().endswith(SAFETY_FOOTER_PASSIVE.strip())
+    bg = resp.diagnostics["boundary_guard"]
+    assert bg["type"] == "safety_llm" and bg["action"] == "footer"
+
+
+async def test_safety_llm_plan_short_circuits_before_generation(stub_llm):
+    client = stub_llm(
+        _ok_result(_card()),
+        safety=SafetyAssessment(level="plan_or_imminent", subject="self", available=True),
+    )
+
+    resp, stages = await _run(
+        "решил уже. на выходных, когда дома никого не будет",
+        router_result=RouterResult(RequestType.EMOTIONAL, ModelTier.PRO, "emotion", 2),
+    )
+
+    assert stages == ["boundary_guard"]
+    assert client.structured_calls == 0
+    assert "8-800-2000-122" in resp.response
+    assert resp.account_id == "BOUNDARY_GUARD_SAFETY_LLM"
+
+
+async def test_safety_footer_not_doubled_when_agent_self_escalates(stub_llm):
+    """classifier дал passive (плашка), но агент сам поднял urgent → ответ
+    перекрыт кризис-протоколом, плашка НЕ дописывается (в тексте уже есть номер)."""
+    stub_llm(
+        _ok_result(_card(
+            reply="держись", safety_level="urgent", safety_kind="psychological",
+            safety_reason="прямая речь о нежелании жить",
+        )),
+        safety=SafetyAssessment(level="ideation_passive", subject="self", available=True),
+    )
+    resp, _ = await _run(
+        "не вижу смысла продолжать всё это",
+        router_result=RouterResult(RequestType.EMOTIONAL, ModelTier.PRO, "emotion", 2),
+    )
+    assert resp.response.count("8-800-2000-122") == 1     # ровно один телефон, не два
+    assert "держись" not in resp.response
+
+
+async def test_safety_llm_distress_sets_hint_no_footer(stub_llm):
+    """distress от классификатора: подсказка агенту (concern), плашки нет."""
+    stub_llm(
+        _ok_result(_card(reply="Слышу тебя.")),
+        safety=SafetyAssessment(level="distress", subject="self", available=True),
+    )
+    resp, stages = await _run(
+        "руки опускаются, ничего не хочу",
+        router_result=RouterResult(RequestType.EMOTIONAL, ModelTier.PRO, "emotion", 2),
+    )
+    assert stages[-1] == "memory_write"
+    assert resp.diagnostics["boundary_guard"]["action"] == "hint"
+    assert "8-800-2000-122" not in resp.response       # плашки нет
+    assert resp.response == "Слышу тебя."
 
 
 async def test_agent_urgent_verdict_is_overridden_by_the_safety_net(stub_llm):

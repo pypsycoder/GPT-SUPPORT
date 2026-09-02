@@ -79,6 +79,10 @@ class PipelineContext:
     # ответ. Такой текст не должен получать постфикс с телефоном доверия —
     # см. _build_response в pipeline.py.
     response_is_fallback_error: bool = False
+    # Плашка в конец ответа агента (телефон доверия и т.п.). Ставит BoundaryGuardStage
+    # по вердикту LLM-классификатора суицид-риска; дописывает pipeline._build_response
+    # ПОСЛЕ генерации, если ответ не перекрыт и ещё не содержит телефон доверия.
+    safety_footer: str | None = None
     # Решение L0: разобранные показатели, уровень тревоги, продолжение интента.
     # Заполняется BoundaryGuardStage, используется дальше по пайплайну.
     l0: Any = None
