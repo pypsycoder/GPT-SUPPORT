@@ -737,39 +737,80 @@ async def _get_rag_context(
     return lines, meta, grounding_items
 
 
+# mood_after: 1=😔 2=😐 3=😊 (см. app/practices/schemas.py)
+_MOOD_WORD = {1: "стало тяжелее", 2: "без изменений", 3: "стало легче"}
+
+
 async def _get_practices_summary(patient_id: int, db: AsyncSession) -> list[str]:
-    """Выполненные практики за 7 дней + доступные активные практики (limit 5)."""
+    """Персональная история практик за 30 дней (что делал, как часто, самочувствие после)
+    + доступные практики, если пациент почти ничего не пробовал.
+
+    Даёт агенту опору: на какие практики пациента можно ссылаться как на «уже знакомые»
+    и какие он сам отметил как облегчающие."""
     from app.practices.models import PracticeCompletion, StandalonePractice
 
-    since = datetime.utcnow() - timedelta(days=7)
+    since = datetime.utcnow() - timedelta(days=30)
 
-    result = await db.execute(
-        select(func.count(PracticeCompletion.id)).where(
-            PracticeCompletion.patient_id == patient_id,
-            PracticeCompletion.completed_at >= since,
+    rows = (
+        await db.execute(
+            select(
+                StandalonePractice.title,
+                func.count(PracticeCompletion.id).label("n"),
+                func.max(PracticeCompletion.completed_at).label("last_at"),
+                func.avg(PracticeCompletion.mood_after).label("avg_mood"),
+            )
+            .join(
+                StandalonePractice,
+                StandalonePractice.id == PracticeCompletion.practice_id,
+            )
+            .where(
+                PracticeCompletion.patient_id == patient_id,
+                PracticeCompletion.completed_at >= since,
+            )
+            .group_by(StandalonePractice.title)
+            .order_by(
+                func.count(PracticeCompletion.id).desc(),
+                func.max(PracticeCompletion.completed_at).desc(),
+            )
+            .limit(6)
         )
-    )
-    completed_count = result.scalar() or 0
+    ).all()
 
-    result = await db.execute(
-        select(StandalonePractice)
-        .where(StandalonePractice.is_active == True)  # noqa: E712
-        .limit(5)
-    )
-    practices = result.scalars().all()
+    lines: list[str] = []
+    if rows:
+        done_bits: list[str] = []
+        helped: list[str] = []
+        for title, n, last_at, avg_mood in rows:
+            when = last_at.strftime("%d.%m") if last_at else "?"
+            bit = f"{title} — {n}×, последний раз {when}"
+            if avg_mood is not None:
+                word = _MOOD_WORD.get(round(float(avg_mood)))
+                if word:
+                    bit += f", по ощущениям: {word}"
+                if float(avg_mood) >= 2.5:
+                    helped.append(title)
+            done_bits.append(bit)
+        lines.append("за 30 дней: " + "; ".join(done_bits))
+        if helped:
+            lines.append("отмечал облегчение после: " + ", ".join(helped))
 
-    if completed_count == 0 and not practices:
-        return []
+    # Доступные практики показываем только новичку — иначе шум в контексте
+    if len(rows) < 3:
+        practices = (
+            await db.execute(
+                select(StandalonePractice)
+                .where(StandalonePractice.is_active == True)  # noqa: E712
+                .order_by(StandalonePractice.module_id, StandalonePractice.id)
+                .limit(5)
+            )
+        ).scalars().all()
+        if practices:
+            items = ", ".join(
+                f"{p.title} ({p.icf_domain})" if p.icf_domain else p.title
+                for p in practices
+            )
+            lines.append(f"доступные: {items}")
 
-    lines = []
-    if completed_count > 0:
-        lines.append(f"Практики выполнено за 7 дней: {completed_count}")
-    if practices:
-        items = ", ".join(
-            f"{p.title} ({p.icf_domain})" if p.icf_domain else p.title
-            for p in practices
-        )
-        lines.append(f"Доступные практики: {items}")
     return lines
 
 
