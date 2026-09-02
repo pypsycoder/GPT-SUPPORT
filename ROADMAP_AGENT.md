@@ -1,12 +1,33 @@
  ROADMAP_AGENT.md — Дорожная карта агента поддержки
 
-> **Статус на 2026-08-30**: Спринт 1 закрыт по коду, **Фаза 2 закрыта по коду**
-> (единый координатор + cutover), Фаза 4 частично (`education_cta`, рейт-лимит,
-> сон из чата → кнопка, `proactive_anomaly.txt`, STRUCTURE.md).
+> **Статус на 2026-09-02**: всё накопленное **закоммичено и запушено** на
+> `feat/agents-rework` (`8c14fdd..b97be3f`). Спринт 1 закрыт по коду, **Фаза 2
+> закрыта по коду** (единый координатор + cutover), **Фаза 4 закрыта по коду**
+> (`education_cta`, рейт-лимит, сон/routine из чата → кнопка, `proactive_anomaly.txt`,
+> STRUCTURE.md, `buttons_json`, часовые пояса, миграция `account_id` применена).
+> `crisis_semantic` — валидация провалена, слой удалён; L0 regex усилен + заведён
+> LLM-классификатор суицид-риска (`safety_classifier.py`, флаг `LLM_SAFETY_LLM` ON):
+> golden **test-сплит** (holdout) recall {act,plan}/self **91%**, FPR distress 3%,
+> patient-sim 0 ложных кризис-эскалаций.
 > **Фаза 3 (внешний канал доставки) снята** — доставка только веб.
-> Открыто: **staging-smoke Фаз 1–2** → снести старые `deliver_*`; затем routine
-> из чата, `crisis_semantic`, миграция `account_id`.
+> **Открыто:** staging-smoke Фаз 1–2 → снести старые `deliver_*`; снять флаг
+> `LLM_SAFETY_LLM`; Фаза 5 (нужна постановка исследователя).
 > Детали — по фазам ниже (✅ готово · 🟡 код готов, ждёт staging · ⬜ не начато).
+
+## Связанные документы
+
+Основной статус — здесь. Развёрнутые отчёты — в `docs/agent/` (политика: корневые
+`.md` не плодить, см. `CLAUDE.md` → «Документация»):
+
+| Документ | О чём |
+|---|---|
+| `SPRINT1_INVESTIGATIONS.md` (корень) | Аудит GigaChat-аккаунта (Фаза 0 §1), замер префиксного кэша (§2) |
+| `docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md` | LLM-классификатор суицид-риска: контракт, встраивание, градация уровней, цифры |
+| `docs/agent/CRISIS_SEMANTIC_VALIDATION.md` | Почему embedding-слой `crisis_semantic` провалил валидацию и удалён |
+| `docs/agent/PLAN_TOMORROW.md` | План на 2026-09-01 + NIGHT REPORT (holdout-сверка safety, латентность, 2-й проход L0) |
+| `docs/agent/MIGRATION_1NN_REPORT.md` | Миграция контента к схеме id 1NN/2NN/3NN — разведка, решения, `20260830_01` |
+| `docs/agent/TASK_migration_content_ids.md` | Исходная постановка задачи по миграции id |
+| `ALEMBIC_RUNBOOK.md` (корень) | Порядок запуска миграций, верификация revision, правила `stamp` |
 
 ## Контекст
 
@@ -210,10 +231,29 @@
   распорядок дня» (`open_schedule` → `/patient/routine`), без LLM.
   `router_cascade`: `routine_entry` → SIMPLE/LITE. Полная запись в
   `routine.daily_verifications` из чата не собирается (нужны активности плана).
-- [ ] **`crisis_semantic`.** Проверить на `safety-bench` / `patient-sim` →
-  `LLM_CRISIS_SEMANTIC=true` → убрать флаг совсем (как коммит `2316a40` с
-  остальными флагами каскада).
-- [~] **Гигиена.**
+- [x] **`crisis_semantic` — валидация 2026-08-31: НЕ прошёл, удалён.**
+  Отчёт `docs/agent/CRISIS_SEMANTIC_VALIDATION.md`. На sha256-pinned golden set рабочей точки
+  нет (при терпимом FPR recall {act,plan}/self ≤57%, обрыв диалога на ~30% дистресса).
+  Прежний «margin=0.03 → 15/15» (N=15) не воспроизвёлся.
+  - [x] `crisis_semantic.py` + `crisis_prototypes.py` + calibrate/build-скрипты +
+    тесты + ветка в `boundary_guard` + флаг `LLM_CRISIS_SEMANTIC` — **удалены**.
+  - [x] L0 regex — точечная правка: ё/е, «буду прыгать», «отравлюсь таблетками»,
+    «сделаю петлю», «нож приготовлен», «раздаю вещи», «уснуть навсегда» и т.д.
+    **Recall на golden test 43% → 68%**, FPR не вырос. 187 safety-тестов зелёные.
+  - [x] **LLM-классификатор суицид-риска заведён** 2026-08-31 (`app/llm/safety_classifier.py`,
+    рубрика из safety-bench, флаг `LLM_SAFETY_LLM` default ON). Градация: plan → обрыв,
+    active → агент + жёсткая плашка, passive → агент + мягкая плашка + concern, distress →
+    concern. `docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md`.
+    - [x] Сверка на **test-сплите** golden set (holdout, L0+LLM): recall
+      {act,plan}/self **91%** (было 43–68%), FPR `none` 4% (L0 на слове-теме),
+      FPR distress 3%. patient-sim: **0 ложных кризис-эскалаций**. Латентность
+      Lite-вызова ~250 мс (serial ок). `docs/agent/PLAN_TOMORROW.md` §NIGHT REPORT.
+    - [ ] Снять флаг `LLM_SAFETY_LLM` (как `2316a40`) — решение Дмитрия; цифры на
+      holdout позволяют. Опционально: рубрику допилить на «пора заканчивать это
+      всё» → `ideation_active` (тюнить на dev).
+  - [x] Всё выше **закоммичено и запушено** 2026-09-02: `73daf2c` (safety-слой),
+    `29a0820`/`e1edb89`/`704f210`/`196f94d`/`b97be3f` — ветка `feat/agents-rework`.
+- [x] **Гигиена.**
   - [x] рейт-лимит на `/api/chat/message` — `app/llm/rate_limit.py` (in-process
     скользящее окно на пациента, `CHAT_RATE_LIMIT_MAX` / `_WINDOW_SEC`) 2026-08-30
   - [x] `GET /api/chat/history` отдаёт `buttons_json` — кнопки (дайджест,
@@ -226,10 +266,14 @@
     одном поясе с `created_at`, а не наивное время Python) (2026-08-30).
     `proactive.py` `utcnow()` в дедупе 6ч оставлен — код мёртвый после cutover,
     а `func.now()`-арифметика ломает sqlite-тесты
-  - [ ] миграция `llm.llm_request_logs.account_id` VARCHAR(20)→(64) — по явному
-    запросу (сейчас срез `[:20]` в `pipeline.py` уже защищает от 500)
+  - [x] миграция `llm.*.account_id` VARCHAR(20)→(64) *(2026-09-02)*. alembic
+    `20260901_01`, применена к `hemo_db` (head `20260901_01`), коммит `704f210`.
+    Обе колонки (`llm_request_logs`, `llm_call_log`), модель и срез `[:20]` в
+    `pipeline.py` убраны — тег источника раннего ответа пишется целиком.
+    `docs/agent/PLAN_TOMORROW.md` §A7.
 
-**Оценка:** 1–2 спринта, задачи независимы.
+**Оценка:** 1–2 спринта, задачи независимы. — Фаза 4 закрыта по коду, кроме снятия
+флага `LLM_SAFETY_LLM`.
 
 ### Фаза 5 — Инструментирование под исследование
 
@@ -330,7 +374,9 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
   дедуп). После — удалить `deliver_morning_message` / `deliver_proactive_messages`
   / `deliver_motivator_messages` / `ensure_morning_message_bg` /
   `deliver_motivator_messages_bg` и их тесты.
-- [ ] Фаза 4 остаток: `crisis_semantic` (нужен safety-bench), миграция `account_id`.
+- [ ] Снять флаг `LLM_SAFETY_LLM` после живой проверки классификатора.
+- [x] ~~Фаза 4 остаток: `crisis_semantic`, миграция `account_id`~~ — закрыто
+  2026-08-31…09-02 (слой удалён + LLM-классификатор; `account_id` применена).
 - [ ] Фаза 5: инструментирование под исследование (нужна постановка).
 
 ## Приложение — связь с находками аудита
@@ -350,8 +396,8 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
 | ✅ | Сон из чата: «сказал записал — не записал» | 1 — ложный «Записал» убран + кнопка в трекер сна (2026-08-30); запись через диалог снята из плана |
 | ✅ | `education_cta` захардкожен `None` | 4 — `build_education_cta` + вызов в супервизоре (2026-08-30) |
 | ✅ | Распорядок дня из чата не вносится | 4 — кнопка в трекер по образцу сна (2026-08-30) |
-| ⬜ | `crisis_semantic` выключен флагом | 4 |
-| ⬜ | `account_id` VARCHAR(20) | 4 |
+| ✅ | `crisis_semantic` выключен флагом | 4 — валидация провалена, слой **удалён** 2026-08-31; L0 regex усилен + заведён **LLM-классификатор** (`safety_classifier.py`, golden test-сплит recall {act,plan}/self 91%, patient-sim 0 ложных). Осталось снять флаг. `docs/agent/CRISIS_SEMANTIC_VALIDATION.md`, `docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md` |
+| ✅ | `account_id` VARCHAR(20) | 4 — расширена до VARCHAR(64), alembic `20260901_01` применена 2026-09-02, коммит `704f210` |
 | ✅ | Рейт-лимита на `/api/chat/message` нет | 4 — `app/llm/rate_limit.py` (2026-08-30) |
 | ✅ | STRUCTURE.md отстал (4 стадии vs 5) | 4 — обновлён 2026-08-29 (5 стадий, `DataEntryStage`, вх. контракт, замер кэша) + daily_context 2026-08-30 |
 | ✅ | отсутствует `prompts/proactive_anomaly.txt` | 4 — создан 2026-08-30 |
