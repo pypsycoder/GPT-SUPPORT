@@ -149,9 +149,9 @@ class LLMRequestLog(Base):
     )
 
     account_id: Mapped[str] = mapped_column(
-        sa.String(20),
+        sa.String(64),
         nullable=False,
-        comment="ID аккаунта GigaChat (A1, A2, ...)",
+        comment="ID аккаунта GigaChat (A1, A2, ...) либо тег источника раннего ответа",
     )
 
     model_tier: Mapped[str] = mapped_column(
@@ -238,7 +238,7 @@ class LLMCallLog(Base):
         ),
     )
 
-    account_id: Mapped[str] = mapped_column(sa.String(20), nullable=False)
+    account_id: Mapped[str] = mapped_column(sa.String(64), nullable=False)
 
     model: Mapped[str] = mapped_column(sa.String(60), nullable=False)
 

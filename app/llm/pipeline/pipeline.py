@@ -210,16 +210,12 @@ class LLMPipeline:
             )
             log = LLMRequestLog(
                 patient_id=request.patient_id,
-                # account_id — VARCHAR(20) в БД. Для настоящих LLM-ходов сюда
-                # попадает короткий account_id пула ("A1-pro"), но boundary_guard
-                # переиспользует это же поле под тег источника раннего ответа
-                # (early_response_source.upper()) — и "BOUNDARY_GUARD_MEDICAL_URGENT"
-                # (29 симв.) шире колонки. Без среза flush() падает с
-                # StringDataRightTruncationError, пойманной здесь try/except-ом,
-                # но оставляющей сессию в pending-rollback — следующий
-                # session.commit() в вызывающем роутере (app/routers/chat.py)
-                # уже не поймать, и пациент в кризисе получает 500 вместо ответа.
-                account_id=(account_id or "UNKNOWN")[:20],
+                # account_id — VARCHAR(64) в БД (ревизия 20260901_01). Для настоящих
+                # LLM-ходов сюда попадает короткий account_id пула ("A1-pro"), но
+                # boundary_guard переиспользует это же поле под тег источника раннего
+                # ответа (early_response_source.upper()) — самый длинный тег
+                # "BOUNDARY_GUARD_MEDICAL_URGENT" (29 симв.) теперь помещается.
+                account_id=account_id or "UNKNOWN",
                 model_tier=model_tier or "unknown",
                 tokens_input=response.tokens_input if response is not None else int(context.response_tokens_input or 0),
                 tokens_output=response.tokens_output if response is not None else int(context.response_tokens_output or 0),

@@ -33,12 +33,14 @@ async def pipeline_logging_session_ctx() -> AsyncSession:
 async def test_boundary_guard_account_id_fits_the_column():
     """Живым прогоном (фаза 2, LLM_test/reports): boundary_guard теговал
     account_id как early_response_source.upper() — "BOUNDARY_GUARD_MEDICAL_URGENT"
-    (29 симв.) шире реальной колонки llm_request_logs.account_id VARCHAR(20).
+    (29 симв.) шире прежней колонки llm_request_logs.account_id VARCHAR(20).
     На Postgres это валило flush() внутри _log_to_database, оставляя сессию
     в pending-rollback — следующий commit() в app/routers/chat.py падал уже
-    без обработки, и пациент в кризисе получал 500 вместо ответа. sqlite (эта
-    тестовая БД) молча проглатывает превышение длины, поэтому здесь проверяем
-    содержимое явно, а не полагаемся на движок, чтобы поймать регресс."""
+    без обработки, и пациент в кризисе получал 500 вместо ответа.
+
+    Ревизия 20260901_01 расширила колонку до VARCHAR(64), а pipeline.py убрал
+    срез [:20] — тег источника раннего ответа теперь пишется целиком. Проверяем
+    это явно: sqlite (тестовая БД) молча проглотил бы и обрезку, и превышение."""
     async with pipeline_logging_session_ctx() as session:
         patient = User(full_name="Patient Boundary", patient_number=2002)
         session.add(patient)
@@ -65,5 +67,6 @@ async def test_boundary_guard_account_id_fits_the_column():
         result = await session.execute(select(LLMRequestLog))
         log = result.scalar_one()
 
-        assert len(log.account_id) <= 20
-        assert log.account_id == "BOUNDARY_GUARD_CRISIS"[:20]
+        assert log.account_id == "BOUNDARY_GUARD_CRISIS"  # целиком, без среза [:20]
+        # самый длинный тег источника раннего ответа помещается в колонку
+        assert len("BOUNDARY_GUARD_MEDICAL_URGENT") <= LLMRequestLog.__table__.c.account_id.type.length
