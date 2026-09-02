@@ -532,7 +532,7 @@
             await loadLessonTestInfo();
 
             // 4. пробуем загрузить практику к этому уроку
-            const moduleId = String(currentLesson.order_index || 0).padStart(2, '0');
+            const moduleId = String(currentLesson.order_index || 0);
             practiceTeaserData = await loadPracticeForLesson(moduleId);
 
             currentIndex = 0;

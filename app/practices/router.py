@@ -18,7 +18,7 @@ router = APIRouter(tags=["practices"])
 
 @router.get("/practices", response_model=List[PracticeOut])
 async def list_practices(
-    module_id: Optional[str] = Query(default=None, description="Фильтр по module_id (напр. '01')"),
+    module_id: Optional[str] = Query(default=None, description="Фильтр по module_id (напр. '101', '202')"),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_async_session),
 ):

@@ -8,20 +8,21 @@
 """
 CLI-скрипт импорта тестов уроков из JSON/MD-файлов в БД.
 
-Формат имени файла:
-    nn.Название-тест.md
+Формат имени файла (схема 1NN/2NN/3NN):
+    NNN_Название-тест.md
 
 Примеры:
-    01.Стресс-тест.md
-    02.Эмоции-тест.md
+    101_Стресс-тест.md
+    202_Питание-тест.md
 
 Поведение:
-    * nn -> порядковый номер урока (order)
+    * NNN -> номер модуля = order_index урока = test_id
     * Название-тест -> русское название теста
     * slug = slugify(Название-тест) -> "stress-test"
-    * lesson_code_full = "{nn}_{slug}"  -> "01_stress-test"
-    * lesson_code_base = "{nn}_{slug_base}", где slug_base = до первого "-" -> "01_stress"
+    * lesson_code_full = "{NNN}_{slug}"  -> "101_stress-test"
+    * lesson_code_base = "{NNN}_{slug_base}", где slug_base = до первого "-" -> "101_stress"
       (это позволит привязать тест "Стресс-тест" к уроку "Стресс")
+    * повторный импорт обновляет тест по code, а не создаёт дубль
 
 Внутри файла:
     * содержится JSON-массив вопросов:
@@ -39,12 +40,7 @@ CLI-скрипт импорта тестов уроков из JSON/MD-файл�
         ]
 """
 
-from app.core.config import load_environment
-
-
-load_environment()
-
-# --- настройка пути к проекту ---
+# --- настройка пути к проекту (до импортов из app/core) ---
 import sys
 from pathlib import Path
 
@@ -53,13 +49,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 # --- конец настройки пути ---
 
+from app.core.config import load_environment
+
+load_environment()
+
 import argparse
 import asyncio
 import json
 import re
 from typing import List, Tuple, Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from core.db.engine import engine as async_engine
@@ -130,17 +130,17 @@ def guess_lesson_codes(order: int, test_title_ru: str) -> Tuple[Optional[str], O
     По названию теста пытаемся угадать код урока.
 
     Пример:
-        order = 1, test_title_ru = "Стресс-тест"
+        order = 101, test_title_ru = "Стресс-тест"
         slug_full  = "stress-test"
-        lesson_code_full = "01_stress-test"
+        lesson_code_full = "101_stress-test"
         slug_base = "stress"
-        lesson_code_base = "01_stress"
+        lesson_code_base = "101_stress"
     """
     slug_full = slugify(test_title_ru)
-    lesson_code_full = f"{order:02d}_{slug_full}" if slug_full else None
+    lesson_code_full = f"{order:03d}_{slug_full}" if slug_full else None
 
     slug_base = slug_full.split("-")[0] if slug_full else None
-    lesson_code_base = f"{order:02d}_{slug_base}" if slug_base else None
+    lesson_code_base = f"{order:03d}_{slug_base}" if slug_base else None
 
     return lesson_code_full, lesson_code_base
 
@@ -178,11 +178,12 @@ def load_questions_from_file(path: Path) -> List[dict]:
 
 def _lesson_order_for_lookup(order_from_name: int, block_code: Optional[str]) -> int:
     """
-    В блоке nephrology тесты могут быть названы 11_, 12_, ... 18_ (соответствуют урокам 1–8).
-    Возвращает order_index для поиска урока в БД.
+    Возвращает order_index для поиска урока в БД по префиксу имени файла теста.
+
+    Со схемой 1NN/2NN/3NN (введена 30.08.2026) номер файла теста равен order_index
+    урока напрямую (101_… ↔ урок 101, 202_… ↔ урок 202). Прежний спецкейс
+    «nephrology 11–18 → 1–8» больше не нужен.
     """
-    if block_code == "nephrology" and 11 <= order_from_name <= 18:
-        return order_from_name - 10
     return order_from_name
 
 
@@ -277,56 +278,78 @@ async def async_import_test(path: Path, block_code: Optional[str] = None) -> Non
         )
         print(f"  ✅ урок найден (id={lesson.id}, code={getattr(lesson, 'code', None)})")
 
-        # Определяем order_index теста: max+1, если есть поле
-        next_order_index = None
-        if hasattr(LessonTest, "order_index"):
-            max_order_res = await session.execute(
-                select(func.max(LessonTest.order_index)).where(
-                    LessonTest.lesson_id == lesson.id
-                )
-            )
-            max_order = max_order_res.scalar()
-            next_order_index = (max_order or 0) + 1
-
         # ---- Генерируем code для LessonTest ----
         test_code = None
         if hasattr(LessonTest, "code"):
-            # пробуем использовать lesson_code_full, например "01_stress-test"
+            # пробуем использовать lesson_code_full, например "101_stress-test"
             test_code = lesson_code_full
 
             # если вдруг не получилось — делаем fallback от lesson.code + slug(test_title)
             if not test_code:
-                base = getattr(lesson, "code", None) or f"{order_from_name:02d}"
+                base = getattr(lesson, "code", None) or f"{order_from_name:03d}"
                 test_slug = slugify(test_title_ru)
                 if test_slug:
                     test_code = f"{base}_{test_slug}"
                 else:
                     test_code = f"{base}_test"
 
-        # Создаём LessonTest
-        test_kwargs = {"lesson_id": lesson.id}
+        # ---- Ищем существующий тест: сначала по code (unique), затем по lesson_id ----
+        # code уникален, поэтому повторный импорт должен обновлять запись, а не плодить дубли
+        # (иначе lesson_test_results.test_id укажет на старый тест).
+        existing_test = None
+        if test_code and hasattr(LessonTest, "code"):
+            existing_test = await session.scalar(
+                select(LessonTest).where(LessonTest.code == test_code)
+            )
+        if existing_test is None:
+            existing_test = await session.scalar(
+                select(LessonTest)
+                .where(LessonTest.lesson_id == lesson.id)
+                .order_by(LessonTest.id)
+            )
 
-        if hasattr(LessonTest, "code") and test_code:
-            test_kwargs["code"] = test_code
+        if existing_test is not None:
+            test = existing_test
+            test.lesson_id = lesson.id
+            if hasattr(LessonTest, "code") and test_code:
+                test.code = test_code
+            if hasattr(LessonTest, "title"):
+                test.title = test_title_ru
+            if hasattr(LessonTest, "is_active"):
+                test.is_active = True
+            # старые вопросы убираем — заменяем содержимым файла
+            await session.execute(
+                delete(LessonTestQuestion).where(LessonTestQuestion.test_id == test.id)
+            )
+            await session.flush()
+            print(f"  ♻️  обновлён LessonTest id={test.id} (code={test_code}) для lesson_id={lesson.id}")
+        else:
+            # order_index теста: max+1 в рамках урока
+            next_order_index = None
+            if hasattr(LessonTest, "order_index"):
+                max_order_res = await session.execute(
+                    select(func.max(LessonTest.order_index)).where(
+                        LessonTest.lesson_id == lesson.id
+                    )
+                )
+                next_order_index = (max_order_res.scalar() or 0) + 1
 
-        if hasattr(LessonTest, "title"):
-            # Имя теста — как в имени файла, либо можно сделать "Тест: <lesson.title>"
-            test_kwargs["title"] = test_title_ru
+            test_kwargs = {"lesson_id": lesson.id}
+            if hasattr(LessonTest, "code") and test_code:
+                test_kwargs["code"] = test_code
+            if hasattr(LessonTest, "title"):
+                test_kwargs["title"] = test_title_ru
+            if hasattr(LessonTest, "short_description"):
+                test_kwargs["short_description"] = None
+            if hasattr(LessonTest, "order_index") and next_order_index is not None:
+                test_kwargs["order_index"] = next_order_index
+            if hasattr(LessonTest, "is_active"):
+                test_kwargs["is_active"] = True
 
-        if hasattr(LessonTest, "short_description"):
-            test_kwargs["short_description"] = None
-
-        if hasattr(LessonTest, "order_index") and next_order_index is not None:
-            test_kwargs["order_index"] = next_order_index
-
-        if hasattr(LessonTest, "is_active"):
-            test_kwargs["is_active"] = True
-
-        test = LessonTest(**test_kwargs)
-        session.add(test)
-        await session.flush()  # получаем test.id
-
-        print(f"  ➕ создан LessonTest id={test.id} для lesson_id={lesson.id}")
+            test = LessonTest(**test_kwargs)
+            session.add(test)
+            await session.flush()  # получаем test.id
+            print(f"  ➕ создан LessonTest id={test.id} для lesson_id={lesson.id}")
 
         # ===== вставляем вопросы и commit =====
         created = 0

@@ -2,18 +2,18 @@
 CLI-скрипт импорта урока из markdown в БД.
 
 Формат имени файла:
-    nn.Название.md
+    NNN.Название.md   (психология: 1NN.)  /  NNN_Название.md  (гемодиализ: 2NN_)
 
 Примеры:
-    01.Стресс.md
-    02.Эмоции.md
-    05.Копинг-стратегии.md
+    101.Стресс.md
+    102.Эмоции.md
+    202_Питание.md
 
 Поведение:
-    * nn -> порядковый номер урока (order)
+    * NNN -> порядковый номер урока = номер модуля (order_index), схема 1NN/2NN/3NN
     * Название -> русское название урока
-    * slug = translit(Название) -> "stress", "emocii", "koping-strategii"
-    * lesson_code = "{nn}_{slug}" -> "01_stress"
+    * slug = translit(Название) -> "stress", "emocii", "pitanie-i-dieta"
+    * lesson_code = "{NNN}_{slug}" -> "101_stress"
 
 Внутри файла:
     * Урок режется на карточки по заголовкам второго уровня "## ..."
@@ -180,8 +180,9 @@ async def async_import_lesson(path: Path, block_code: Optional[str] = None) -> N
     lesson_title = title_from_h1 or title_from_name
 
     slug = slugify(lesson_title) or slugify(title_from_name)
-    # code — стабильный идентификатор урока (для API и поиска)
-    lesson_code = f"{order_from_name:02d}_{slug}"
+    # code — стабильный идентификатор урока (для API и поиска).
+    # Префикс трёхзначный по схеме 1NN/2NN/3NN (первая цифра — блок): 101_stress, 202_pitanie-i-dieta.
+    lesson_code = f"{order_from_name:03d}_{slug}"
 
     print(f"  order: {order_from_name}, title: {lesson_title}, code: {lesson_code}")
 

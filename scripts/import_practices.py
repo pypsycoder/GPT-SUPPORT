@@ -1,12 +1,18 @@
 """
-Импорт практик из practices_block_a.md в БД.
+Импорт практик из content/practice/practices_*.md в БД.
 
-Формат файла: один большой md-файл с практиками, разделёнными ```.
-Каждая практика содержит вложенный блок ```markdown ... ```.
+Формат файла: один md-файл на блок, практики разделены заголовками
+`## П-NNN · тема · тип`. Тело каждой практики — вложенный блок ```markdown ... ```.
+
+Идентификатор практики берётся из заголовка `## П-NNN` (NNN — трёхзначный,
+первая цифра = блок: 1NN психология / 2NN гемодиализ / 3NN сквозной) и кладётся
+в БД как `pNNN`. Поле **Модуль** внутри блока указывает на урок практики и
+хранится строкой ('101', '202', ...).
 
 Запуск:
-    python scripts/import_practices.py [path/to/practices_block_a.md]
-    (по умолчанию: content/practice/practices_block_a.md)
+    python scripts/import_practices.py                      # все три файла блоков
+    python scripts/import_practices.py path/to/practices_x.md
+    python scripts/import_practices.py path/to/dir/          # все practices_*.md в папке
 """
 
 import sys
@@ -37,8 +43,14 @@ from app.practices.models import StandalonePractice as Practice
 #  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================================
 
-# Regex для поиска всех блоков ```markdown ... ```
-CODEBLOCK_RE = re.compile(r"```markdown\s*\n(.*?)```", re.DOTALL)
+# Regex для пар «заголовок практики ## П-NNN … » + следующий блок ```markdown ... ```
+# NNN — трёхзначный шифр; тело практики идёт первым ```markdown после заголовка.
+PRACTICE_BLOCK_RE = re.compile(
+    r"^##\s*П-(?P<num>\d{3})\b[^\n]*\n"       # заголовок ## П-NNN · тема · тип
+    r"(?P<between>(?:(?!^##\s).)*?)"           # html-комментарий/пустые строки, но не следующий ##
+    r"```markdown\s*\n(?P<body>.*?)\n```",     # тело практики
+    re.DOTALL | re.MULTILINE,
+)
 
 # Regex для полей **Поле:** значение
 BOLD_FIELD_RE = re.compile(r"\*\*([^*]+):\*\*\s+(.+)")
@@ -56,25 +68,6 @@ NUMBERED_STEP_RE = re.compile(r"^\d+\.\s+(.+)$")
 def strip_emoji(text: str) -> str:
     """Убрать emoji и прочие не-буквенные символы в начале строки."""
     return re.sub(r"^[^\w]+", "", text, flags=re.UNICODE).strip()
-
-
-def make_practice_id(module_id: str, practice_type: str, raw_title: str) -> str:
-    """
-    Генерирует стабильный ID практики.
-
-    Логика: берём все цифры из заголовка (до очистки emoji).
-    Если суммарная длина >= 2 — добавляем как суффикс.
-    Иначе ID = p{module_id}_{type}.
-
-    Примеры:
-        '🌬️ 4-7-8: дыхание...' → p01_breathing_478
-        '🌿 Заземление 5-4-3-2-1' → p02_body_54321
-        '⬛ Квадратное дыхание'   → p03_breathing
-    """
-    digits = "".join(re.findall(r"\d+", raw_title))
-    if len(digits) >= 2:
-        return f"p{module_id}_{practice_type}_{digits}"
-    return f"p{module_id}_{practice_type}"
 
 
 def parse_sections(md: str) -> dict[str, str]:
@@ -127,9 +120,10 @@ def parse_instruction(instruction_raw: str) -> list[str]:
     return steps
 
 
-def parse_practice_block(md: str) -> dict:
+def parse_practice_block(md: str, practice_id: str) -> dict:
     """
     Парсит один markdown-блок практики.
+    `practice_id` — шифр из заголовка `## П-NNN`, приведённый к виду `pNNN`.
     Возвращает dict с полями для таблицы practices.
     Выбрасывает ValueError при ошибке.
     """
@@ -152,8 +146,16 @@ def parse_practice_block(md: str) -> dict:
     module_id = fields.get("модуль", "").strip()
     if not module_id:
         raise ValueError(f"Не найдено поле 'Модуль' в практике '{title}'")
-    # Нормализуем до двузначного с ведущим нулём
-    module_id = module_id.zfill(2)
+    if not re.fullmatch(r"[123]\d{2}", module_id):
+        raise ValueError(
+            f"Поле 'Модуль' практики '{title}' = {module_id!r}, ожидался трёхзначный "
+            f"код 1NN/2NN/3NN"
+        )
+    # module_id хранится строкой ('101', '202'); фиксированная ширина сортируется корректно
+    if module_id[0] != practice_id[1]:
+        raise ValueError(
+            f"Блок практики {practice_id!r} и её Модуль {module_id!r} из разных блоков"
+        )
 
     practice_type = fields.get("тип", "").strip()
     if not practice_type:
@@ -190,9 +192,6 @@ def parse_practice_block(md: str) -> dict:
     except ValueError:
         duration_seconds = 0
 
-    # --- ID ---
-    practice_id = make_practice_id(module_id, practice_type, raw_title)
-
     return {
         "id": practice_id,
         "module_id": module_id,
@@ -216,34 +215,55 @@ def parse_practice_block(md: str) -> dict:
 #  ИМПОРТ В БД
 # ============================================================
 
-async def import_practices(source_file: Path) -> None:
-    """Основная функция импорта: читает файл, парсит, делает upsert в БД."""
-    if not source_file.is_file():
-        print(f"[ERROR] Файл не найден: {source_file}")
-        sys.exit(1)
-
+def parse_practice_file(source_file: Path) -> tuple[list[dict], int]:
+    """Парсит один md-файл блока → (список практик, число ошибок парсинга)."""
     md_content = source_file.read_text(encoding="utf-8")
 
-    # Найти все вложенные ```markdown блоки
-    blocks = CODEBLOCK_RE.findall(md_content)
-    if not blocks:
-        print("[ERROR] Не найдено ни одного блока ```markdown в файле")
-        sys.exit(1)
+    matches = list(PRACTICE_BLOCK_RE.finditer(md_content))
+    if not matches:
+        print(f"  [WARN] {source_file.name}: не найдено ни одной пары '## П-NNN' + ```markdown")
+        return [], 0
 
-    print(f"[INFO] Найдено блоков для парсинга: {len(blocks)}")
-
-    # Распарсить каждый блок
     parsed: list[dict] = []
     parse_errors = 0
-
-    for i, block in enumerate(blocks, start=1):
+    for m in matches:
+        num = m.group("num")
+        practice_id = f"p{num}"
         try:
-            data = parse_practice_block(block)
+            data = parse_practice_block(m.group("body"), practice_id)
             parsed.append(data)
-            print(f"  [{i}] OK: {data['id']} — {data['title']}")
+            print(f"  OK: {data['id']} (модуль {data['module_id']}) — {data['title']}")
         except ValueError as e:
-            print(f"  [{i}] ОШИБКА парсинга: {e}")
+            print(f"  ОШИБКА парсинга П-{num}: {e}")
             parse_errors += 1
+    return parsed, parse_errors
+
+
+async def import_practices(source_files: list[Path]) -> None:
+    """Основная функция импорта: читает файлы блоков, парсит, делает upsert в БД."""
+    missing = [f for f in source_files if not f.is_file()]
+    if missing:
+        for f in missing:
+            print(f"[ERROR] Файл не найден: {f}")
+        sys.exit(1)
+
+    parsed: list[dict] = []
+    parse_errors = 0
+    for source_file in source_files:
+        print(f"[INFO] {source_file}")
+        file_parsed, file_errors = parse_practice_file(source_file)
+        parsed.extend(file_parsed)
+        parse_errors += file_errors
+
+    # Коллизии id между файлами — фатально: id обязан быть уникален по всей схеме
+    seen: dict[str, str] = {}
+    for data in parsed:
+        if data["id"] in seen:
+            print(f"[ERROR] Дубль id {data['id']}: '{seen[data['id']]}' и '{data['title']}'")
+            sys.exit(1)
+        seen[data["id"]] = data["title"]
+
+    print(f"[INFO] Всего практик распознано: {len(parsed)}")
 
     if not parsed:
         print("[ERROR] Нет успешно распарсенных практик. Выход.")
@@ -288,17 +308,37 @@ async def import_practices(source_file: Path) -> None:
     )
 
 
+DEFAULT_PRACTICE_DIR = PROJECT_ROOT / "content" / "practice"
+
+
+def _resolve_sources(raw: Optional[str]) -> list[Path]:
+    """None → все practices_*.md в content/practice; путь-папка → practices_*.md в ней; путь-файл → он."""
+    if raw is None:
+        return sorted(DEFAULT_PRACTICE_DIR.glob("practices_*.md"))
+    p = Path(raw)
+    if p.is_dir():
+        return sorted(p.glob("practices_*.md"))
+    return [p]
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Импорт практик из md-файла в БД")
+    parser = argparse.ArgumentParser(
+        description="Импорт практик из content/practice/practices_*.md в БД"
+    )
     parser.add_argument(
         "file",
         nargs="?",
-        default=str(PROJECT_ROOT / "content" / "practice" / "practices_block_a.md"),
-        help="Путь к md-файлу с практиками",
+        default=None,
+        help="Путь к md-файлу блока или папке с practices_*.md "
+             "(по умолчанию: все три файла в content/practice/)",
     )
     args = parser.parse_args()
 
-    asyncio.run(import_practices(Path(args.file)))
+    sources = _resolve_sources(args.file)
+    if not sources:
+        print("[ERROR] Не найдено ни одного файла practices_*.md")
+        sys.exit(1)
+    asyncio.run(import_practices(sources))
 
 
 if __name__ == "__main__":

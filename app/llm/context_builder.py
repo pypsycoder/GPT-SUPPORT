@@ -209,7 +209,9 @@ def _extract_module_ids_from_grounding_items(
     seen: set[str] = set()
     for item in rag_grounding_items or []:
         lesson_code = str(item.get("lesson_code") or "")
-        match = re.match(r"^(\d{2})_", lesson_code)
+        # Префикс кода урока = номер модуля. Схема 1NN/2NN/3NN даёт три цифры
+        # (101_stress, 202_pitanie-i-dieta); поддерживаем и старый двузначный на переходный период.
+        match = re.match(r"^(\d{2,3})_", lesson_code)
         if not match:
             continue
         module_id = match.group(1)
