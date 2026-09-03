@@ -367,12 +367,17 @@
   `scheduler._PROACTIVE_CONCURRENCY = pool.proactive_concurrency`.
   ⚠ default `sber` — на мерже поведение не меняется; прод переводится
   `LLM_PROVIDER=cloudru` в env после проверки agent/кэша.
-- [ ] **Переключатель в админ-панели.** Кнопка/тумблер Cloud.ru ↔ Сбер в
-  researcher-панели (`app/researchers/router.py` + `frontend/researcher/`).
-  Персистентность: рантайм-конфига нет — завести (мини-таблица `llm.runtime_config`
-  или строка в новой `app_settings`; **нужна alembic-миграция**). Пул
-  перечитывает активный провайдер без рестарта (при смене — сброс/пересборка
-  клиентов). Только для роли researcher/admin, действие пишется в аудит.
+- [x] **Переключатель в админ-панели** *(2026-09-03)*. Универсальная таблица
+  `public.app_settings` (key/value/updated_at/updated_by, миграция `20260903_01`,
+  **применена к `hemo_db`**); доступ — `app/core/app_settings.py`. `AccountPool`:
+  `set_active_provider()` меняет активного в рантайме без пересборки (клиенты
+  обоих провайдеров уже в пуле), отклоняет провайдера без ключа. Эндпоинты
+  `GET/POST /api/v1/researcher/llm-provider` (`get_current_researcher`, пишет
+  `updated_by`). Lifespan `app/main.py` применяет сохранённый выбор на старте
+  (пусто → `LLM_PROVIDER` из env). Фронт: виджет `js/llm_provider.js` (сегмент
+  Сбер|Cloud.ru + строка «источник/кто менял») на **дашборде** и в **отладочном
+  чате** (`data-llm-provider`). Тесты `test_llm_provider.py` (+3). ⚠ фронт
+  кликом в браузере не гонял — эндпоинт-контракт проверен.
 - [ ] **Сбер на новый endpoint.** `app/llm/*` и `safety-bench/sbench/gigachat.py`
   — базовый адрес `https://api.giga.chat` + модель GigaChat 3 Ultra. Проверить
   доступность endpoint со staging (с dev не резолвится по TLS).

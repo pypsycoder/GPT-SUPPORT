@@ -160,6 +160,19 @@ class ResearcherChatDebugRequest(BaseModel):
     persist_messages: bool = False
 
 
+class LlmProviderStatus(BaseModel):
+    active: str                 # sber | cloudru — эффективный сейчас
+    env_default: str            # из LLM_PROVIDER
+    db_override: Optional[str] = None   # что сохранено в app_settings (или None)
+    configured: List[str] = []  # под кого есть ключи
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class LlmProviderUpdate(BaseModel):
+    provider: str               # sber | cloudru
+
+
 class ResearcherChatDebugResponse(BaseModel):
     response: str
     tokens_used: int

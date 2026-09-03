@@ -952,3 +952,54 @@ table.r-table {
   color: #374151;
   white-space: nowrap;
 }
+
+/* --- LLM provider switch (dashboard + chat-debug) --- */
+.llmp-box {
+  font-size: 0.85rem;
+  color: #374151;
+}
+.llmp-title {
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.llmp-seg {
+  display: inline-flex;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.llmp-btn {
+  padding: 0.35rem 0.9rem;
+  border: 0;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  font: inherit;
+}
+.llmp-btn + .llmp-btn {
+  border-left: 1px solid #d1d5db;
+}
+.llmp-btn.is-active {
+  background: #2563eb;
+  color: #fff;
+  cursor: default;
+}
+.llmp-btn.is-disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+.llmp-btn:not(.is-active):not(.is-disabled):hover {
+  background: #eff6ff;
+}
+.llmp-meta {
+  margin-top: 0.4rem;
+  color: #6b7280;
+  font-size: 0.78rem;
+}
+.llmp-msg {
+  margin-top: 0.3rem;
+  min-height: 1em;
+  font-size: 0.78rem;
+}
+.llmp-msg.is-ok { color: #166534; }
+.llmp-msg.is-error { color: #b91c1c; }

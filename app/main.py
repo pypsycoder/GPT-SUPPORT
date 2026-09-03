@@ -66,6 +66,23 @@ async def lifespan(_: FastAPI):
     get_shared_http_client("embeddings")
     await refresh_technique_cache()
 
+    # LLM-провайдер: применяем сохранённый в БД выбор (переключатель в
+    # researcher-панели). Пусто в БД → остаётся значение из LLM_PROVIDER.
+    from app.core.app_settings import LLM_PROVIDER_KEY, get_setting
+    from app.llm.pool import pool
+    from core.db.session import async_session_factory
+
+    try:
+        async with async_session_factory() as db:
+            saved_provider = await get_setting(db, LLM_PROVIDER_KEY)
+        if saved_provider:
+            pool.set_active_provider(saved_provider)
+    except Exception as exc:  # noqa: BLE001 — БД на старте недоступна → работаем на env
+        logger.warning("LLM provider from DB not applied: %s", exc)
+    logger.info(
+        "LLM chat provider: %s (env=%s)", pool.chat_provider, pool.env_provider
+    )
+
     # Проактивный планировщик. Стартует только при SCHEDULER_ENABLED=true и только
     # в одном процессе кластера — advisory-lock отсекает лишние воркеры
     # (`uvicorn --workers N`) и параллельный `python -m app.llm.worker`.

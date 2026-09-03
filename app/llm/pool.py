@@ -617,6 +617,10 @@ class AccountPool:
         if raw not in self._VALID_PROVIDERS:
             logger.warning("[pool] LLM_PROVIDER=%r не распознан → 'sber'", raw)
             raw = "sber"
+        # _env_provider — из окружения (дефолт при пустой БД-настройке).
+        # _chat_provider — эффективный: его меняет set_active_provider()
+        # (переключатель в researcher-панели, значение в public.app_settings).
+        self._env_provider = raw
         self._chat_provider = raw
         try:
             self._cloudru_concurrency = max(
@@ -629,6 +633,34 @@ class AccountPool:
     @property
     def chat_provider(self) -> str:
         return self._chat_provider
+
+    @property
+    def env_provider(self) -> str:
+        return self._env_provider
+
+    def configured_providers(self) -> list[str]:
+        """Провайдеры, под которые реально есть клиенты (заданы ключи)."""
+        return sorted({c.provider.name for c in self.clients})
+
+    def set_active_provider(self, name: str) -> bool:
+        """Переключить активного провайдера чата в рантайме (без пересборки —
+        клиенты обоих провайдеров уже в пуле). Возвращает True, если сменилось.
+
+        Отклоняет провайдера, под которого нет клиентов (не задан ключ).
+        """
+        name = (name or "").strip().lower()
+        if name not in self._VALID_PROVIDERS:
+            raise ValueError(f"неизвестный провайдер: {name!r}")
+        if name not in self.configured_providers():
+            raise LLMConfigurationError(
+                f"провайдер '{name}' не настроен — нет ключа "
+                f"({'CLOUD_RU_KEY' if name == 'cloudru' else 'GIGACHAT_KEY_*'})"
+            )
+        if name == self._chat_provider:
+            return False
+        logger.info("[pool] активный провайдер чата %s → %s", self._chat_provider, name)
+        self._chat_provider = name
+        return True
 
     def _discover_accounts(self) -> list[tuple[str, str]]:
         """``[(account_id, api_key), ...]`` из окружения.

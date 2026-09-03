@@ -23,8 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.session import get_async_session
 from app.auth.dependencies import get_current_researcher
+from app.core.app_settings import LLM_PROVIDER_KEY, get_setting_row, set_setting
 from app.llm.errors import LLMConfigurationError, LLMError
 from app.llm import memory_store
+from app.llm.pool import pool as _llm_pool
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.router_cascade import classify_request_async
 from app.llm.trace_humanizer import build_human_trace
@@ -50,6 +52,8 @@ from app.researchers.schemas import (
     TokensByDate,
     CohortItem,
     HumanTraceSection,
+    LlmProviderStatus,
+    LlmProviderUpdate,
     ResearcherChatDebugRequest,
     ResearcherChatDebugResponse,
 )
@@ -141,6 +145,52 @@ async def researcher_stats(
         **patient_stats,
         "usage": usage_stats,
     }
+
+
+# ---------------------------------------------------------------------------
+# LLM-провайдер: переключатель Cloud.ru ↔ Сбер (ROADMAP_AGENT.md Фаза 6)
+# ---------------------------------------------------------------------------
+
+async def _llm_provider_status(session: AsyncSession) -> LlmProviderStatus:
+    row = await get_setting_row(session, LLM_PROVIDER_KEY)
+    return LlmProviderStatus(
+        active=_llm_pool.chat_provider,
+        env_default=_llm_pool.env_provider,
+        db_override=row.value if row else None,
+        configured=_llm_pool.configured_providers(),
+        updated_by=row.updated_by if row else None,
+        updated_at=row.updated_at if row else None,
+    )
+
+
+@router.get("/llm-provider", response_model=LlmProviderStatus)
+async def get_llm_provider(
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await _llm_provider_status(session)
+
+
+@router.post("/llm-provider", response_model=LlmProviderStatus)
+async def set_llm_provider(
+    payload: LlmProviderUpdate,
+    researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Сменить активного LLM-провайдера чата на живой системе (без рестарта).
+
+    Пишем в ``public.app_settings`` (переживает рестарт — lifespan применит)
+    и сразу переключаем пул.
+    """
+    provider = (payload.provider or "").strip().lower()
+    try:
+        _llm_pool.set_active_provider(provider)
+    except (ValueError, LLMConfigurationError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await set_setting(session, LLM_PROVIDER_KEY, provider, updated_by=researcher.username)
+    await session.commit()
+    return await _llm_provider_status(session)
 
 
 # ---------------------------------------------------------------------------
