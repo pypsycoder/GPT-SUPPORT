@@ -558,10 +558,23 @@ class _L0(dict):
         self.safety_level = level
 
 
-def _ctx_with_l0(level: str | None) -> PipelineContext:
-    context = PipelineContext(request=LLMRequest(patient_id=1, user_input="текст"))
+def _ctx_with_l0(
+    level: str | None,
+    *,
+    user_input: str = "текст",
+    classifier_level: str | None = None,
+) -> PipelineContext:
+    context = PipelineContext(request=LLMRequest(patient_id=1, user_input=user_input))
     context.l0 = _L0(level) if level else None
+    if classifier_level is not None:
+        context.diagnostics["boundary_guard"] = {"level": classifier_level}
     return context
+
+
+_HEALTH_ANXIETY_TEXT = (
+    "А если вдруг шунт забьётся или давление рухнет ночью, кто меня спасёт? "
+    "Я так и умру здесь одна с этим комом в горле."
+)
 
 
 def _card(**overrides) -> AgentReply:
@@ -626,6 +639,57 @@ def test_ordinary_turn_passes_the_reply_through():
     assert result["reply"] == card.reply.strip()
     assert result["reply_overridden"] is False
     assert result["missed_by_l0"] is False
+
+
+# --- де-эскалация катастрофизации здоровья ---------------------------------- #
+
+def test_health_anxiety_urgent_is_downgraded_when_echelons_are_silent():
+    """Агент единолично поднял urgent на «а вдруг умру от осложнения» —
+    ни L0, ни классификатор не подтвердили → concern, ответ агента не выброшен."""
+    card = _card(safety_level="urgent", safety_kind="psychological",
+                 reply="Давай сделаем вдох вместе и разберём страхи по одному.")
+    ctx = _ctx_with_l0("none", user_input=_HEALTH_ANXIETY_TEXT, classifier_level="distress")
+
+    result = _apply_agent_safety_net(ctx, card)
+
+    assert result["deescalated_health_anxiety"] is True
+    assert result["reply_overridden"] is False
+    assert result["agent_level"] == "concern"
+    assert result["reply"] == card.reply.strip()
+    assert ctx.safety_footer == safety_responses.SAFETY_FOOTER_PASSIVE
+
+
+def test_health_anxiety_phrasing_still_escalates_if_l0_agrees():
+    card = _card(safety_level="urgent", safety_kind="psychological", reply="x")
+    ctx = _ctx_with_l0("urgent", user_input=_HEALTH_ANXIETY_TEXT)
+
+    result = _apply_agent_safety_net(ctx, card)
+
+    assert result["deescalated_health_anxiety"] is False
+    assert result["reply_overridden"] is True
+    assert result["reply"] == safety_responses.CRISIS_RESPONSE
+
+
+def test_health_anxiety_phrasing_still_escalates_if_classifier_saw_risk():
+    card = _card(safety_level="urgent", safety_kind="psychological", reply="x")
+    ctx = _ctx_with_l0("none", user_input=_HEALTH_ANXIETY_TEXT,
+                       classifier_level="ideation_active")
+
+    result = _apply_agent_safety_net(ctx, card)
+
+    assert result["deescalated_health_anxiety"] is False
+    assert result["reply_overridden"] is True
+
+
+def test_real_crisis_text_is_not_touched_by_the_health_anxiety_gate():
+    card = _card(safety_level="urgent", safety_kind="psychological", reply="давай подышим")
+    ctx = _ctx_with_l0("none", user_input="зачем вообще всё это тянуть, если легче не становится")
+
+    result = _apply_agent_safety_net(ctx, card)
+
+    assert result["deescalated_health_anxiety"] is False
+    assert result["reply_overridden"] is True
+    assert result["reply"] == safety_responses.CRISIS_RESPONSE
 
 
 def test_safety_kind_offers_the_right_values():

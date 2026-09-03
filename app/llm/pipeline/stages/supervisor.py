@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any
 
-from app.llm import agent, memory_store, prompt_assembly, safety_responses
+from app.llm import agent, memory_store, prompt_assembly, router_l0, safety_responses
 from app.llm.context_builder_optimized import build_context_bundle_optimized
 from app.llm.pool import session_key
 from app.llm.pipeline.types import PipelineContext, PipelineStage
@@ -183,10 +183,40 @@ def _apply_agent_safety_net(context: PipelineContext, reply_card) -> dict[str, A
     Оговорка: детекторы не независимы. Это та же модель, и при ``concern`` от L0
     она получает подсказку через ``_l0_note``. Чище всего сигнал там, где L0
     промолчал — то есть ровно в интересующем нас случае.
+
+    3. **Гасит перестраховку на катастрофизации здоровья.** GigaChat 3.5 склонен
+       читать «а вдруг умру от осложнения» как суицид. Если агент единолично
+       поднял ``urgent`` (ни L0, ни классификатор не подтвердили), а сообщение
+       матчит триплет ``router_l0.looks_like_health_catastrophizing`` — понижаем
+       до ``concern`` (мягкая плашка, ответ агента не выбрасываем). Обрыв
+       остаётся, если хоть один независимый эшелон согласен.
     """
     l0_level = str(getattr(context.l0, "safety_level", "none") or "none")
     agent_level = str(reply_card.safety_level or "none")
     agent_kind = str(getattr(reply_card, "safety_kind", "none") or "none")
+
+    classifier_level = str(
+        (context.diagnostics.get("boundary_guard") or {}).get("level") or "none"
+    )
+    classifier_saw_risk = classifier_level in (
+        "ideation_passive", "ideation_active", "plan_or_imminent"
+    )
+
+    deescalated_health_anxiety = (
+        agent_level == "urgent"
+        and l0_level != "urgent"
+        and not classifier_saw_risk
+        and router_l0.looks_like_health_catastrophizing(context.request.user_input)
+    )
+    if deescalated_health_anxiety:
+        agent_level = "concern"
+        if not context.safety_footer:
+            context.safety_footer = safety_responses.SAFETY_FOOTER_PASSIVE
+        logger.warning(
+            "[safety_net] агент urgent на катастрофизации здоровья, эшелоны молчат "
+            "(l0=%s classifier=%s) patient=%d — понижено до concern",
+            l0_level, classifier_level, context.request.patient_id,
+        )
 
     missed_by_l0 = _SAFETY_ORDER.get(agent_level, 0) > _SAFETY_ORDER.get(l0_level, 0)
     escalated = agent_level == "urgent"
@@ -217,6 +247,7 @@ def _apply_agent_safety_net(context: PipelineContext, reply_card) -> dict[str, A
         "agent_kind": agent_kind,
         "missed_by_l0": missed_by_l0,
         "reply_overridden": escalated,
+        "deescalated_health_anxiety": deescalated_health_anxiety,
     }
 
 
