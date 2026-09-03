@@ -330,3 +330,30 @@ def test_health_catastrophizing_matches(text):
 )
 def test_health_catastrophizing_does_not_overmatch(text):
     assert not router_l0.looks_like_health_catastrophizing(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "если давление рухнет прямо на диализе, кто первый подбежит?",
+        "а что если сердце просто встанет в кресле, кто реанимирует?",
+        "если катетер забьётся ночью — что делать?",
+    ],
+)
+def test_bare_if_with_catastrophe_verb_reads_as_hypothetical(text):
+    from app.llm.router_l0 import _is_hypothetical_question
+
+    assert _is_hypothetical_question(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "хорошо, если что — я вам напишу",           # бытовое «если что»
+        "если получится, приду завтра пораньше",       # обычное условие
+    ],
+)
+def test_bare_if_without_catastrophe_verb_is_not_hypothetical(text):
+    from app.llm.router_l0 import _is_hypothetical_question
+
+    assert not _is_hypothetical_question(text)
