@@ -1,8 +1,11 @@
 """
 GigaChat Account Pool - account selection, token refresh, and provider calls.
 
-Each account handles one concurrent request via asyncio.Lock.
-Accounts are read from environment variables: GIGACHAT_KEY_A1, GIGACHAT_KEY_A2, ...
+Each account handles one concurrent request via asyncio.Lock, so N configured
+keys == N concurrent GigaChat streams (PERS scope = 1 stream/key server-side).
+Accounts are read from any ``GIGACHAT_KEY_<id>`` env var (``GIGACHAT_KEY_A1``,
+``GIGACHAT_KEY_L1``, ...); each account serves all three tiers (lite/pro/max)
+via ``<id>-lite/-pro/-max`` aliases that share the account's single lock.
 """
 
 from __future__ import annotations
@@ -506,58 +509,71 @@ class GigaChatClient:
 
 
 class AccountPool:
-    _FIXED_TIERS: dict[str, str] = {"A1": "lite", "A2": "pro"}
+    """Пул GigaChat-аккаунтов.
+
+    Каждый ключ ``GIGACHAT_KEY_<id>`` = один аккаунт со своим
+    ``_SharedAccountState`` (→ свой ``asyncio.Lock``, +1 к общей
+    конкурентности). Каждый аккаунт поднимается под все три тира; алиасы
+    ``<id>-lite/-pro/-max`` делят один лок аккаунта, но у GigaChat это
+    раздельные серверные префикс-кэши (см. pipeline/STRUCTURE.md §7).
+
+    ``GIGACHAT_MODEL_<id>`` (``lite`` | ``pro`` | ``max``) — необязательный
+    ограничитель: аккаунт поднимается только под один тир (напр. выделенный
+    дешёвый аккаунт), и его ``account_id`` остаётся без тир-суффикса.
+    """
+
+    _KEY_PREFIX = "GIGACHAT_KEY_"
 
     def __init__(self) -> None:
         self.clients: list[GigaChatClient] = []
         self._build_pool()
 
-    def _build_pool(self) -> None:
-        configured_accounts: list[tuple[str, str, str]] = []
-        available_tiers: set[str] = set()
+    def _discover_accounts(self) -> list[tuple[str, str]]:
+        """``[(account_id, api_key), ...]`` из окружения.
 
-        for i in range(1, 20):
-            account_id = f"A{i}"
-            key = os.getenv(f"GIGACHAT_KEY_{account_id}")
-            if not key:
+        Дедуп по значению ключа: один кредентиал под двумя именами — один
+        аккаунт (иначе два лока молотили бы один серверный лимит → 429).
+        Порядок детерминированный по ``account_id`` — ``_stable_index``
+        (sticky-роутинг) завязан на стабильный порядок пула между рестартами.
+        """
+        first_name_for_key: dict[str, str] = {}
+        for name, raw in os.environ.items():
+            if not name.startswith(self._KEY_PREFIX):
                 continue
-            key = _ascii_only(key).strip()
-            tier = self._FIXED_TIERS.get(account_id) or os.getenv(
-                f"GIGACHAT_MODEL_{account_id}", "pro"
-            )
-            if tier not in MODEL_NAMES:
-                tier = "pro"
+            account_id = name[len(self._KEY_PREFIX):].strip()
+            key = _ascii_only(raw or "").strip()
+            if not account_id or not key:
+                continue
+            first_name_for_key.setdefault(key, account_id)
+        return sorted(
+            ((account_id, key) for key, account_id in first_name_for_key.items()),
+            key=lambda pair: pair[0],
+        )
 
-            configured_accounts.append((account_id, key, tier))
-            self._add_client(account_id=account_id, api_key=key, tier=tier)
-            available_tiers.add(tier)
+    def _build_pool(self) -> None:
+        accounts = self._discover_accounts()
+        if not accounts:
+            logger.warning("[pool] no GigaChat accounts configured")
+            return
 
-        unique_keys = {key for _, key, _ in configured_accounts}
-        if configured_accounts and len(unique_keys) == 1:
-            base_account_id, shared_key, _ = configured_accounts[0]
-            shared_state = next(
-                client._state for client in self.clients
-                if client.account_id == base_account_id
-            )
-            for tier in MODEL_NAMES:
-                if tier in available_tiers:
-                    continue
-                alias_account_id = f"{base_account_id}-{tier}"
+        for account_id, key in accounts:
+            forced = os.getenv(f"GIGACHAT_MODEL_{account_id}", "").strip().lower()
+            tiers = [forced] if forced in MODEL_NAMES else list(MODEL_NAMES)
+            shared_state = _SharedAccountState(api_key=key)
+            for tier in tiers:
+                alias = account_id if len(tiers) == 1 else f"{account_id}-{tier}"
                 self._add_client(
-                    account_id=alias_account_id,
-                    api_key=shared_key,
+                    account_id=alias,
+                    api_key=key,
                     tier=tier,
                     shared_state=shared_state,
                 )
-                logger.info(
-                    "[pool] added shared-tier alias %s tier=%s using key from %s",
-                    alias_account_id,
-                    tier,
-                    base_account_id,
-                )
 
-        if not self.clients:
-            logger.warning("[pool] no GigaChat accounts configured")
+        logger.info(
+            "[pool] %d account(s), %d client(s); per-account concurrency=1",
+            len(accounts),
+            len(self.clients),
+        )
 
     def _add_client(
         self,
@@ -634,6 +650,11 @@ class AccountPool:
                 if not client.is_busy:
                     return client
             await asyncio.sleep(0.2)
+
+    @property
+    def account_count(self) -> int:
+        """Число физических аккаунтов (уникальных локов) = потолок конкурентности."""
+        return len({id(c._state) for c in self.clients})
 
     def get_stats(self) -> dict:
         return {

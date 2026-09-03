@@ -21,7 +21,7 @@ _CLIENT_TIMEOUTS: dict[str, float] = {
 
 _CLIENT_RETRIES: dict[str, int] = {
     "oauth": 1,
-    "chat": 2,  # 429 (лимит потоков GigaChat, один ключ) стоит переждать не раз
+    "chat": 2,  # 429 (лимит потоков GigaChat, 1/ключ) стоит переждать не раз
     "embeddings": 1,
 }
 
