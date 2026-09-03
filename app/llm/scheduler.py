@@ -13,11 +13,11 @@ from app.llm.pool import pool
 
 
 # Проактивная рассылка идёт через координатор, который на части поводов зовёт
-# GigaChat. Конкурентность = число аккаунтов в пуле (каждый ключ = 1 поток,
-# см. SPRINT1_INVESTIGATIONS.md §1 + pool.AccountPool): 2 ключа → 2 пациента
-# параллельно. Джиттер оставляем — пайплайн одного пациента это несколько
-# последовательных вызовов, пачкой на лимит RPM легко налететь.
-_PROACTIVE_CONCURRENCY = max(1, pool.account_count)
+# LLM. Конкурентность задаёт активный провайдер (`pool.proactive_concurrency`):
+# Сбер — число ключей (1 поток/ключ, SPRINT1_INVESTIGATIONS.md §1); Cloud.ru —
+# CLOUD_RU_CONCURRENCY. Джиттер оставляем — пайплайн одного пациента это
+# несколько последовательных вызовов, пачкой на лимит RPM легко налететь.
+_PROACTIVE_CONCURRENCY = max(1, pool.proactive_concurrency)
 _PROACTIVE_JITTER_SEC = (0.5, 1.5)
 
 logger = logging.getLogger("gpt-support-llm.scheduler")

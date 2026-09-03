@@ -351,12 +351,22 @@
 
 **Задачи:**
 
-- [ ] **Cloud.ru-клиент в `app/llm/pool.py`** рядом с `GigaChatClient` —
-  OpenAI-совместимый (образец `safety-bench/sbench/cloudru.py`). Абстрагировать
-  `AccountPool` от «только Сбер»: провайдер выбирается на уровне пула.
-- [ ] **Флаг `LLM_PROVIDER`** (`cloudru` | `sber`, default `cloudru`) в
-  `.env.example` + `app/core/config.py`. Маппинг роль (`lite`/`pro`/`agent`/
-  `safety`) → (провайдер, id модели) — таблицей в конфиге.
+- [x] **Cloud.ru-клиент в `app/llm/pool.py`** *(2026-09-03)*. `ProviderSpec`
+  (адрес / OAuth-или-нет / имена моделей / серверные заголовки), `SBER` +
+  `_cloudru_spec()`; `GigaChatClient` провайдер-осознанный (`_get_access_token`
+  для cloudru = ключ как есть, `_execute` по `provider.chat_url`). `AccountPool`
+  строит клиентов ОБОИХ провайдеров сразу (Сбер из `GIGACHAT_KEY_*`, Cloud.ru из
+  `CLOUD_RU_KEY` на `Semaphore(CLOUD_RU_CONCURRENCY)`). Cloud.ru: `response_format`
+  в OpenAI-каноне (`structured.response_format_for(provider=)` — плоская
+  сберовская форма даёт 400). E2E проверен: `call()`/`structured()` sub-second,
+  верная классификация. Тесты `test_pool.py` (+7).
+- [x] **Флаг `LLM_PROVIDER`** (`sber` default | `cloudru`) *(2026-09-03)*.
+  `.env.example` + Cloud.ru-секция (`CLOUD_RU_KEY`, `CLOUD_RU_MODEL[_TIER]`,
+  `CLOUD_RU_CONCURRENCY`). `get_available(provider=)` — оверрайд; `embeddings.py`
+  прибит к `provider="sber"` (индекс на модели `Embeddings`).
+  `scheduler._PROACTIVE_CONCURRENCY = pool.proactive_concurrency`.
+  ⚠ default `sber` — на мерже поведение не меняется; прод переводится
+  `LLM_PROVIDER=cloudru` в env после проверки agent/кэша.
 - [ ] **Переключатель в админ-панели.** Кнопка/тумблер Cloud.ru ↔ Сбер в
   researcher-панели (`app/researchers/router.py` + `frontend/researcher/`).
   Персистентность: рантайм-конфига нет — завести (мини-таблица `llm.runtime_config`

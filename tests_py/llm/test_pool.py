@@ -6,13 +6,30 @@ import os
 import pytest
 
 from app.llm.errors import LLMConfigurationError
-from app.llm.pool import AccountPool, GigaChatClient, MODEL_NAMES, _SharedAccountState, _ascii_only
+from app.llm.pool import (
+    CLOUDRU_DEFAULT_MODEL,
+    MODEL_NAMES,
+    AccountPool,
+    GigaChatClient,
+    _SharedAccountState,
+    _ascii_only,
+)
 
 
-def _clear_gigachat_keys(monkeypatch) -> None:
+def _clear_llm_env(monkeypatch) -> None:
+    """Убрать из окружения всё, что видит AccountPool — тест сам задаёт конфиг.
+
+    В .env dev-машины есть и GIGACHAT_KEY_*, и CLOUD_RU_KEY; load_environment()
+    тащит их в os.environ до импорта тестов.
+    """
     for name in list(os.environ):
-        if name.startswith("GIGACHAT_KEY_") or name.startswith("GIGACHAT_MODEL_"):
+        if (
+            name.startswith("GIGACHAT_KEY_")
+            or name.startswith("GIGACHAT_MODEL_")
+            or name.startswith("CLOUD_RU_")
+        ):
             monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
 
 
 def test_ascii_only_strips_non_ascii_characters():
@@ -20,18 +37,18 @@ def test_ascii_only_strips_non_ascii_characters():
 
 
 def test_account_pool_raises_when_no_accounts_configured(monkeypatch):
-    _clear_gigachat_keys(monkeypatch)
+    _clear_llm_env(monkeypatch)
 
     pool = AccountPool()
 
     assert pool.clients == []
     assert pool.account_count == 0
-    with pytest.raises(LLMConfigurationError, match="No GigaChat accounts configured"):
+    with pytest.raises(LLMConfigurationError, match="No LLM accounts configured"):
         asyncio.run(pool.get_available("lite"))
 
 
 def test_single_key_serves_all_tiers_on_one_lock(monkeypatch):
-    _clear_gigachat_keys(monkeypatch)
+    _clear_llm_env(monkeypatch)
     monkeypatch.setenv("GIGACHAT_KEY_A1", "abc123")
 
     pool = AccountPool()
@@ -43,7 +60,7 @@ def test_single_key_serves_all_tiers_on_one_lock(monkeypatch):
 
 
 def test_two_keys_double_the_concurrency_and_each_serves_all_tiers(monkeypatch):
-    _clear_gigachat_keys(monkeypatch)
+    _clear_llm_env(monkeypatch)
     monkeypatch.setenv("GIGACHAT_KEY_A1", "dima-key")
     monkeypatch.setenv("GIGACHAT_KEY_L1", "lena-key")
 
@@ -63,7 +80,7 @@ def test_two_keys_double_the_concurrency_and_each_serves_all_tiers(monkeypatch):
 
 
 def test_duplicate_key_value_collapses_to_one_account(monkeypatch):
-    _clear_gigachat_keys(monkeypatch)
+    _clear_llm_env(monkeypatch)
     monkeypatch.setenv("GIGACHAT_KEY_A1", "same-key")
     monkeypatch.setenv("GIGACHAT_KEY_A2", "same-key")
 
@@ -73,7 +90,7 @@ def test_duplicate_key_value_collapses_to_one_account(monkeypatch):
 
 
 def test_gigachat_model_override_pins_account_to_one_tier(monkeypatch):
-    _clear_gigachat_keys(monkeypatch)
+    _clear_llm_env(monkeypatch)
     monkeypatch.setenv("GIGACHAT_KEY_A1", "key-a1")
     monkeypatch.setenv("GIGACHAT_MODEL_A1", "max")
 
@@ -85,7 +102,7 @@ def test_gigachat_model_override_pins_account_to_one_tier(monkeypatch):
 
 
 def test_account_order_is_deterministic(monkeypatch):
-    _clear_gigachat_keys(monkeypatch)
+    _clear_llm_env(monkeypatch)
     monkeypatch.setenv("GIGACHAT_KEY_L1", "lena-key")
     monkeypatch.setenv("GIGACHAT_KEY_A1", "dima-key")
 
@@ -98,7 +115,7 @@ def test_account_order_is_deterministic(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sticky_routing_pins_a_thread_to_one_account_across_tiers(monkeypatch):
-    _clear_gigachat_keys(monkeypatch)
+    _clear_llm_env(monkeypatch)
     monkeypatch.setenv("GIGACHAT_KEY_A1", "dima-key")
     monkeypatch.setenv("GIGACHAT_KEY_L1", "lena-key")
 
@@ -123,3 +140,96 @@ def test_shared_state_lock_drives_busy_status():
             return client.is_busy
 
     assert asyncio.run(_locked()) is True
+
+
+# ── LLM_PROVIDER=cloudru ────────────────────────────────────────────────────
+
+def test_cloudru_provider_builds_openai_compatible_clients(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "cloudru")
+    monkeypatch.setenv("CLOUD_RU_KEY", "keyid.secret")
+
+    pool = AccountPool()
+
+    assert pool.chat_provider == "cloudru"
+    cloud = [c for c in pool.clients if c.provider.name == "cloudru"]
+    assert {c.model_tier for c in cloud} == set(MODEL_NAMES)
+    assert {c.account_id for c in cloud} == {"cloudru-lite", "cloudru-pro", "cloudru-max"}
+    # один ключ = один общий стейт (семафор) на все тиры
+    assert len({id(c._state) for c in cloud}) == 1
+    for c in cloud:
+        assert c.provider.auth_url is None                  # без OAuth
+        assert c.provider.model_for(c.model_tier) == CLOUDRU_DEFAULT_MODEL
+        assert c.provider.send_session_header is False
+
+    client = asyncio.run(pool.get_available("lite"))
+    assert client.provider.name == "cloudru"
+
+
+def test_cloudru_access_token_is_the_raw_key(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "cloudru")
+    monkeypatch.setenv("CLOUD_RU_KEY", "keyid.secret")
+
+    pool = AccountPool()
+    client = asyncio.run(pool.get_available("pro"))
+    # никакого сетевого обмена — ключ и есть Bearer
+    assert asyncio.run(client._get_access_token()) == "keyid.secret"
+
+
+def test_cloudru_model_override_targets_one_tier(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "cloudru")
+    monkeypatch.setenv("CLOUD_RU_KEY", "keyid.secret")
+    monkeypatch.setenv("CLOUD_RU_MODEL_LITE", "ai-sage/GigaChat3-10B-A1.8B")
+
+    pool = AccountPool()
+    by_tier = {c.model_tier: c.provider.model_for(c.model_tier) for c in pool.clients}
+    assert by_tier["lite"] == "ai-sage/GigaChat3-10B-A1.8B"
+    assert by_tier["pro"] == CLOUDRU_DEFAULT_MODEL
+
+
+def test_both_providers_coexist_and_embeddings_can_pin_sber(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "cloudru")
+    monkeypatch.setenv("CLOUD_RU_KEY", "keyid.secret")
+    monkeypatch.setenv("GIGACHAT_KEY_A1", "sber-key")
+
+    pool = AccountPool()
+
+    # чат по умолчанию — cloudru
+    assert asyncio.run(pool.get_available("lite")).provider.name == "cloudru"
+    # эмбеддинги явно фиксируют Сбер
+    assert asyncio.run(pool.get_available("lite", provider="sber")).provider.name == "sber"
+
+
+def test_pinned_provider_without_account_raises(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "cloudru")
+    monkeypatch.setenv("CLOUD_RU_KEY", "keyid.secret")
+
+    pool = AccountPool()
+    with pytest.raises(LLMConfigurationError, match="No 'sber' LLM account"):
+        asyncio.run(pool.get_available("lite", provider="sber"))
+
+
+def test_proactive_concurrency_follows_active_provider(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("CLOUD_RU_KEY", "keyid.secret")
+    monkeypatch.setenv("CLOUD_RU_CONCURRENCY", "12")
+    monkeypatch.setenv("GIGACHAT_KEY_A1", "sber-key")
+
+    monkeypatch.setenv("LLM_PROVIDER", "sber")
+    assert AccountPool().proactive_concurrency == 1        # один сбер-ключ
+
+    monkeypatch.setenv("LLM_PROVIDER", "cloudru")
+    assert AccountPool().proactive_concurrency == 12       # CLOUD_RU_CONCURRENCY
+
+
+def test_unknown_provider_falls_back_to_sber(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("GIGACHAT_KEY_A1", "sber-key")
+
+    pool = AccountPool()
+    assert pool.chat_provider == "sber"

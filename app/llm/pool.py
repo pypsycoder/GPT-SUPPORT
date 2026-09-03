@@ -1,11 +1,21 @@
 """
-GigaChat Account Pool - account selection, token refresh, and provider calls.
+LLM Account Pool - provider selection, account selection, token refresh, calls.
 
-Each account handles one concurrent request via asyncio.Lock, so N configured
-keys == N concurrent GigaChat streams (PERS scope = 1 stream/key server-side).
-Accounts are read from any ``GIGACHAT_KEY_<id>`` env var (``GIGACHAT_KEY_A1``,
-``GIGACHAT_KEY_L1``, ...); each account serves all three tiers (lite/pro/max)
-via ``<id>-lite/-pro/-max`` aliases that share the account's single lock.
+Два провайдера, выбор по ``LLM_PROVIDER`` (``sber`` | ``cloudru``, default
+``sber``):
+
+* **sber** — GigaChat API Сбербанка. Каждый ключ ``GIGACHAT_KEY_<id>`` = аккаунт
+  со своим ``asyncio.Lock`` (PERS scope = 1 поток/ключ), поднят под все три тира
+  через алиасы ``<id>-lite/-pro/-max`` на общем локе.
+* **cloudru** — Cloud.ru Evolution Foundation Models, OpenAI-совместимый шлюз.
+  Один ключ ``CLOUD_RU_KEY`` (формата ``<keyid>.<secret>``, идёт в Bearer как
+  есть — без OAuth), лимит по RPM/TPM аккаунта, не по потокам; конкурентность
+  ограничивает ``asyncio.Semaphore(CLOUD_RU_CONCURRENCY)``.
+
+Эмбеддинги (``app/llm/embeddings.py``) ходят ВСЕГДА через Сбер — индекс построен
+на модели ``Embeddings``. При ``LLM_PROVIDER=cloudru`` всё равно нужен
+``GIGACHAT_KEY_*``; клиенты обоих провайдеров живут в пуле одновременно,
+``get_available`` по умолчанию отдаёт активного, но принимает ``provider=``.
 """
 
 from __future__ import annotations
@@ -31,6 +41,12 @@ logger = logging.getLogger("gpt-support-llm.pool")
 GIGACHAT_AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 GIGACHAT_API_URL = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
 
+CLOUDRU_CHAT_URL = "https://foundation-models.api.cloud.ru/v1/chat/completions"
+# Флагман Сбера на Cloud.ru (GigaChat 3.5 Ultra) — на safety-бенче recall
+# {act,plan} 0.97 против 0.86 у GigaChat-2-Pro. См. ROADMAP_AGENT.md Фаза 6.
+CLOUDRU_DEFAULT_MODEL = "ai-sage/GigaChat3.5-432B-A28B"
+DEFAULT_CLOUDRU_CONCURRENCY = 8
+
 MODEL_NAMES: dict[str, str] = {
     "lite": "GigaChat-2",
     "pro": "GigaChat-2-Pro",
@@ -38,6 +54,56 @@ MODEL_NAMES: dict[str, str] = {
 }
 
 _TIER_PRIORITY: dict[str, int] = {"lite": 0, "pro": 1, "max": 2}
+
+
+@dataclass(frozen=True)
+class ProviderSpec:
+    """Разъём под конкретный LLM-бэкенд — всё, чем провайдеры отличаются:
+    адрес, способ авторизации, имена моделей, серверные заголовки."""
+
+    name: str                 # "sber" | "cloudru"
+    chat_url: str
+    auth_url: str | None      # None → api_key идёт в Bearer как есть (без OAuth)
+    oauth_scope: str
+    models: dict[str, str]    # tier -> имя модели у провайдера
+    send_session_header: bool  # X-Session-ID (префиксный кэш Сбера)
+
+    def model_for(self, tier: str) -> str:
+        return (
+            self.models.get(tier)
+            or self.models.get("pro")
+            or next(iter(self.models.values()))
+        )
+
+
+SBER = ProviderSpec(
+    name="sber",
+    chat_url=GIGACHAT_API_URL,
+    auth_url=GIGACHAT_AUTH_URL,
+    oauth_scope="GIGACHAT_API_PERS",
+    models=MODEL_NAMES,
+    send_session_header=True,
+)
+
+
+def _cloudru_spec() -> ProviderSpec:
+    """``ProviderSpec`` для Cloud.ru — имена моделей из окружения.
+
+    ``CLOUD_RU_MODEL`` задаёт модель на все тиры; ``CLOUD_RU_MODEL_<TIER>``
+    переопределяет отдельный тир (напр. дешёвый ``lite`` на ``GigaChat3-10B``).
+    """
+    default = (os.getenv("CLOUD_RU_MODEL") or "").strip() or CLOUDRU_DEFAULT_MODEL
+    return ProviderSpec(
+        name="cloudru",
+        chat_url=CLOUDRU_CHAT_URL,
+        auth_url=None,
+        oauth_scope="",
+        models={
+            tier: (os.getenv(f"CLOUD_RU_MODEL_{tier.upper()}") or "").strip() or default
+            for tier in MODEL_NAMES
+        },
+        send_session_header=False,
+    )
 
 # JSON дороже плоского текста на скобки и ключи — потолок в 512 токенов,
 # рассчитанный на карточку «поле: значение», обрезал бы длинные ответы
@@ -130,7 +196,9 @@ class _SharedAccountState:
     api_key: str
     access_token: str | None = None
     token_expires_at: float = 0.0
-    lock: asyncio.Lock | None = None
+    # Сбер: Lock (1 поток/ключ). Cloud.ru: Semaphore(CLOUD_RU_CONCURRENCY).
+    # Обоим хватает `async with` и `.locked()` — вызывающий код не различает.
+    lock: asyncio.Lock | asyncio.Semaphore | None = None
     token_lock: asyncio.Lock | None = None
 
     def __post_init__(self) -> None:
@@ -148,9 +216,11 @@ class GigaChatClient:
         model_tier: str,
         *,
         shared_state: _SharedAccountState | None = None,
+        provider: ProviderSpec = SBER,
     ) -> None:
         self.account_id = account_id
         self.model_tier = model_tier
+        self.provider = provider
         self.tokens_used: int = 0
         self._state = shared_state or _SharedAccountState(api_key=api_key)
 
@@ -159,6 +229,10 @@ class GigaChatClient:
         return self._state.lock.locked()
 
     async def _get_access_token(self) -> str:
+        # Cloud.ru: ключ <keyid>.<secret> и есть Bearer-токен, обмена нет.
+        if self.provider.auth_url is None:
+            return self._state.api_key
+
         if self._state.access_token and time.time() < self._state.token_expires_at - 60:
             return self._state.access_token
 
@@ -170,14 +244,14 @@ class GigaChatClient:
                 data = await request_json_with_policy(
                     "oauth",
                     method="POST",
-                    url=GIGACHAT_AUTH_URL,
+                    url=self.provider.auth_url,
                     operation=f"oauth for account {self.account_id}",
                     headers={
                         "Authorization": f"Basic {self._state.api_key}",
                         "RqUID": str(uuid.uuid4()),
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
-                    data={"scope": "GIGACHAT_API_PERS"},
+                    data={"scope": self.provider.oauth_scope},
                 )
                 access_token = _ascii_only(data["access_token"])
                 expires_at = data.get("expires_at", 0) / 1000.0
@@ -214,7 +288,7 @@ class GigaChatClient:
         async with self._state.lock:
             start = time.monotonic()
             token = await self._get_access_token()
-            model_name = MODEL_NAMES.get(self.model_tier, MODEL_NAMES["pro"])
+            model_name = self.provider.model_for(self.model_tier)
 
             last_exc: LLMTransportError | LLMResponseError | None = None
             for attempt in range(2):
@@ -223,13 +297,13 @@ class GigaChatClient:
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     }
-                    if session_id:
+                    if session_id and self.provider.send_session_header:
                         headers["X-Session-ID"] = session_id
 
                     data = await request_json_with_policy(
                         "chat",
                         method="POST",
-                        url=GIGACHAT_API_URL,
+                        url=self.provider.chat_url,
                         operation=f"chat completion for account {self.account_id}",
                         headers=headers,
                         json_body=payload,
@@ -241,7 +315,13 @@ class GigaChatClient:
                     usage = data.get("usage", {})
                     tokens_in = usage.get("prompt_tokens", 0)
                     tokens_out = usage.get("completion_tokens", 0)
-                    precached_tokens = usage.get("precached_prompt_tokens", 0)
+                    # Сбер: precached_prompt_tokens (плоско). Cloud.ru (OpenAI-совм.):
+                    # prompt_tokens_details.cached_tokens.
+                    precached_tokens = (
+                        usage.get("precached_prompt_tokens")
+                        or (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+                        or 0
+                    )
                     total_tokens = usage.get("total_tokens", tokens_in + tokens_out)
                     finish_reason = data["choices"][0].get("finish_reason")
                     elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -344,7 +424,7 @@ class GigaChatClient:
         max_tokens: int = 512,
     ) -> tuple[str, int, int, int]:
         payload: dict[str, Any] = {
-            "model": MODEL_NAMES.get(self.model_tier, MODEL_NAMES["pro"]),
+            "model": self.provider.model_for(self.model_tier),
             "messages": [{"role": "system", "content": system_prompt}, *messages],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -378,7 +458,7 @@ class GigaChatClient:
         никогда — смешивать functions и структурный вывод нельзя (см. ``call()``).
         """
         payload: dict[str, Any] = {
-            "model": MODEL_NAMES.get(self.model_tier, MODEL_NAMES["pro"]),
+            "model": self.provider.model_for(self.model_tier),
             "messages": [{"role": "system", "content": system_prompt}, *messages],
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -428,16 +508,18 @@ class GigaChatClient:
     ) -> StructuredResult:
         """Вернуть валидированный Pydantic-объект вместо сырого текста.
 
-        ``response_format={"type": "json_schema", "schema": ..., "strict": true}``
-        заменяет самописный парсер полей: модель физически не может вернуть
-        карточку без обязательного поля.
+        ``response_format`` с JSON-схемой (форма зависит от провайдера, см.
+        ``structured.response_format_for``) заменяет самописный парсер полей:
+        модель физически не может вернуть карточку без обязательного поля.
 
         ``repair=True`` оставляет ровно одну попытку починки — модель получает
         текст своей ошибки валидации. При ``strict: true`` срабатывает редко,
         но защищает от краевых схем. Repair-вызов уходит в телеметрию со своим
         ``step`` (``<step>_repair``), чтобы его долю можно было посчитать SQL-ом.
         """
-        response_format = structured.response_format_for(schema)
+        response_format = structured.response_format_for(
+            schema, provider=self.provider.name
+        )
 
         text, tokens_in, tokens_out, latency_ms = await self.call(
             messages,
@@ -509,24 +591,44 @@ class GigaChatClient:
 
 
 class AccountPool:
-    """Пул GigaChat-аккаунтов.
+    """Пул LLM-клиентов обоих провайдеров.
 
-    Каждый ключ ``GIGACHAT_KEY_<id>`` = один аккаунт со своим
-    ``_SharedAccountState`` (→ свой ``asyncio.Lock``, +1 к общей
-    конкурентности). Каждый аккаунт поднимается под все три тира; алиасы
-    ``<id>-lite/-pro/-max`` делят один лок аккаунта, но у GigaChat это
-    раздельные серверные префикс-кэши (см. pipeline/STRUCTURE.md §7).
+    **Сбер:** каждый ключ ``GIGACHAT_KEY_<id>`` = аккаунт со своим
+    ``_SharedAccountState`` (→ свой ``asyncio.Lock``, +1 к конкурентности),
+    поднят под все три тира; алиасы ``<id>-lite/-pro/-max`` делят один лок, но
+    у GigaChat это раздельные серверные префикс-кэши (pipeline/STRUCTURE.md §7).
+    ``GIGACHAT_MODEL_<id>`` (``lite``|``pro``|``max``) пришпиливает аккаунт к
+    одному тиру (``account_id`` тогда без суффикса).
 
-    ``GIGACHAT_MODEL_<id>`` (``lite`` | ``pro`` | ``max``) — необязательный
-    ограничитель: аккаунт поднимается только под один тир (напр. выделенный
-    дешёвый аккаунт), и его ``account_id`` остаётся без тир-суффикса.
+    **Cloud.ru:** один ключ ``CLOUD_RU_KEY``, клиенты ``cloudru-lite/-pro/-max``
+    на общем ``asyncio.Semaphore(CLOUD_RU_CONCURRENCY)``.
+
+    ``LLM_PROVIDER`` (``sber`` default | ``cloudru``) — кого отдаёт
+    ``get_available`` по умолчанию. Клиенты обоих провайдеров строятся всегда
+    (если заданы ключи): ``embeddings.py`` явно просит ``provider="sber"``.
     """
 
     _KEY_PREFIX = "GIGACHAT_KEY_"
+    _VALID_PROVIDERS = ("sber", "cloudru")
 
     def __init__(self) -> None:
         self.clients: list[GigaChatClient] = []
+        raw = (os.getenv("LLM_PROVIDER") or "sber").strip().lower()
+        if raw not in self._VALID_PROVIDERS:
+            logger.warning("[pool] LLM_PROVIDER=%r не распознан → 'sber'", raw)
+            raw = "sber"
+        self._chat_provider = raw
+        try:
+            self._cloudru_concurrency = max(
+                1, int(os.getenv("CLOUD_RU_CONCURRENCY") or DEFAULT_CLOUDRU_CONCURRENCY)
+            )
+        except ValueError:
+            self._cloudru_concurrency = DEFAULT_CLOUDRU_CONCURRENCY
         self._build_pool()
+
+    @property
+    def chat_provider(self) -> str:
+        return self._chat_provider
 
     def _discover_accounts(self) -> list[tuple[str, str]]:
         """``[(account_id, api_key), ...]`` из окружения.
@@ -551,29 +653,49 @@ class AccountPool:
         )
 
     def _build_pool(self) -> None:
-        accounts = self._discover_accounts()
-        if not accounts:
-            logger.warning("[pool] no GigaChat accounts configured")
+        self._build_sber_clients()
+        self._build_cloudru_clients()
+        if not self.clients:
+            logger.warning(
+                "[pool] нет ни одного LLM-аккаунта (ни GIGACHAT_KEY_*, ни CLOUD_RU_KEY)"
+            )
             return
+        logger.info(
+            "[pool] чат-провайдер=%s; клиентов: sber=%d cloudru=%d",
+            self._chat_provider,
+            sum(c.provider.name == "sber" for c in self.clients),
+            sum(c.provider.name == "cloudru" for c in self.clients),
+        )
 
-        for account_id, key in accounts:
+    def _build_sber_clients(self) -> None:
+        for account_id, key in self._discover_accounts():
             forced = os.getenv(f"GIGACHAT_MODEL_{account_id}", "").strip().lower()
             tiers = [forced] if forced in MODEL_NAMES else list(MODEL_NAMES)
             shared_state = _SharedAccountState(api_key=key)
             for tier in tiers:
                 alias = account_id if len(tiers) == 1 else f"{account_id}-{tier}"
                 self._add_client(
-                    account_id=alias,
-                    api_key=key,
-                    tier=tier,
-                    shared_state=shared_state,
+                    account_id=alias, api_key=key, tier=tier,
+                    shared_state=shared_state, provider=SBER,
                 )
 
-        logger.info(
-            "[pool] %d account(s), %d client(s); per-account concurrency=1",
-            len(accounts),
-            len(self.clients),
+    def _build_cloudru_clients(self) -> None:
+        key = _ascii_only(os.getenv("CLOUD_RU_KEY") or "").strip()
+        if not key:
+            if self._chat_provider == "cloudru":
+                logger.warning(
+                    "[pool] LLM_PROVIDER=cloudru, но CLOUD_RU_KEY не задан — чат не поедет"
+                )
+            return
+        spec = _cloudru_spec()
+        shared_state = _SharedAccountState(
+            api_key=key, lock=asyncio.Semaphore(self._cloudru_concurrency)
         )
+        for tier in MODEL_NAMES:
+            self._add_client(
+                account_id=f"cloudru-{tier}", api_key=key, tier=tier,
+                shared_state=shared_state, provider=spec,
+            )
 
     def _add_client(
         self,
@@ -582,15 +704,17 @@ class AccountPool:
         api_key: str,
         tier: str,
         shared_state: _SharedAccountState | None = None,
+        provider: ProviderSpec = SBER,
     ) -> None:
         client = GigaChatClient(
             account_id=account_id,
             api_key=api_key,
             model_tier=tier,
             shared_state=shared_state,
+            provider=provider,
         )
         self.clients.append(client)
-        logger.info("[pool] added account %s tier=%s", account_id, tier)
+        logger.info("[pool] + %s (%s, tier=%s)", account_id, provider.name, tier)
 
     async def get_available(
         self,
@@ -598,22 +722,34 @@ class AccountPool:
         *,
         allow_fallback: bool = False,
         sticky_key: str | None = None,
+        provider: str | None = None,
     ) -> GigaChatClient:
+        """Клиент под тир. ``provider`` (``sber``|``cloudru``) переопределяет
+        активного из ``LLM_PROVIDER`` — ``embeddings.py`` так фиксирует Сбер.
+        """
         if not self.clients:
-            raise LLMConfigurationError("No GigaChat accounts configured")
+            raise LLMConfigurationError("No LLM accounts configured")
+
+        want = provider or self._chat_provider
+        scoped = [c for c in self.clients if c.provider.name == want]
+        if not scoped:
+            if provider is not None:
+                raise LLMConfigurationError(f"No '{provider}' LLM account configured")
+            # у активного провайдера нет клиентов — отдаём что есть
+            scoped = self.clients
 
         tier = model_tier.lower()
         min_priority = _TIER_PRIORITY.get(tier, 1)
         candidates = [
-            c for c in self.clients
+            c for c in scoped
             if _TIER_PRIORITY.get(c.model_tier, 1) >= min_priority
         ]
         if not candidates and not allow_fallback:
             raise LLMConfigurationError(
-                f"No GigaChat account configured for requested tier '{tier}'"
+                f"No LLM account configured for requested tier '{tier}'"
             )
         if not candidates:
-            candidates = self.clients
+            candidates = scoped
 
         if sticky_key:
             # Кэш GigaChat живёт в контуре аккаунта — один тред должен всегда
@@ -653,13 +789,29 @@ class AccountPool:
 
     @property
     def account_count(self) -> int:
-        """Число физических аккаунтов (уникальных локов) = потолок конкурентности."""
-        return len({id(c._state) for c in self.clients})
+        """Уникальных локов активного чат-провайдера = потолок конкурентности."""
+        return len({
+            id(c._state) for c in self.clients
+            if c.provider.name == self._chat_provider
+        })
+
+    @property
+    def proactive_concurrency(self) -> int:
+        """Сколько пациентов проактивный планировщик обрабатывает разом.
+
+        Сбер: число ключей (1 поток/ключ). Cloud.ru: ``CLOUD_RU_CONCURRENCY``
+        (лимит по RPM/TPM аккаунта, не по потокам).
+        """
+        if self._chat_provider == "cloudru":
+            return self._cloudru_concurrency
+        return max(1, self.account_count)
 
     def get_stats(self) -> dict:
         return {
             c.account_id: {
+                "provider": c.provider.name,
                 "model_tier": c.model_tier,
+                "model": c.provider.model_for(c.model_tier),
                 "is_busy": c.is_busy,
                 "tokens_used": c.tokens_used,
             }

@@ -47,7 +47,9 @@ async def get_text_embedding(text: str) -> list[float]:
 
     from app.llm.pool import pool
 
-    gc_client = await pool.get_available("lite")
+    # Всегда Сбер: индекс (RAG + прототипы router L1) построен на модели
+    # `Embeddings`. Сменить провайдера эмбеддингов = переиндексация всего.
+    gc_client = await pool.get_available("lite", provider="sber")
     token = await gc_client._get_access_token()
 
     try:
@@ -82,7 +84,8 @@ async def get_text_embeddings_batch(texts: list[str]) -> list[list[float]]:
     if to_fetch:
         from app.llm.pool import pool
 
-        gc_client = await pool.get_available("lite")
+        # Всегда Сбер — см. get_text_embedding.
+        gc_client = await pool.get_available("lite", provider="sber")
         token = await gc_client._get_access_token()
 
         try:

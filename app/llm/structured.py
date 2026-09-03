@@ -94,11 +94,25 @@ def json_schema_for(model: type[BaseModel]) -> dict[str, Any]:
     return schema
 
 
-def response_format_for(model: type[BaseModel]) -> dict[str, Any]:
-    """Готовое тело ``response_format`` для ``/chat/completions``."""
+def response_format_for(model: type[BaseModel], *, provider: str = "sber") -> dict[str, Any]:
+    """Готовое тело ``response_format`` для ``/chat/completions``.
+
+    Форма зависит от провайдера:
+
+    * **sber** — ``{"type": "json_schema", "schema": {...}, "strict": true}``
+      (документация Сбера).
+    * **cloudru** — OpenAI-канон: схема вложена в ``json_schema`` с обязательным
+      ``name``. Плоскую сберовскую форму шлюз Cloud.ru отклоняет с 400.
+    """
+    schema = json_schema_for(model)
+    if provider == "cloudru":
+        return {
+            "type": "json_schema",
+            "json_schema": {"name": model.__name__, "schema": schema, "strict": True},
+        }
     return {
         "type": "json_schema",
-        "schema": json_schema_for(model),
+        "schema": schema,
         "strict": True,
     }
 
