@@ -39,6 +39,7 @@
 |---|---|
 | `SPRINT1_INVESTIGATIONS.md` (корень) | Аудит GigaChat-аккаунта (Фаза 0 §1), замер префиксного кэша (§2), Cloud.ru — ёмкость и решение о переходе (§1 доп. 2026-09-02) |
 | `d:/PROJECT/safety-bench` (отд. репо) | Оффлайн-бенч детектора суицид-риска. §GigaChat 3.5 Ultra vs 2-Pro (2026-09-02): армы `giga35_prod` / `lite_pro_prod` / `lite_prod`, клиент `sbench/cloudru.py` |
+| `docs/agent/CLOUDRU_COST_ESTIMATE.md` | Прикидка стоимости Cloud.ru / GigaChat 3.5 Ultra под перевод прода (Фаза 6) |
 | `docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md` | LLM-классификатор суицид-риска: контракт, встраивание, градация уровней, цифры |
 | `docs/agent/CRISIS_SEMANTIC_VALIDATION.md` | Почему embedding-слой `crisis_semantic` провалил валидацию и удалён |
 | `docs/agent/PLAN_TOMORROW.md` | План на 2026-09-01 + NIGHT REPORT (holdout-сверка safety, латентность, 2-й проход L0) |
@@ -416,10 +417,11 @@
   (`cloudru-max` / `A1-lite` — канал по префиксу) + `model` (реальный id) +
   `precached_tokens` (Cloud.ru-кэш ловится из `prompt_tokens_details`). Активный
   провайдер на дашборде — виджет `llm_provider.js` (шаг 2).
-- [ ] **Цена / квота.** Cloud.ru 3.5 Ultra 96/289 ₽ за 1М — прикинуть стоимость
-  под нагрузку по `llm_call_log` (классификатор — вызов на каждое сообщение мимо
-  L0; агент — 1 структурный + 0–N tool-вызовов/ход), запросить повышение
-  RPM/TPM. Сбер Freemium — следить за остатком бесплатных токенов.
+- [x] **Цена** *(2026-09-03)* — `docs/agent/CLOUDRU_COST_ESTIMATE.md`. ~1.18 ₽/
+  сообщение при кэше по полной ставке, ~0.29 ₽ при кэше −90 % (политика биллинга
+  кэша Cloud.ru не опубликована — спросить поддержку). Пилот 20 пациентов ≈
+  2.6–10.6 тыс ₽/мес, 50 ≈ 6.5–26.5 тыс. Порядок комфортный. Осталось:
+  спросить про кэш + запросить повышение RPM/TPM.
 - [x] **patient-sim на Cloud.ru** *(2026-09-03, `--quick`)*: **6 PASS / 1 WARN /
   1 FAIL**. FAIL — `s05_anxious`: GigaChat 3.5 (как агент) эскалирует на
   катастрофизации здоровья («я так и умру здесь одна с этим комом в горле»).
