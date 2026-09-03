@@ -11,7 +11,7 @@ from app.llm.pipeline.stages import ClassificationStage, MemoryWriteStage, Super
 from app.llm.pipeline.stages.boundary_guard import BoundaryGuardStage
 from app.llm.pipeline.stages.data_entry import DataEntryStage
 from app.llm.pipeline.types import LLMRequest, LLMResponse, PipelineContext
-from app.llm.pool import MODEL_NAMES
+from app.llm.pool import MODEL_NAMES, pool
 from app.llm.router import RequestType
 
 logger = logging.getLogger("gpt-support-llm.pipeline")
@@ -156,8 +156,12 @@ class LLMPipeline:
 
         requested_tier = context.classification.model_tier.value if context.classification else "pro"
         actual_tier = context.response_actual_model_tier
-        requested_model = MODEL_NAMES.get(requested_tier, "unknown")
-        actual_model = MODEL_NAMES.get(actual_tier, requested_model) if actual_tier else requested_model
+        # имя модели активного провайдера (на Cloud.ru MODEL_NAMES не про то)
+        _spec = next((c.provider for c in pool.clients
+                      if c.provider.name == pool.chat_provider), None)
+        _name_for = _spec.model_for if _spec else MODEL_NAMES.get
+        requested_model = _name_for(requested_tier) or "unknown"
+        actual_model = (_name_for(actual_tier) or requested_model) if actual_tier else requested_model
         total_latency_ms = int((time.monotonic() - pipeline_started) * 1000)
 
         context.diagnostics["total_latency_ms"] = total_latency_ms
