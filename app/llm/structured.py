@@ -103,8 +103,21 @@ def response_format_for(model: type[BaseModel], *, provider: str = "sber") -> di
       (документация Сбера).
     * **cloudru** — OpenAI-канон: схема вложена в ``json_schema`` с обязательным
       ``name``. Плоскую сберовскую форму шлюз Cloud.ru отклоняет с 400.
+
+    В обоих случаях в ``required`` кладём ВСЕ свойства и убираем ``default``:
+    strict-режим OpenAI этого требует, а grammar-декодер Cloud.ru без этого
+    после необязательного поля залипает на whitespace до обрыва по max_tokens
+    (``{"level":"ideation_active"\\t\\t\\t…``). Дефолты остаются в Pydantic-модели
+    для парсинга ответа.
     """
     schema = json_schema_for(model)
+    props = schema.get("properties") or {}
+    if props:
+        schema["required"] = list(props.keys())
+        for prop in props.values():
+            if isinstance(prop, dict):
+                prop.pop("default", None)
+
     if provider == "cloudru":
         return {
             "type": "json_schema",

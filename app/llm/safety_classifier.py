@@ -1,9 +1,15 @@
 """LLM-классификатор суицидального риска — второй эшелон поверх regex-L0.
 
 Заменил embedding-слой `crisis_semantic` (удалён 2026-08-31, не прошёл валидацию —
-`docs/agent/CRISIS_SEMANTIC_VALIDATION.md`). Рубрика и рабочая точка — из `safety-bench`, арм
-`lite` (`safety-bench/docs/01_report.md`: recall 0.81 на {ideation_active,
-plan_or_imminent}, FPR 0.06 на hard-negative). Модель — GigaChat-2 Lite, t=0.
+`docs/agent/CRISIS_SEMANTIC_VALIDATION.md`). Рубрика — из `safety-bench`
+(`prompts/safety_classifier.txt`), t=0.
+
+Модель зависит от активного LLM-провайдера (`pool.chat_provider`):
+  * **sber** — GigaChat-2 Lite (тир `lite`). Валидированный прод-конфиг,
+    safety-bench v1: recall {act,plan} 0.78–0.81, FPR hard-neg 0.06.
+  * **cloudru** — топовая модель (тир `max` → `CLOUD_RU_MODEL_MAX`, по умолчанию
+    GigaChat 3.5 Ultra). Safety-bench 2026-09-02 (holdout, продовая рубрика):
+    recall {act,plan} **0.97**, FPR **0.00**.
 
 Место в пайплайне: `boundary_guard`, ПОСЛЕ L0-regex и prompt-injection, только если
 L0 не дал `urgent`. Не бросает исключений наружу: сбой API → `available=False`,
@@ -37,6 +43,13 @@ Level = Literal[
     "none", "distress", "ideation_passive", "ideation_active", "plan_or_imminent"
 ]
 Subject = Literal["self", "other", "abstract"]
+Confidence = Literal["low", "medium", "high"]
+
+# `confidence` — дискретный бакет, не свободный float: grammar-декодер GigaChat 3.5
+# на неограниченном числовом поле склонен «убегать» (`0.9000000…`). Основной фикс
+# whitespace-залипания — все поля в required (structured.response_format_for),
+# enum здесь дополнительная страховка. Наружу отдаём числом для диагностики.
+_CONFIDENCE_SCORE: dict[str, float] = {"low": 0.3, "medium": 0.6, "high": 0.9}
 
 LEVELS: tuple[str, ...] = (
     "none", "distress", "ideation_passive", "ideation_active", "plan_or_imminent"
@@ -61,7 +74,7 @@ class _RiskCard(BaseModel):
 
     level: Level
     subject: Subject = "self"
-    confidence: float = 0.0
+    confidence: Confidence = "medium"
 
     @field_validator("level", mode="before")
     @classmethod
@@ -82,11 +95,16 @@ class _RiskCard(BaseModel):
 
     @field_validator("confidence", mode="before")
     @classmethod
-    def _coerce_confidence(cls, v: object) -> float:
+    def _coerce_confidence(cls, v: object) -> str:
+        s = str(v or "").strip().lower()
+        if s in _CONFIDENCE_SCORE:
+            return s
+        # число из старой рубрики / другого провайдера → ближайший бакет
         try:
-            return max(0.0, min(1.0, float(v)))
+            f = float(s)
+            return "high" if f >= 0.75 else "low" if f <= 0.4 else "medium"
         except (TypeError, ValueError):
-            return 0.0
+            return "medium"
 
 
 @dataclass(slots=True)
@@ -137,8 +155,12 @@ async def classify(text: str, context: list[str] | None = None) -> SafetyAssessm
 
     from app.llm.pool import pool
 
+    # На Cloud.ru safety идёт на топовую модель (тир max → GigaChat 3.5 Ultra),
+    # на Сбере — на дешёвый Lite. Обоснование — в докстринге модуля + safety-bench.
+    tier = "max" if pool.chat_provider == "cloudru" else "lite"
+
     try:
-        client = await pool.get_available("lite")
+        client = await pool.get_available(tier)
         result = await client.structured(
             [{"role": "user", "content": user_content}],
             _SYSTEM_PROMPT,
@@ -146,7 +168,7 @@ async def classify(text: str, context: list[str] | None = None) -> SafetyAssessm
             temperature=0.0,
             step="safety_classifier",
             session_id=SHARED_SESSION_ID,
-            max_tokens=200,
+            max_tokens=400,
         )
     except LLMError as exc:
         logger.warning("[safety_classifier] недоступен: %s", exc)
@@ -159,7 +181,7 @@ async def classify(text: str, context: list[str] | None = None) -> SafetyAssessm
     return SafetyAssessment(
         level=card.level,
         subject=card.subject,
-        confidence=float(card.confidence or 0.0),
+        confidence=_CONFIDENCE_SCORE.get(card.confidence, 0.6),
         latency_ms=int(result.latency_ms or 0),
         available=True,
     )

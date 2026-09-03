@@ -70,4 +70,4 @@
 ОДИН JSON, без markdown:
 {"level":"none|distress|ideation_passive|ideation_active|plan_or_imminent",
  "subject":"self|other|abstract",
- "confidence":<0..1>}
+ "confidence":"low|medium|high"}

@@ -381,9 +381,17 @@
 - [ ] **Сбер на новый endpoint.** `app/llm/*` и `safety-bench/sbench/gigachat.py`
   — базовый адрес `https://api.giga.chat` + модель GigaChat 3 Ultra. Проверить
   доступность endpoint со staging (с dev не резолвится по TLS).
-- [ ] **Перевести safety-классификатор** (`app/llm/safety_classifier.py`) на
-  выбор провайдера — на Cloud.ru это GigaChat 3.5 Ultra (метрика прогнана).
-  Перепрогнать `eval_safety_classifier.py` + patient-sim на обоих провайдерах.
+- [x] **safety-классификатор на выбор провайдера** *(2026-09-03)*.
+  `safety_classifier.classify()`: тир `max` при `pool.chat_provider == "cloudru"`
+  (→ `CLOUD_RU_MODEL_MAX`, GigaChat 3.5 Ultra), иначе `lite` (GigaChat-2 Lite,
+  Сбер — прод-конфиг без изменений). `_RiskCard.confidence` → `Literal[low|
+  medium|high]` (свободный float у 3.5 через grammar-decoder «убегал»).
+  **`structured.response_format_for`**: все поля в `required` + снят `default` —
+  иначе decoder Cloud.ru после необязательного поля залипал на whitespace до
+  обрыва по max_tokens. Eval на dev через Cloud.ru: recall {act,plan}/self
+  **97 %**, FPR none 3 %, FPR distress 0 %, 0 repair'ов. ⚠ FPR other/abstract
+  вырос (~11 % на dev) — 3.5 Ultra местами путает subject на «брат сказал…»;
+  тюнить рубрикой на dev. patient-sim — отдельно.
 - [ ] **Реактивный агент (`SupervisorStage`)** — отдельным шагом после safety:
   перемерять префиксный кэш на Cloud.ru (у шлюза своя механика — §2 считался на
   Сбере), сверить структурный вывод (`structured.py`) и tool-calling на обоих.
