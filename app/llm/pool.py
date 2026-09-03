@@ -39,7 +39,14 @@ from app.llm.http import request_json_with_policy
 logger = logging.getLogger("gpt-support-llm.pool")
 
 GIGACHAT_AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-GIGACHAT_API_URL = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+# Сбер с 17.07.2026 переводит API на https://api.giga.chat (туда же GigaChat 3
+# Ultra для физлиц в Freemium). Старый адрес пока живёт. Оставляем переключаемым
+# через окружение — с dev-машины api.giga.chat не открывается (TLS timeout),
+# перевод проверять со staging. См. SPRINT1_INVESTIGATIONS.md §1.
+GIGACHAT_API_URL = (
+    os.getenv("GIGACHAT_CHAT_URL")
+    or "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+).strip()
 
 CLOUDRU_CHAT_URL = "https://foundation-models.api.cloud.ru/v1/chat/completions"
 # Флагман Сбера на Cloud.ru (GigaChat 3.5 Ultra) — на safety-бенче recall

@@ -378,9 +378,11 @@
   Сбер|Cloud.ru + строка «источник/кто менял») на **дашборде** и в **отладочном
   чате** (`data-llm-provider`). Тесты `test_llm_provider.py` (+3). ⚠ фронт
   кликом в браузере не гонял — эндпоинт-контракт проверен.
-- [ ] **Сбер на новый endpoint.** `app/llm/*` и `safety-bench/sbench/gigachat.py`
-  — базовый адрес `https://api.giga.chat` + модель GigaChat 3 Ultra. Проверить
-  доступность endpoint со staging (с dev не резолвится по TLS).
+- [~] **Сбер на новый endpoint.** Адрес чата вынесен в `GIGACHAT_CHAT_URL`
+  (default — старый рабочий endpoint). Со staging: выставить
+  `https://api.giga.chat/v1/chat/completions`, проверить, добавить модель
+  GigaChat 3 Ultra в `MODEL_NAMES` (сейчас там только gen-2). `safety-bench/
+  sbench/gigachat.py` — тем же env. Блокер: `api.giga.chat` не открывается с dev.
 - [x] **safety-классификатор на выбор провайдера** *(2026-09-03)*.
   `safety_classifier.classify()`: тир `max` при `pool.chat_provider == "cloudru"`
   (→ `CLOUD_RU_MODEL_MAX`, GigaChat 3.5 Ultra), иначе `lite` (GigaChat-2 Lite,
@@ -402,16 +404,19 @@
   Cloud.ru: структурный `AgentReply` — 0 repair; tool-roundtrip (search_education)
   отрабатывает; **префиксный кэш 99.7 %** (`precached=323/324` со 2-го хода,
   без прогрева, телеметрия `prompt_tokens_details.cached_tokens` ловит).
+- [x] **Телеметрия** *(2026-09-03)*. `llm_call_log` уже пишет `account_id`
+  (`cloudru-max` / `A1-lite` — канал по префиксу) + `model` (реальный id) +
+  `precached_tokens` (Cloud.ru-кэш ловится из `prompt_tokens_details`). Активный
+  провайдер на дашборде — виджет `llm_provider.js` (шаг 2).
 - [ ] **Цена / квота.** Cloud.ru 3.5 Ultra 96/289 ₽ за 1М — прикинуть стоимость
-  под нагрузку (классификатор — вызов на каждое сообщение мимо L0; агент — 1
-  структурный вызов/ход), запросить повышение RPM/TPM. Сбер Freemium — следить
-  за остатком бесплатных токенов.
-- [ ] **Телеметрия.** `llm_call_log.account_id` — префикс канала
-  (`cloudru:giga35ultra` / `sber:A1-lite`), чтобы аналитика различала провайдера;
-  на дашборд researcher — какой провайдер активен сейчас.
+  под нагрузку по `llm_call_log` (классификатор — вызов на каждое сообщение мимо
+  L0; агент — 1 структурный + 0–N tool-вызовов/ход), запросить повышение
+  RPM/TPM. Сбер Freemium — следить за остатком бесплатных токенов.
+- [ ] **patient-sim на Cloud.ru** — ролевая регрессия (`scripts/patient_sim/`)
+  с `LLM_PROVIDER=cloudru`, сверить с прошлым прогоном на Сбере.
 
-**Оценка:** клиент + флаг + переключатель + миграция + перевод safety — ~1–1.5
-спринта; реактивный агент — отдельно, 1–2 спринта.
+**Оценка:** осталось — цена (полдня) + patient-sim (прогон) + Сбер-endpoint
+(когда откроется api.giga.chat).
 
 ### Сквозное — тесты
 
