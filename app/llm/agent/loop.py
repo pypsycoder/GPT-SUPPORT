@@ -304,15 +304,11 @@ class Agent:
             tool_result = await tools.registry.invoke(fc.name, fc.arguments, patient_id=patient_id, db=db)
             findings.append(tool_result)
 
-            working.append(
-                {
-                    "role": "assistant",
-                    "content": "",
-                    "function_call": {"name": fc.name, "arguments": fc.arguments},
-                    **({"functions_state_id": result.functions_state_id} if result.functions_state_id else {}),
-                }
+            working.extend(
+                client.tool_exchange_messages(
+                    fc, tool_result, functions_state_id=result.functions_state_id
+                )
             )
-            working.append({"role": "function", "content": tool_result})
         else:
             logger.warning("[agent] tool loop exhausted after %d hops", max_hops)
 

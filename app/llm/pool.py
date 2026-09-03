@@ -67,6 +67,8 @@ class ProviderSpec:
     oauth_scope: str
     models: dict[str, str]    # tier -> имя модели у провайдера
     send_session_header: bool  # X-Session-ID (префиксный кэш Сбера)
+    tool_protocol: str        # "sber" (functions/function_call/role=function)
+    #                           | "openai" (tools/tool_choice/role=tool/tool_calls)
 
     def model_for(self, tier: str) -> str:
         return (
@@ -83,6 +85,7 @@ SBER = ProviderSpec(
     oauth_scope="GIGACHAT_API_PERS",
     models=MODEL_NAMES,
     send_session_header=True,
+    tool_protocol="sber",
 )
 
 
@@ -103,6 +106,7 @@ def _cloudru_spec() -> ProviderSpec:
             for tier in MODEL_NAMES
         },
         send_session_header=False,
+        tool_protocol="openai",
     )
 
 # JSON дороже плоского текста на скобки и ключи — потолок в 512 токенов,
@@ -134,10 +138,14 @@ class StructuredResult:
 
 @dataclass(slots=True)
 class FunctionCall:
-    """Запрос модели на вызов инструмента (``message.function_call``)."""
+    """Запрос модели на вызов инструмента.
+
+    Сбер: ``message.function_call``. Cloud.ru/OpenAI: ``message.tool_calls[0]``
+    (там же ``call_id`` — его надо вернуть в ``role="tool"`` сообщении)."""
 
     name: str
     arguments: dict[str, Any]
+    call_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -456,6 +464,12 @@ class GigaChatClient:
     ) -> FunctionCallResult:
         """Нативный tool-calling (шаг 7). ``response_format`` здесь не передаётся
         никогда — смешивать functions и структурный вывод нельзя (см. ``call()``).
+
+        Протокол зависит от провайдера (``provider.tool_protocol``): Сбер —
+        ``functions``/``function_call``/``message.function_call``; Cloud.ru —
+        OpenAI-канон ``tools``/``tool_choice``/``message.tool_calls``. Наружу
+        отдаётся единый ``FunctionCall`` — вызывающий (``agent/loop.py``)
+        собирает ответное сообщение через ``tool_exchange_messages``.
         """
         payload: dict[str, Any] = {
             "model": self.provider.model_for(self.model_tier),
@@ -463,7 +477,12 @@ class GigaChatClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        if functions:
+        if functions and self.provider.tool_protocol == "openai":
+            payload["tools"] = [
+                {"type": "function", "function": f} for f in functions
+            ]
+            payload["tool_choice"] = function_call or "auto"
+        elif functions:
             payload["functions"] = functions
             payload["function_call"] = function_call or "auto"
 
@@ -471,26 +490,80 @@ class GigaChatClient:
             payload, step=step, patient_id=patient_id, session_id=session_id, prefix_fp=prefix_fp
         )
 
-        fc: FunctionCall | None = None
-        raw_fc = raw.message.get("function_call")
-        if raw_fc:
-            args = raw_fc.get("arguments")
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
-            fc = FunctionCall(name=str(raw_fc.get("name") or ""), arguments=args or {})
-
         return FunctionCallResult(
             content=raw.message.get("content") or "",
-            function_call=fc,
+            function_call=self._parse_tool_call(raw.message),
             functions_state_id=raw.message.get("functions_state_id"),
             finish_reason=raw.finish_reason,
             tokens_in=raw.tokens_in,
             tokens_out=raw.tokens_out,
             latency_ms=raw.latency_ms,
         )
+
+    @staticmethod
+    def _decode_args(args: Any) -> dict[str, Any]:
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return args if isinstance(args, dict) else {}
+
+    def _parse_tool_call(self, message: dict[str, Any]) -> FunctionCall | None:
+        if self.provider.tool_protocol == "openai":
+            calls = message.get("tool_calls") or []
+            if not calls:
+                return None
+            fn = (calls[0] or {}).get("function") or {}
+            return FunctionCall(
+                name=str(fn.get("name") or ""),
+                arguments=self._decode_args(fn.get("arguments")),
+                call_id=calls[0].get("id"),
+            )
+        raw_fc = message.get("function_call")
+        if not raw_fc:
+            return None
+        return FunctionCall(
+            name=str(raw_fc.get("name") or ""),
+            arguments=self._decode_args(raw_fc.get("arguments")),
+        )
+
+    def tool_exchange_messages(
+        self,
+        fc: FunctionCall,
+        tool_output: str,
+        *,
+        functions_state_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Пара сообщений «вызов инструмента + его результат» для истории,
+        в формате активного провайдера (порядок и формат критичны, иначе 4xx)."""
+        if self.provider.tool_protocol == "openai":
+            call_id = fc.call_id or "call_0"
+            return [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": fc.name,
+                                "arguments": json.dumps(fc.arguments, ensure_ascii=False),
+                            },
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": call_id, "content": tool_output},
+            ]
+        assistant_msg: dict[str, Any] = {
+            "role": "assistant",
+            "content": "",
+            "function_call": {"name": fc.name, "arguments": fc.arguments},
+        }
+        if functions_state_id:
+            assistant_msg["functions_state_id"] = functions_state_id
+        return [assistant_msg, {"role": "function", "content": tool_output}]
 
     async def structured(
         self,

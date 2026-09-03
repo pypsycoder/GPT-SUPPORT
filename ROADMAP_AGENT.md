@@ -392,9 +392,16 @@
   **97 %**, FPR none 3 %, FPR distress 0 %, 0 repair'ов. ⚠ FPR other/abstract
   вырос (~11 % на dev) — 3.5 Ultra местами путает subject на «брат сказал…»;
   тюнить рубрикой на dev. patient-sim — отдельно.
-- [ ] **Реактивный агент (`SupervisorStage`)** — отдельным шагом после safety:
-  перемерять префиксный кэш на Cloud.ru (у шлюза своя механика — §2 считался на
-  Сбере), сверить структурный вывод (`structured.py`) и tool-calling на обоих.
+- [x] **Реактивный агент (`SupervisorStage` / `agent/loop.py`) на Cloud.ru**
+  *(2026-09-03)*. Tool-calling: `ProviderSpec.tool_protocol` (`sber`:
+  `functions`/`function_call`/`role=function`; `openai`: `tools`/`tool_choice`/
+  `role=tool`/`tool_calls`). `call_with_functions` строит payload и парсит ответ
+  по протоколу; `FunctionCall.call_id` (OpenAI tool_call_id);
+  `GigaChatClient.tool_exchange_messages()` собирает пару «вызов+результат»
+  в формате провайдера — `agent/loop.py` зовёт её вместо инлайна. E2E на
+  Cloud.ru: структурный `AgentReply` — 0 repair; tool-roundtrip (search_education)
+  отрабатывает; **префиксный кэш 99.7 %** (`precached=323/324` со 2-го хода,
+  без прогрева, телеметрия `prompt_tokens_details.cached_tokens` ловит).
 - [ ] **Цена / квота.** Cloud.ru 3.5 Ultra 96/289 ₽ за 1М — прикинуть стоимость
   под нагрузку (классификатор — вызов на каждое сообщение мимо L0; агент — 1
   структурный вызов/ход), запросить повышение RPM/TPM. Сбер Freemium — следить

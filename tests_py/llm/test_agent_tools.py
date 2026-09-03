@@ -15,7 +15,7 @@ import pytest
 from app.llm import agent
 from app.llm.agent.schemas import AgentReply
 from app.llm.errors import LLMTransportError
-from app.llm.pool import FunctionCall, FunctionCallResult, StructuredResult
+from app.llm.pool import SBER, FunctionCall, FunctionCallResult, GigaChatClient, StructuredResult
 
 pytestmark = [pytest.mark.unit]
 
@@ -37,6 +37,9 @@ def _reply_payload(**overrides) -> dict:
 
 class _StubToolClient:
     account_id = "A1-pro"
+    provider = SBER
+    # реальная сборка пары «вызов + результат» — тесты проверяют её формат
+    tool_exchange_messages = GigaChatClient.tool_exchange_messages
 
     def __init__(self, *, cwf_outcomes=(), structured_outcomes=()):
         self.cwf_outcomes = list(cwf_outcomes)
