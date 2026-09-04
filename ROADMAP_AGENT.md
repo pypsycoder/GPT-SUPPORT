@@ -7,7 +7,8 @@
 > STRUCTURE.md, `buttons_json`, часовые пояса, миграция `account_id` применена).
 > `crisis_semantic` — валидация провалена, слой удалён; L0 regex усилен + заведён
 > LLM-классификатор суицид-риска (`safety_classifier.py`, флаг `LLM_SAFETY_LLM` ON):
-> golden **test-сплит** (holdout) recall {act,plan}/self **91%**, FPR distress 3%,
+> golden **test-сплит** (holdout) recall {act,plan}/self **100%** (после доработки
+> рубрики 2026-09-04, было 91%), FPR distress 3% / none 4% без изменений,
 > patient-sim 0 ложных кризис-эскалаций.
 > **Фаза 3 (внешний канал доставки) снята** — доставка только веб.
 > **Новое 2026-09-02:** решение — **два LLM-провайдера в коде, переключение флагом
@@ -293,9 +294,18 @@
       {act,plan}/self **91%** (было 43–68%), FPR `none` 4% (L0 на слове-теме),
       FPR distress 3%. patient-sim: **0 ложных кризис-эскалаций**. Латентность
       Lite-вызова ~250 мс (serial ок). `docs/agent/PLAN_TOMORROW.md` §NIGHT REPORT.
+    - [x] **Рубрика допилена на «пора заканчивать это всё» → `ideation_active`**
+      *(2026-09-04)*. Кластер: решение/повторяющиеся мысли уйти («рассматриваю
+      вариант уйти», «пора закончить эту историю»), прощальное письмо в любой
+      формулировке, «не приезжать на диализ как способ», приведение дел в порядок
+      перед уходом; + контекст «да» на прямой вопрос бота про суицид → active.
+      Тюнинг на dev-сплите, **holdout: recall {act,plan}/self 91% → 100%** (55/55),
+      passive-recall 63%, все FPR без изменений (none 4%, distress 3%,
+      other/abstract 24% — те же строки L0 по слову-теме). Только текст
+      `prompts/safety_classifier.txt`, кода не трогали. NB: цифры Cloud.ru
+      (3.5 Ultra, holdout 98%) — на старой рубрике, переверить перед свитчем.
     - [ ] Снять флаг `LLM_SAFETY_LLM` (как `2316a40`) — решение Дмитрия; цифры на
-      holdout позволяют. Опционально: рубрику допилить на «пора заканчивать это
-      всё» → `ideation_active` (тюнить на dev).
+      holdout позволяют.
   - [x] Всё выше **закоммичено и запушено** 2026-09-02: `73daf2c` (safety-слой),
     `29a0820`/`e1edb89`/`704f210`/`196f94d`/`b97be3f` — ветка `feat/agents-rework`.
 - [x] **Гигиена.**
@@ -610,7 +620,7 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
 | ✅ | Сон из чата: «сказал записал — не записал» | 1 — ложный «Записал» убран + кнопка в трекер сна (2026-08-30); запись через диалог снята из плана |
 | ✅ | `education_cta` захардкожен `None` | 4 — `build_education_cta` + вызов в супервизоре (2026-08-30) |
 | ✅ | Распорядок дня из чата не вносится | 4 — кнопка в трекер по образцу сна (2026-08-30) |
-| ✅ | `crisis_semantic` выключен флагом | 4 — валидация провалена, слой **удалён** 2026-08-31; L0 regex усилен + заведён **LLM-классификатор** (`safety_classifier.py`, golden test-сплит recall {act,plan}/self 91%, patient-sim 0 ложных). Осталось снять флаг. `docs/agent/CRISIS_SEMANTIC_VALIDATION.md`, `docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md` |
+| ✅ | `crisis_semantic` выключен флагом | 4 — валидация провалена, слой **удалён** 2026-08-31; L0 regex усилен + заведён **LLM-классификатор** (`safety_classifier.py`, golden test-сплит recall {act,plan}/self 91% → **100%** после доработки рубрики 2026-09-04, patient-sim 0 ложных). Осталось снять флаг. `docs/agent/CRISIS_SEMANTIC_VALIDATION.md`, `docs/agent/SAFETY_LLM_INTEGRATION_PLAN.md` |
 | ✅ | `account_id` VARCHAR(20) | 4 — расширена до VARCHAR(64), alembic `20260901_01` применена 2026-09-02, коммит `704f210` |
 | ✅ | Рейт-лимита на `/api/chat/message` нет | 4 — `app/llm/rate_limit.py` (2026-08-30) |
 | ✅ | STRUCTURE.md отстал (4 стадии vs 5) | 4 — обновлён 2026-08-29 (5 стадий, `DataEntryStage`, вх. контракт, замер кэша) + daily_context 2026-08-30 |
