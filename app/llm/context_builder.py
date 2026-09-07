@@ -448,7 +448,9 @@ async def build_education_cta(
     Отдельный лёгкий проход по RAG (эмбеддинг + пара запросов) — зовётся из
     ``SupervisorStage`` только когда агент сам определил ``intent == "education"``.
     Возвращает форму, которую ждёт фронт (`chat.js appendEducationCta`):
-    ``{"type": "lesson", "lesson_id": int, "label": str}`` или ``None``.
+    ``{"type": "lesson", "lesson_id": int, "lesson_code": str, "label": str}``
+    или ``None``. Навигация на фронте идёт по ``lesson_code`` (страница урока
+    ищет `Lesson.code`, не PK), поэтому код обязателен в payload.
     """
     query = str(query or "").strip()
     if len(query) < 3:
@@ -471,9 +473,14 @@ async def build_education_cta(
         cta = item.get("cta") or {}
         target = cta.get("cta_target") or {}
         if cta.get("cta_type") == "lesson" and target.get("lesson_id"):
+            lesson_code = str(target.get("lesson_code") or "").strip()
+            if not lesson_code:
+                # без кода фронт не откроет урок — CTA бесполезен
+                continue
             return {
                 "type": "lesson",
                 "lesson_id": int(target["lesson_id"]),
+                "lesson_code": lesson_code,
                 "label": str(cta.get("cta_label") or item.get("lesson_title") or "Открыть урок"),
             }
     return None

@@ -438,7 +438,9 @@
   }
 
   function appendEducationCta(msgEl, cta) {
-    if (!cta || cta.type !== 'lesson' || !cta.lesson_id) return;
+    if (!cta || cta.type !== 'lesson') return;
+    // Страница урока ищет урок по Lesson.code (?lesson=), не по PK.
+    var lessonCode = cta.lesson_code || '';
     var wrap = document.createElement('div');
     wrap.className = 'chat-education-cta';
     var btn = document.createElement('button');
@@ -446,7 +448,9 @@
     btn.textContent = cta.label || 'Открыть урок';
     btn.addEventListener('click', function () {
       closeChatDrawer();
-      window.location.href = '/patient/education/lesson?id=' + cta.lesson_id;
+      window.location.href = lessonCode
+        ? '/patient/education?lesson=' + encodeURIComponent(lessonCode)
+        : '/patient/education_overview';
     });
     wrap.appendChild(btn);
     msgEl.appendChild(wrap);

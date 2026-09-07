@@ -41,7 +41,32 @@ async def test_returns_frontend_shape_for_unread_lesson(monkeypatch):
 
     cta = await cb.build_education_cta(1, "сколько можно пить воды", db=object())
 
-    assert cta == {"type": "lesson", "lesson_id": 12, "label": "Жидкость"}
+    assert cta == {
+        "type": "lesson",
+        "lesson_id": 12,
+        "lesson_code": "02",
+        "label": "Жидкость",
+    }
+
+
+async def test_none_when_lesson_cta_without_code(monkeypatch):
+    _patch(
+        monkeypatch,
+        modules=[{"lesson_id": 12, "title": "Жидкость", "code": ""}],
+        grounding=[
+            {
+                "lesson_title": "Жидкость",
+                "cta": {
+                    "cta_type": "lesson",
+                    "cta_label": "Жидкость",
+                    "cta_target": {"lesson_id": 12, "lesson_code": ""},
+                },
+            }
+        ],
+    )
+
+    cta = await cb.build_education_cta(1, "сколько можно пить воды", db=object())
+    assert cta is None
 
 
 async def test_none_when_no_modules(monkeypatch):
