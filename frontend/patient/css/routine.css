@@ -47,7 +47,9 @@
 }
 
 .routine-hidden {
-  display: none;
+  /* утилита-скрытие: должна побеждать любой позже объявленный display
+     (например .routine-dialysis-badge { display: inline-block }) */
+  display: none !important;
 }
 
 .routine-step-header {
@@ -178,7 +180,7 @@
 .routine-day-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
@@ -194,12 +196,67 @@
   color: #555;
 }
 
-.routine-day-date label {
-  font-size: 14px;
+/* Контрол даты: подпись вынесена в absolute, поэтому её длина
+   («завтра · понедельник, 7 сентября 2026») не двигает поле и кнопки. */
+.routine-day-date {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 22px;
 }
 
-.routine-day-date input[type="date"] {
-  margin-left: 4px;
+.routine-date-cap {
+  font-size: 14px;
+  color: #555;
+}
+
+.routine-date-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.routine-date-nav {
+  width: 36px;
+  height: 40px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: #1976d2;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.routine-date-nav:hover {
+  background-color: #e3f2fd;
+}
+
+.routine-date-field {
+  width: 7.5em;
+  min-height: 40px;
+  padding: 6px 8px;
+  text-align: center;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 14px;
+  background-color: #ffffff;
+  color: #202124;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+.routine-date-label {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: -18px;
+  font-size: 13px;
+  color: #555;
+  white-space: nowrap;
+  text-align: right;
+  pointer-events: none;
 }
 
 .routine-dialysis-badge {
@@ -342,6 +399,149 @@
   text-align: right;
 }
 
+/* --- Время начала (планер + верификация) --- */
+
+.routine-time {
+  width: 5em;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: center;
+  background-color: #ffffff;
+  color: #202124;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+.routine-exec-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.routine-plan-hint {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+}
+
+.routine-card-hint {
+  font-weight: 400;
+  font-size: 11px;
+  color: #666;
+  border: 1px solid #e0e0e0;
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* --- Лента дня (только просмотр) --- */
+
+.routine-timeline {
+  margin-top: 8px;
+}
+
+.routine-timeline-grid {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+}
+
+.routine-tl-scale {
+  display: flex;
+  flex-direction: column;
+}
+
+.routine-tl-scale span {
+  /* высота задаётся из JS (TIMELINE_ROW_PX), здесь — запасное значение */
+  height: 20px;
+  font-size: 10px;
+  color: #999;
+  transform: translateY(-6px);
+  font-variant-numeric: tabular-nums;
+}
+
+.routine-tl-lane {
+  position: relative;
+  border-left: 1px solid #e0e0e0;
+  background-color: #ffffff;
+}
+
+.routine-tl-hr {
+  height: 20px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.routine-tl-hr:first-child {
+  border-top: 0;
+}
+
+.routine-tl-block {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: 6px;
+  padding: 2px 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.routine-tl-block--compact {
+  justify-content: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.routine-tl-block-label {
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.routine-tl-block-sub {
+  font-size: 9px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.routine-tl-block--dialysis {
+  z-index: 1;
+  color: #795548;
+  border: 1px solid #f0b429;
+  border-left: 3px solid #f0b429;
+  background-color: #fff3d6;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 7px,
+    rgba(240, 180, 41, 0.14) 7px 14px
+  );
+}
+
+.routine-tl-block--activity {
+  z-index: 2;
+  color: #0d47a1;
+  border: 1px solid #90caf9;
+  border-left: 3px solid #1976d2;
+  background-color: #e3f2fd;
+}
+
+.routine-tl-unplaced {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #666;
+}
+
+.routine-tl-unplaced-cap {
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .routine-activities-grid {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -354,6 +554,28 @@
 
   .routine-slider-label {
     max-width: none;
+  }
+
+  .routine-time {
+    min-height: 44px;
+  }
+
+  .routine-day-date {
+    width: 100%;
+    flex-wrap: wrap;
+    padding-bottom: 0;
+  }
+
+  .routine-date-label {
+    position: static;
+    flex-basis: 100%;
+    margin-top: 4px;
+    white-space: normal;
+    text-align: left;
+  }
+
+  .routine-date-field {
+    flex: 1 1 auto;
   }
 }
 

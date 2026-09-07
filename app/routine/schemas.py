@@ -2,11 +2,25 @@ from __future__ import annotations
 
 """Pydantic-схемы и enum-ы для модуля d230 (рутина / распорядок дня)."""
 
+import re
 from datetime import date, datetime
 from typing import Dict, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
+
+from app.dialysis.schemas import DialysisWindow
+
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _validate_hhmm(value: Optional[str]) -> Optional[str]:
+    """Разрешает None или строку строго в формате ``ЧЧ:ММ`` (24 ч)."""
+    if value is None or value == "":
+        return None
+    if not _HHMM_RE.match(value):
+        raise ValueError("Время должно быть в формате ЧЧ:ММ")
+    return value
 
 
 # --- Базовые enum-ы домена ---
@@ -36,6 +50,9 @@ class ActivityPlan(BaseModel):
 
     planned: bool = False
     planned_duration: Optional[DurationCode] = None
+    planned_start: Optional[str] = None  # "ЧЧ:ММ", время начала на сетке дня
+
+    _v_planned_start = field_validator("planned_start")(_validate_hhmm)
 
 
 class ActivityExecution(BaseModel):
@@ -43,6 +60,9 @@ class ActivityExecution(BaseModel):
 
     done: Optional[ExecutionDone] = None
     actual_duration: Optional[DurationCode] = None
+    actual_start: Optional[str] = None  # "ЧЧ:ММ", фактическое время начала
+
+    _v_actual_start = field_validator("actual_start")(_validate_hhmm)
 
 
 # --- Baseline (онбординг) ---
@@ -94,6 +114,9 @@ class DailyPlanPoolActivities(RootModel[Dict[ActivityCategory, ActivityPlan]]):
 class CustomPlannedActivity(BaseModel):
     text: str
     planned_duration: Optional[DurationCode] = None
+    planned_start: Optional[str] = None  # "ЧЧ:ММ"
+
+    _v_planned_start = field_validator("planned_start")(_validate_hhmm)
 
 
 class DailyPlanBase(BaseModel):
@@ -126,6 +149,8 @@ class DailyPlanRead(BaseModel):
     custom_activities: Optional[List[Optional[CustomPlannedActivity]]]
     edit_count: int
     retrospective_days: Optional[int]
+    # Фиксированный блок диализа для этого дня (None — не диализный день).
+    dialysis_window: Optional[DialysisWindow] = None
 
 
 # --- Верификация ---
@@ -192,5 +217,8 @@ class DailyRoutineMetrics(BaseModel):
     day_control_score: Optional[int] = None
     unplanned_count: Optional[int] = None
     time_allocation_accuracy: Optional[float] = None
+    # Доля активностей (план и факт по времени старта заданы), где
+    # |actual_start − planned_start| ≤ 30 мин.
+    schedule_adherence_rate: Optional[float] = None
 
 

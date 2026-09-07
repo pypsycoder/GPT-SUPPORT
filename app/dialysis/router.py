@@ -20,6 +20,7 @@ from app.dialysis.models import DialysisSchedule
 from app.dialysis.schemas import (
     CenterCreate,
     CenterRead,
+    CenterUpdate,
     DialysisScheduleCreate,
     DialysisScheduleRead,
     ImportConfirmRequest,
@@ -61,7 +62,38 @@ async def create_center(
         name=body.name.strip(),
         city=body.city.strip() if body.city else None,
         timezone=body.timezone or "Europe/Moscow",
+        shift_times=body.shift_times.model_dump(),
     )
+    return CenterRead.model_validate(center)
+
+
+@router.patch("/centers/{center_id}", response_model=CenterRead)
+async def update_center(
+    center_id: UUID,
+    body: CenterUpdate,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    center = await crud.get_center_by_id(session, center_id)
+    if center is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Центр не найден")
+
+    data: dict = {}
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Название центра обязательно")
+        data["name"] = body.name.strip()
+    if body.city is not None:
+        data["city"] = body.city.strip() or None
+    if body.timezone is not None:
+        data["timezone"] = body.timezone
+    if body.shift_times is not None:
+        data.update(body.shift_times.model_dump())
+
+    if not data:
+        return CenterRead.model_validate(center)
+
+    center = await crud.update_center(session, center, data=data)
     return CenterRead.model_validate(center)
 
 

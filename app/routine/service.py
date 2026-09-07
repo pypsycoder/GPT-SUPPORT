@@ -249,11 +249,13 @@ class RoutineService:
         day_control_score: Optional[int] = None
         unplanned_count: Optional[int] = None
         time_allocation_accuracy: Optional[float] = None
+        schedule_adherence_rate: Optional[float] = None
 
         if plan is not None and verification is not None:
             baseline_execution_rate = cls._compute_baseline_execution_rate(plan, verification)
             initiative_rate = cls._compute_initiative_rate(plan, verification)
             time_allocation_accuracy = cls._compute_time_allocation_accuracy(plan, verification)
+            schedule_adherence_rate = cls._compute_schedule_adherence_rate(plan, verification)
 
         if verification is not None:
             day_control_score = verification.day_control_score
@@ -268,6 +270,7 @@ class RoutineService:
             day_control_score=day_control_score,
             unplanned_count=unplanned_count,
             time_allocation_accuracy=time_allocation_accuracy,
+            schedule_adherence_rate=schedule_adherence_rate,
         )
 
     # --- Вспомогательные методы сериализации ---
@@ -466,6 +469,79 @@ class RoutineService:
             total += 1
             if pdur == adur:
                 matches += 1
+
+        if total == 0:
+            return None
+        return round(matches / total * 100.0, 2)
+
+    # Допуск попадания «в расписание», минут.
+    SCHEDULE_ADHERENCE_TOLERANCE_MIN = 30
+
+    @staticmethod
+    def _hhmm_to_minutes(value) -> Optional[int]:
+        if not isinstance(value, str):
+            return None
+        parts = value.split(":")
+        if len(parts) != 2:
+            return None
+        try:
+            hh, mm = int(parts[0]), int(parts[1])
+        except ValueError:
+            return None
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            return None
+        return hh * 60 + mm
+
+    @classmethod
+    def _compute_schedule_adherence_rate(
+        cls,
+        plan: DailyPlan,
+        verification: DailyVerification,
+    ) -> Optional[float]:
+        """Доля активностей, начатых близко к запланированному времени.
+
+        Для каждой активности, где заданы ``planned_start`` и ``actual_start``
+        и активность отмечена выполненной (``done`` не пустой и не ``"no"``):
+        попадание = |actual − planned| ≤ SCHEDULE_ADHERENCE_TOLERANCE_MIN.
+        Категории — как у time_allocation_accuracy плюс кастомные (по тексту).
+        Если ни одной пары — None.
+        """
+        tol = cls.SCHEDULE_ADHERENCE_TOLERANCE_MIN
+        matches = 0
+        total = 0
+
+        def consider(plan_info, exec_info) -> None:
+            nonlocal matches, total
+            if not isinstance(plan_info, dict) or not isinstance(exec_info, dict):
+                return
+            if exec_info.get("done") in (None, "", "no"):
+                return
+            p = cls._hhmm_to_minutes(plan_info.get("planned_start"))
+            a = cls._hhmm_to_minutes(exec_info.get("actual_start"))
+            if p is None or a is None:
+                return
+            total += 1
+            if abs(a - p) <= tol:
+                matches += 1
+
+        def scan_categories(planned_block, executed_block) -> None:
+            if not isinstance(planned_block, dict) or not isinstance(executed_block, dict):
+                return
+            for cat, plan_info in planned_block.items():
+                consider(plan_info, executed_block.get(cat))
+
+        scan_categories(plan.template_activities or {}, verification.template_executed or {})
+        scan_categories(plan.added_from_pool or {}, verification.pool_added_executed or {})
+
+        custom_executed = (
+            verification.custom_executed or {}
+            if isinstance(verification.custom_executed, dict)
+            else {}
+        )
+        for item in plan.custom_activities or []:
+            if not isinstance(item, dict) or not item.get("text"):
+                continue
+            consider(item, custom_executed.get(item["text"]))
 
         if total == 0:
             return None

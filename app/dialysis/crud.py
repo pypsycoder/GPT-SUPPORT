@@ -30,9 +30,23 @@ async def create_center(
     name: str,
     city: str | None = None,
     timezone: str = "Europe/Moscow",
+    shift_times: dict | None = None,
 ) -> Center:
-    center = Center(name=name, city=city, timezone=timezone)
+    center = Center(name=name, city=city, timezone=timezone, **(shift_times or {}))
     session.add(center)
+    await session.commit()
+    await session.refresh(center)
+    return center
+
+
+async def update_center(
+    session: AsyncSession,
+    center: Center,
+    *,
+    data: dict,
+) -> Center:
+    for key, value in data.items():
+        setattr(center, key, value)
     await session.commit()
     await session.refresh(center)
     return center

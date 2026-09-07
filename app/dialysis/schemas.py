@@ -4,19 +4,57 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # --- Centers ---
+
+class ShiftTimesIn(BaseModel):
+    """Часы трёх диализных смен центра. Порядок строгий и без пересечений."""
+
+    morning_start: time
+    morning_end: time
+    afternoon_start: time
+    afternoon_end: time
+    evening_start: time
+    evening_end: time
+
+    @model_validator(mode="after")
+    def _strictly_ordered(self) -> "ShiftTimesIn":
+        seq = [
+            ("начало утренней", self.morning_start),
+            ("конец утренней", self.morning_end),
+            ("начало дневной", self.afternoon_start),
+            ("конец дневной", self.afternoon_end),
+            ("начало вечерней", self.evening_start),
+            ("конец вечерней", self.evening_end),
+        ]
+        for (_, earlier), (label, later) in zip(seq, seq[1:]):
+            if earlier >= later:
+                raise ValueError(
+                    "Часы смен должны идти строго по возрастанию: "
+                    "утро < день < вечер, начало < конец "
+                    f"(нарушено на «{label}»)"
+                )
+        return self
+
 
 class CenterCreate(BaseModel):
     name: str
     city: str | None = None
     timezone: str = "Europe/Moscow"
+    shift_times: ShiftTimesIn
+
+
+class CenterUpdate(BaseModel):
+    name: str | None = None
+    city: str | None = None
+    timezone: str | None = None
+    shift_times: ShiftTimesIn | None = None
 
 
 class CenterRead(BaseModel):
@@ -26,12 +64,27 @@ class CenterRead(BaseModel):
     timezone: str
     created_at: datetime | None
 
+    morning_start: time
+    morning_end: time
+    afternoon_start: time
+    afternoon_end: time
+    evening_start: time
+    evening_end: time
+
     model_config = ConfigDict(from_attributes=True)
 
 
 # --- Schedules ---
 
 ShiftKind = Literal["morning", "afternoon", "evening"]
+
+
+class DialysisWindow(BaseModel):
+    """Окно диализа для конкретного дня: смена + часы (``HH:MM``, время центра)."""
+
+    shift: ShiftKind
+    start: str
+    end: str
 
 
 class DialysisScheduleBase(BaseModel):

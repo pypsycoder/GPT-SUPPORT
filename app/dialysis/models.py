@@ -16,6 +16,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Time,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -44,6 +45,16 @@ class Center(Base):
     city = Column(String, nullable=True)
     timezone = Column(String, nullable=False, default="Europe/Moscow")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Часы диализных смен в этом центре (локальное время центра).
+    # Пациент привязан к смене через ``DialysisSchedule.shift``; окно диализа
+    # для конкретного дня резолвится по центру пациента + его смене.
+    morning_start = Column(Time, nullable=False, server_default=text("'08:00'"))
+    morning_end = Column(Time, nullable=False, server_default=text("'11:00'"))
+    afternoon_start = Column(Time, nullable=False, server_default=text("'13:00'"))
+    afternoon_end = Column(Time, nullable=False, server_default=text("'17:00'"))
+    evening_start = Column(Time, nullable=False, server_default=text("'18:00'"))
+    evening_end = Column(Time, nullable=False, server_default=text("'21:00'"))
 
 
 class DialysisSchedule(Base):

@@ -16,6 +16,159 @@
     '1h_plus': '> 1 часа'
   };
 
+  // Длительность корзины в минутах — для высоты блока на ленте дня.
+  var DURATION_MIN = {
+    '15min': 15,
+    '30min': 30,
+    '1h': 60,
+    '1h_plus': 90
+  };
+
+  var SHIFT_LABELS = {
+    morning: 'утренняя смена',
+    afternoon: 'дневная смена',
+    evening: 'вечерняя смена'
+  };
+
+  // Диапазон ленты дня — фиксированный (для вечерней смены важен верхний край).
+  var TIMELINE_START_H = 6;
+  var TIMELINE_END_H = 23;
+  var TIMELINE_ROW_PX = 20;
+
+  function hhmmToMin(v) {
+    if (typeof v !== 'string') return null;
+    var m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v);
+    if (!m) return null;
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  }
+
+  // Нормализация введённого времени к "ЧЧ:ММ" (24 ч) либо "" — если невалидно.
+  function normalizeHHMM(s) {
+    s = (s || '').trim();
+    var m = /^(\d{1,2}):?(\d{2})$/.exec(s) || /^(\d{1,2})$/.exec(s);
+    if (!m) return '';
+    var h = parseInt(m[1], 10);
+    var mm = m[2] ? parseInt(m[2], 10) : 0;
+    if (h > 23 || mm > 59) return '';
+    return (h < 10 ? '0' + h : h) + ':' + (mm < 10 ? '0' + mm : mm);
+  }
+
+  // Текстовое поле времени с маской ЧЧ:ММ (24 ч, без AM/PM, одинаково во всех браузерах).
+  // onChange получает нормализованное "ЧЧ:ММ" или "".
+  function makeTimeField(initial, ariaLabel, onChange) {
+    var el = document.createElement('input');
+    el.type = 'text';
+    el.className = 'routine-time';
+    el.inputMode = 'numeric';
+    el.autocomplete = 'off';
+    el.placeholder = 'чч:мм';
+    el.maxLength = 5;
+    if (ariaLabel) el.setAttribute('aria-label', ariaLabel);
+    el.value = normalizeHHMM(initial);
+
+    el.addEventListener('input', function () {
+      var d = el.value.replace(/\D/g, '').slice(0, 4);
+      el.value = d.length > 2 ? d.slice(0, 2) + ':' + d.slice(2) : d;
+    });
+    el.addEventListener('change', function () {
+      el.value = normalizeHHMM(el.value);
+      if (onChange) onChange(el.value);
+    });
+    el.addEventListener('blur', function () {
+      el.value = normalizeHHMM(el.value);
+    });
+    return el;
+  }
+
+  // --- Дата: полностью русскоязычный ввод (дд.мм.гггг), без нативного picker ---
+  var RU_MONTHS_GEN = [
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+  ];
+  var RU_WEEKDAYS_FULL = [
+    'воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'
+  ];
+
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function isoToDDMMYYYY(iso) {
+    var p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return p ? p[3] + '.' + p[2] + '.' + p[1] : '';
+  }
+
+  function ddmmyyyyToIso(s) {
+    var p = /^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec((s || '').trim());
+    if (!p) return null;
+    var d = parseInt(p[1], 10), m = parseInt(p[2], 10), y = parseInt(p[3], 10);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    var dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+    return y + '-' + pad2(m) + '-' + pad2(d);
+  }
+
+  function isoShiftDays(iso, delta) {
+    var p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!p) return iso;
+    var dt = new Date(parseInt(p[1], 10), parseInt(p[2], 10) - 1, parseInt(p[3], 10));
+    dt.setDate(dt.getDate() + delta);
+    return dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate());
+  }
+
+  function ruDateLabel(iso) {
+    var p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!p) return '';
+    var dt = new Date(parseInt(p[1], 10), parseInt(p[2], 10) - 1, parseInt(p[3], 10));
+    var today = toTodayISO();
+    var prefix = iso === today ? 'сегодня · '
+      : iso === isoShiftDays(today, -1) ? 'вчера · '
+        : iso === isoShiftDays(today, 1) ? 'завтра · ' : '';
+    return prefix + RU_WEEKDAYS_FULL[dt.getDay()] + ', '
+      + parseInt(p[3], 10) + ' ' + RU_MONTHS_GEN[parseInt(p[2], 10) - 1] + ' ' + p[1];
+  }
+
+  // Связка: текстовое поле дд.мм.гггг + кнопки ‹ › + русская подпись под ним.
+  // onChange(iso) вызывается только при действиях пользователя, не при инициализации.
+  function setupDateControl(fieldId, labelId, initialIso, onChange) {
+    var field = document.getElementById(fieldId);
+    if (!field) return null;
+    var label = document.getElementById(labelId);
+    var current = initialIso || toTodayISO();
+
+    function render() {
+      field.value = isoToDDMMYYYY(current);
+      if (label) label.textContent = ruDateLabel(current);
+    }
+    function commit(iso) {
+      if (!iso || iso === current) { render(); return; }
+      current = iso;
+      render();
+      onChange(current);
+    }
+
+    field.addEventListener('input', function () {
+      var d = field.value.replace(/\D/g, '').slice(0, 8);
+      if (d.length > 4) field.value = d.slice(0, 2) + '.' + d.slice(2, 4) + '.' + d.slice(4);
+      else if (d.length > 2) field.value = d.slice(0, 2) + '.' + d.slice(2);
+      else field.value = d;
+    });
+    field.addEventListener('change', function () {
+      var iso = ddmmyyyyToIso(field.value);
+      if (iso) commit(iso);
+      else { render(); showStatus('Дата — в формате дд.мм.гггг', 'error'); }
+    });
+    document.querySelectorAll('.routine-date-nav[data-target="' + fieldId + '"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        commit(isoShiftDays(current, parseInt(btn.getAttribute('data-step'), 10)));
+      });
+    });
+
+    render();
+    return {
+      get: function () { return current; },
+      set: function (iso) { commit(iso); }
+    };
+  }
+
   var statusEl = document.getElementById('routine-status');
 
   function showStatus(msg, type) {
@@ -274,6 +427,7 @@
   var plannerState = {
     date: null,
     dialysis_day: null,
+    dialysis_window: null,
     template_activities: {},
     added_from_pool: {},
     custom_activities: [null, null, null, null, null]
@@ -289,14 +443,17 @@
 
   function buildPlannerFromPlan(plan) {
     plannerState.dialysis_day = plan.dialysis_day;
+    plannerState.dialysis_window = plan.dialysis_window || null;
     plannerState.template_activities = plan.template_activities || {};
     plannerState.added_from_pool = plan.added_from_pool || {};
     plannerState.custom_activities = plan.custom_activities || [null, null, null, null, null];
 
+    // Плашка «Диализный день» — по свежему расписанию (dialysis_window), а не по
+    // сохранённому в плане флагу dialysis_day: они могут расходиться.
     var dialysisBadge = document.getElementById('planner-dialysis-badge');
     if (dialysisBadge) {
-      if (plannerState.dialysis_day) dialysisBadge.classList.remove('routine-hidden');
-      else dialysisBadge.classList.add('routine-hidden');
+      dialysisBadge.textContent = 'Диализный день';
+      dialysisBadge.classList.toggle('routine-hidden', !plannerState.dialysis_window);
     }
 
     var tmplRoot = document.getElementById('planner-template-activities');
@@ -323,6 +480,20 @@
       var def = ACTIVITY_DEFS[code] || { main: code, icon: '' };
       name.textContent = def.main;
       row.appendChild(name);
+
+      // Поле «начало» — только для активностей со временем (не для диеты).
+      var timeField = null;
+      if (code !== 'diet') {
+        timeField = makeTimeField(item.planned_start, 'Время начала: ' + def.main, function (val) {
+          var block = row.getAttribute('data-block');
+          var target = block === 'template' ? plannerState.template_activities : plannerState.added_from_pool;
+          if (!target[code]) target[code] = { planned: checkbox.checked, planned_duration: null };
+          target[code].planned_start = val || null;
+          renderPlannerTimeline();
+        });
+        if (!checkbox.checked) timeField.style.display = 'none';
+        row.appendChild(timeField);
+      }
 
       var durationGroup = document.createElement('div');
       durationGroup.className = 'routine-duration-group';
@@ -354,6 +525,7 @@
           btn.classList.add('active');
           if (!target[code]) target[code] = { planned: true, planned_duration: null };
           target[code].planned_duration = dur;
+          renderPlannerTimeline();
         });
         durationGroup.appendChild(btn);
       });
@@ -370,7 +542,9 @@
           durationGroup.style.display = 'none';
         } else {
           durationGroup.style.display = checkbox.checked ? 'flex' : 'none';
+          if (timeField) timeField.style.display = checkbox.checked ? '' : 'none';
         }
+        renderPlannerTimeline();
       });
 
       row.appendChild(durationGroup);
@@ -401,6 +575,15 @@
           input.className = 'routine-input';
           input.placeholder = 'Например, позвонить врачу';
 
+          var timeField = makeTimeField(null, 'Время начала своей активности', function (val) {
+            if (!input.value) return;
+            var current = plannerState.custom_activities[index] || { text: input.value, planned_duration: null };
+            current.text = input.value;
+            current.planned_start = val || null;
+            plannerState.custom_activities[index] = current;
+            renderPlannerTimeline();
+          });
+
           var durGroup = document.createElement('div');
           durGroup.className = 'routine-duration-group';
 
@@ -418,6 +601,7 @@
               plannerState.custom_activities[index] = current;
               durGroup.querySelectorAll('.routine-duration-chip').forEach(function (c) { c.classList.remove('active'); });
               btn.classList.add('active');
+              renderPlannerTimeline();
             });
             durGroup.appendChild(btn);
           });
@@ -426,11 +610,13 @@
             if (!input.value) {
               plannerState.custom_activities[index] = null;
               durGroup.querySelectorAll('.routine-duration-chip').forEach(function (c) { c.classList.remove('active'); });
+              renderPlannerTimeline();
               return;
             }
             var current = plannerState.custom_activities[index] || { text: input.value, planned_duration: null };
             current.text = input.value;
             plannerState.custom_activities[index] = current;
+            renderPlannerTimeline();
           });
 
           var existing = plannerState.custom_activities[index];
@@ -440,13 +626,168 @@
               var activeBtn = durGroup.querySelector('[data-duration="' + existing.planned_duration + '"]');
               if (activeBtn) activeBtn.classList.add('active');
             }
+            if (existing.planned_start) timeField.value = normalizeHHMM(existing.planned_start);
           }
 
           row.appendChild(input);
+          row.appendChild(timeField);
           row.appendChild(durGroup);
           customRoot.appendChild(row);
         })(i);
       }
+    }
+
+    renderPlannerTimeline();
+  }
+
+  // Лента дня (только просмотр): фиксированный блок диализа + запланированные
+  // активности со временем, разложенные по вертикальной шкале 06:00–23:00.
+  function renderPlannerTimeline() {
+    var root = document.getElementById('planner-timeline');
+    if (!root) return;
+    root.innerHTML = '';
+
+    var rangeStart = TIMELINE_START_H * 60;
+    var rangeEnd = TIMELINE_END_H * 60;
+    var totalMin = rangeEnd - rangeStart;
+    var laneH = (TIMELINE_END_H - TIMELINE_START_H) * TIMELINE_ROW_PX;
+
+    var blocks = [];
+    var unplaced = [];
+
+    var win = plannerState.dialysis_window;
+    if (win && win.start && win.end) {
+      var ws = hhmmToMin(win.start);
+      var we = hhmmToMin(win.end);
+      if (ws != null && we != null && we > ws) {
+        blocks.push({
+          kind: 'dialysis',
+          start: ws,
+          end: we,
+          label: 'Диализ',
+          sub: (SHIFT_LABELS[win.shift] || 'смена') + ' · ' + win.start + '–' + win.end
+        });
+      }
+    }
+
+    function pushActivity(label, startStr, durationCode) {
+      var s = hhmmToMin(startStr);
+      if (s == null) {
+        unplaced.push(label);
+        return;
+      }
+      var dur = DURATION_MIN[durationCode] || 30;
+      blocks.push({ kind: 'activity', start: s, end: s + dur, label: label, sub: startStr });
+    }
+
+    ['template_activities', 'added_from_pool'].forEach(function (key) {
+      var map = plannerState[key] || {};
+      Object.keys(map).forEach(function (code) {
+        var it = map[code];
+        if (!it || !it.planned || code === 'diet') return;
+        var def = ACTIVITY_DEFS[code] || { main: code };
+        pushActivity(def.main, it.planned_start, it.planned_duration);
+      });
+    });
+    (plannerState.custom_activities || []).forEach(function (it) {
+      if (!it || !it.text) return;
+      pushActivity(it.text, it.planned_start, it.planned_duration);
+    });
+
+    if (!blocks.length && !unplaced.length) {
+      var empty = document.createElement('p');
+      empty.className = 'routine-duration-hint';
+      empty.textContent = 'Укажите время начала у активностей — и день выстроится здесь лентой.';
+      root.appendChild(empty);
+      return;
+    }
+
+    var grid = document.createElement('div');
+    grid.className = 'routine-timeline-grid';
+
+    var scale = document.createElement('div');
+    scale.className = 'routine-tl-scale';
+    for (var h = TIMELINE_START_H; h <= TIMELINE_END_H; h++) {
+      var t = document.createElement('span');
+      t.textContent = (h < 10 ? '0' + h : h) + ':00';
+      t.style.height = TIMELINE_ROW_PX + 'px';
+      scale.appendChild(t);
+    }
+
+    var lane = document.createElement('div');
+    lane.className = 'routine-tl-lane';
+    lane.style.height = laneH + 'px';
+    for (var g = TIMELINE_START_H; g < TIMELINE_END_H; g++) {
+      var hr = document.createElement('div');
+      hr.className = 'routine-tl-hr';
+      hr.style.height = TIMELINE_ROW_PX + 'px';
+      lane.appendChild(hr);
+    }
+
+    // Простое разложение активностей по «колонкам», чтобы пересечения были видны.
+    var acts = blocks.filter(function (b) { return b.kind === 'activity'; })
+      .sort(function (a, b) { return a.start - b.start; });
+    var colEnds = [];
+    acts.forEach(function (b) {
+      var col = 0;
+      while (col < colEnds.length && colEnds[col] > b.start) col++;
+      colEnds[col] = b.end;
+      b._col = col;
+    });
+    var colCount = Math.max(1, colEnds.length);
+
+    // Если есть блок диализа — держим слева полосу под его подпись,
+    // активности занимают правые ~58% (диализ и активности могут пересекаться).
+    var hasDialysis = blocks.some(function (b) { return b.kind === 'dialysis'; });
+    var actBaseLeft = hasDialysis ? 42 : 0;
+    var actSpan = 100 - actBaseLeft;
+
+    blocks.forEach(function (b) {
+      var top = Math.max(0, (Math.max(b.start, rangeStart) - rangeStart) / totalMin * laneH);
+      var bottom = (Math.min(b.end, rangeEnd) - rangeStart) / totalMin * laneH;
+      var h = Math.max(15, bottom - top);
+      var el = document.createElement('div');
+      el.className = 'routine-tl-block routine-tl-block--' + b.kind;
+      el.style.top = top + 'px';
+      el.style.height = h + 'px';
+      if (b.kind === 'activity') {
+        var w = actSpan / colCount;
+        el.style.left = 'calc(' + (actBaseLeft + b._col * w) + '% + 2px)';
+        el.style.width = 'calc(' + w + '% - 4px)';
+      }
+      if (h < 30) {
+        // Низкий блок — одна строка: время + короткая подпись.
+        el.classList.add('routine-tl-block--compact');
+        var one = document.createElement('span');
+        one.className = 'routine-tl-block-label';
+        one.textContent = b.sub + ' · ' + b.label;
+        el.appendChild(one);
+      } else {
+        var lbl = document.createElement('span');
+        lbl.className = 'routine-tl-block-label';
+        lbl.textContent = b.label;
+        var sub = document.createElement('span');
+        sub.className = 'routine-tl-block-sub';
+        sub.textContent = b.sub;
+        el.appendChild(lbl);
+        el.appendChild(sub);
+      }
+      lane.appendChild(el);
+    });
+
+    grid.appendChild(scale);
+    grid.appendChild(lane);
+    root.appendChild(grid);
+
+    if (unplaced.length) {
+      var wrap = document.createElement('div');
+      wrap.className = 'routine-tl-unplaced';
+      var cap = document.createElement('span');
+      cap.className = 'routine-tl-unplaced-cap';
+      cap.textContent = 'Без времени: ';
+      wrap.appendChild(cap);
+      wrap.appendChild(document.createTextNode(unplaced.join(', ')));
+      root.appendChild(wrap);
     }
   }
 
@@ -469,13 +810,6 @@
         return res.json();
       })
       .then(function (body) {
-        // #region agent log
-        if (body) {
-          var _ta = body.template_activities ? Object.keys(body.template_activities) : [];
-          var _ap = body.added_from_pool ? Object.keys(body.added_from_pool) : [];
-          fetch('http://127.0.0.1:7243/ingest/fb06d002-78a5-4e63-9c2e-8526884849e3', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'routine.js:loadPlanForDate', message: 'plan body received', data: { template_keys: _ta, added_keys: _ap }, hypothesisId: 'H2,H5', timestamp: Date.now() }) }).catch(function () {});
-        }
-        // #endregion
         if (body) buildPlannerFromPlan(body);
       })
       .catch(function (err) {
@@ -484,19 +818,14 @@
   }
 
   function initPlanner() {
-    var dateInput = document.getElementById('planner-date');
-    if (!dateInput) return;
     var today = toTodayISO();
-    dateInput.value = today;
-    plannerState.date = today;
-    dateInput.addEventListener('change', function () {
-      loadPlanForDate(dateInput.value);
+    var dateCtl = setupDateControl('planner-date', 'planner-date-label', today, function (iso) {
+      loadPlanForDate(iso);
     });
+    if (!dateCtl) return;
+    plannerState.date = dateCtl.get();
 
-    loadPlanForDate(today);
-
-    var sliderDayLabel = document.getElementById('planner-day-label');
-    if (sliderDayLabel) sliderDayLabel.textContent = 'Ваш план на сегодня';
+    loadPlanForDate(dateCtl.get());
 
     var saveBtn = document.getElementById('planner-save');
     if (saveBtn) {
@@ -504,11 +833,6 @@
         if (!plannerState.date) return;
         clearStatus();
         saveBtn.disabled = true;
-        // #region agent log
-        var _ta = plannerState.template_activities ? Object.keys(plannerState.template_activities) : [];
-        var _ap = plannerState.added_from_pool ? Object.keys(plannerState.added_from_pool) : [];
-        fetch('http://127.0.0.1:7243/ingest/fb06d002-78a5-4e63-9c2e-8526884849e3', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'routine.js:planner save', message: 'payload before send', data: { template_keys: _ta, added_keys: _ap }, hypothesisId: 'H3', timestamp: Date.now() }) }).catch(function () {});
-        // #endregion
         var payload = {
           plan_date: plannerState.date,
           dialysis_day: plannerState.dialysis_day,
@@ -572,8 +896,7 @@
 
     var dialysisBadge = document.getElementById('verification-dialysis-badge');
     if (dialysisBadge) {
-      if (plan && plan.dialysis_day) dialysisBadge.classList.remove('routine-hidden');
-      else dialysisBadge.classList.add('routine-hidden');
+      dialysisBadge.classList.toggle('routine-hidden', !(plan && plan.dialysis_window));
     }
 
     verificationState.template_executed = ver && ver.template_executed ? ver.template_executed : {};
@@ -599,7 +922,13 @@
       sliderLabel.textContent = verificationState.day_control_score + ' / 10';
     }
 
-    function createExecRow(label, key, blockType, isDiet) {
+    function execBlockFor(blockType) {
+      return blockType === 'template' ? verificationState.template_executed
+        : blockType === 'pool' ? verificationState.pool_added_executed
+          : verificationState.custom_executed;
+    }
+
+    function createExecRow(label, key, blockType, isDiet, plannedStart) {
       var row = document.createElement('div');
       row.className = 'routine-activity-row';
       row.setAttribute('data-key', key);
@@ -609,6 +938,37 @@
       name.className = 'routine-activity-name';
       name.textContent = label;
       row.appendChild(name);
+
+      // Фактическое время начала — зеркало планового (не для диеты).
+      // Поле показывает плановое время по умолчанию; в state оно попадает, когда
+      // активность отмечена выполненной («Да») или время изменили вручную.
+      var execTimeField = null;
+      if (!isDiet) {
+        var execBlock0 = execBlockFor(blockType);
+        var existingStart = execBlock0[key] && execBlock0[key].actual_start ? execBlock0[key].actual_start : null;
+
+        var timeWrap = document.createElement('div');
+        timeWrap.className = 'routine-exec-time';
+
+        if (plannedStart) {
+          var planHint = document.createElement('span');
+          planHint.className = 'routine-plan-hint';
+          planHint.textContent = 'план: ' + plannedStart;
+          timeWrap.appendChild(planHint);
+        }
+
+        execTimeField = makeTimeField(
+          existingStart || plannedStart || '',
+          'Фактическое время начала: ' + label,
+          function (val) {
+            var b = execBlockFor(blockType);
+            b[key] = b[key] || {};
+            b[key].actual_start = val || null;
+          }
+        );
+        timeWrap.appendChild(execTimeField);
+        row.appendChild(timeWrap);
+      }
 
       if (isDiet) {
         var dietGroup = document.createElement('div');
@@ -654,9 +1014,17 @@
               : verificationState.custom_executed;
           if (block[key] && block[key].done === val) btn.classList.add('active');
           btn.addEventListener('click', function () {
-            var b = block;
+            var b = execBlockFor(blockType);
             b[key] = b[key] || {};
             b[key].done = val;
+            // «Да» → зафиксировать фактическое время из поля (плановое по умолчанию).
+            // «Нет» → факт-времени быть не должно.
+            if (val === 'yes') {
+              var t = execTimeField ? normalizeHHMM(execTimeField.value) : '';
+              if (t) b[key].actual_start = t;
+            } else {
+              b[key].actual_start = null;
+            }
             yesNoGroup.querySelectorAll('.routine-duration-chip').forEach(function (c) { c.classList.remove('active'); });
             btn.classList.add('active');
           });
@@ -673,19 +1041,21 @@
         Object.keys(plan.template_activities).forEach(function (code) {
           var def = ACTIVITY_DEFS[code] || { main: code };
           var isDiet = code === 'diet';
-          listRoot.appendChild(createExecRow(def.main, code, 'template', isDiet));
+          var ps = (plan.template_activities[code] || {}).planned_start || null;
+          listRoot.appendChild(createExecRow(def.main, code, 'template', isDiet, ps));
         });
       }
       if (plan.added_from_pool) {
         Object.keys(plan.added_from_pool).forEach(function (code) {
           var def = ACTIVITY_DEFS[code] || { main: code };
-          listRoot.appendChild(createExecRow(def.main, code, 'pool', false));
+          var ps = (plan.added_from_pool[code] || {}).planned_start || null;
+          listRoot.appendChild(createExecRow(def.main, code, 'pool', false, ps));
         });
       }
       if (plan.custom_activities) {
         plan.custom_activities.forEach(function (item) {
           if (!item || !item.text) return;
-          listRoot.appendChild(createExecRow(item.text, item.text, 'custom', false));
+          listRoot.appendChild(createExecRow(item.text, item.text, 'custom', false, item.planned_start || null));
         });
       }
       if (fromPlanSection) {
@@ -813,14 +1183,12 @@
 
   function initVerification() {
     initVerificationSlider();
-    var dateInput = document.getElementById('verification-date');
-    if (!dateInput) return;
     var today = toTodayISO();
-    dateInput.value = today;
-    loadVerificationForDate(today);
-    dateInput.addEventListener('change', function () {
-      loadVerificationForDate(dateInput.value);
+    var dateCtl = setupDateControl('verification-date', 'verification-date-label', today, function (iso) {
+      loadVerificationForDate(iso);
     });
+    if (!dateCtl) return;
+    loadVerificationForDate(dateCtl.get());
 
     var saveBtn = document.getElementById('verification-save');
     if (saveBtn) {

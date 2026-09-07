@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.dialysis.service import is_dialysis_day
+from app.dialysis.service import get_dialysis_window, is_dialysis_day
 from app.routine import crud, schemas, service
 from app.users.models import User
 from core.db.session import get_async_session
@@ -86,6 +86,10 @@ async def get_plan_by_date_me(
         patient_id=user.id,
         plan_date=qdate,
     )
+
+    # Фиксированный блок диализа для этого дня — един для всех веток ответа.
+    window = await get_dialysis_window(session, patient_id=user.id, date=qdate)
+
     if plan is not None:
         # Если в сохранённом плане пустые template_activities/added_from_pool (старая запись),
         # подставляем шаблон из baseline, чтобы UI и следующее сохранение получили полные данные.
@@ -109,12 +113,14 @@ async def get_plan_by_date_me(
                     merged.custom_activities = [None, None, None, None, None]
                 merged.edit_count = getattr(plan, "edit_count", 0)
                 merged.retrospective_days = getattr(plan, "retrospective_days", None)
+                merged.dialysis_window = window
                 logger.debug(
                     "[routine] returning hydrated plan: template=%s added=%s",
                     list(merged.template_activities.keys()),
                     list(merged.added_from_pool.keys()),
                 )
                 return merged  # type: ignore[return-value]
+        plan.dialysis_window = window  # transient-атрибут для response_model
         return plan
 
     if template_data is None:
@@ -133,6 +139,7 @@ async def get_plan_by_date_me(
     fake.custom_activities = template_data.get("custom_activities")
     fake.edit_count = 0
     fake.retrospective_days = 0
+    fake.dialysis_window = window
     logger.debug(
         "[routine] returning draft plan: template=%s added=%s",
         list((template_data.get("template_activities") or {}).keys()),

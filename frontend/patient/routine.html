@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/frontend/patient/css/sidebar.css">
     <link rel="stylesheet" href="/frontend/patient/css/global_header.css">
     <link rel="stylesheet" href="/frontend/patient/css/forms.css">
-    <link rel="stylesheet" href="/frontend/patient/css/routine.css">
+    <link rel="stylesheet" href="/frontend/patient/css/routine.css?v=20260906c">
 </head>
 <body data-page="routine">
 <div class="page">
@@ -84,15 +84,14 @@
             <!-- Планер -->
             <section id="routine-planner" class="routine-section routine-hidden">
                 <header class="routine-day-header">
-                    <div>
-                        <div class="routine-day-title" id="planner-day-label">Ваш план на сегодня</div>
-                        <div class="routine-day-subtitle" id="planner-day-subtitle"></div>
-                    </div>
                     <div class="routine-day-date">
-                        <label>
-                            Дата:
-                            <input type="date" id="planner-date">
-                        </label>
+                        <span class="routine-date-cap">Дата:</span>
+                        <div class="routine-date-ctl">
+                            <button type="button" class="routine-date-nav" data-target="planner-date" data-step="-1" aria-label="Предыдущий день">‹</button>
+                            <input type="text" id="planner-date" class="routine-date-field" inputmode="numeric" placeholder="дд.мм.гггг" maxlength="10" autocomplete="off" aria-label="Дата плана">
+                            <button type="button" class="routine-date-nav" data-target="planner-date" data-step="1" aria-label="Следующий день">›</button>
+                        </div>
+                        <div class="routine-date-label" id="planner-date-label"></div>
                     </div>
                 </header>
 
@@ -121,6 +120,18 @@
                     </div>
                 </section>
 
+                <section class="routine-card">
+                    <h2 class="routine-card-title">
+                        Ваш день
+                        <span class="routine-card-hint">только просмотр</span>
+                    </h2>
+                    <p class="routine-text-muted">
+                        Диализ показан фиксированным блоком. Активности встают на ленту,
+                        когда у них указано время начала.
+                    </p>
+                    <div id="planner-timeline" class="routine-timeline"></div>
+                </section>
+
                 <div class="routine-actions">
                     <button type="button" id="planner-save" class="routine-btn primary">
                         Сохранить план
@@ -136,10 +147,13 @@
                         <div class="routine-day-subtitle" id="verification-day-subtitle"></div>
                     </div>
                     <div class="routine-day-date">
-                        <label>
-                            Дата:
-                            <input type="date" id="verification-date">
-                        </label>
+                        <span class="routine-date-cap">Дата:</span>
+                        <div class="routine-date-ctl">
+                            <button type="button" class="routine-date-nav" data-target="verification-date" data-step="-1" aria-label="Предыдущий день">‹</button>
+                            <input type="text" id="verification-date" class="routine-date-field" inputmode="numeric" placeholder="дд.мм.гггг" maxlength="10" autocomplete="off" aria-label="Дата дня">
+                            <button type="button" class="routine-date-nav" data-target="verification-date" data-step="1" aria-label="Следующий день">›</button>
+                        </div>
+                        <div class="routine-date-label" id="verification-date-label"></div>
                     </div>
                 </header>
 
@@ -198,7 +212,7 @@
 <script src="/frontend/patient/js/auth.js"></script>
 <script src="/frontend/patient/js/global_header.js"></script>
 <script src="/frontend/patient/js/sidebar.js"></script>
-<script src="/frontend/patient/js/routine.js"></script>
+<script src="/frontend/patient/js/routine.js?v=20260906c"></script>
 </body>
 </html>
 
