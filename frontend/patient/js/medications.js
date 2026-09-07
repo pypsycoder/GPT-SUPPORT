@@ -48,7 +48,10 @@
         var target = targetId ? document.getElementById(targetId) : null;
         if (target && this.value) {
           var d = new Date(this.value + 'T12:00:00');
-          if (!isNaN(d.getTime())) target.value = formatDateForInput(d);
+          if (!isNaN(d.getTime())) {
+            target.value = formatDateForInput(d);
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+          }
         }
       });
       nativeInput.addEventListener('click', function () {
@@ -243,6 +246,7 @@
     const isSelf = !p.prescribed_by;
 
     const todaySlots = p.today_taken_slots || [];
+    const todayBySlot = groupIntakesBySlot(p.today_intakes || []);
     const scheduleHtml = (p.intake_schedule || [])
       .map(s => {
         const label =
@@ -250,8 +254,10 @@
           (SLOTS[s] ? SLOTS[s].label : escapeHtml(s));
         const takenToday = todaySlots.includes(s);
         const extraClass = takenToday ? ' slot-tag-today' : '';
+        const takenTimes = (todayBySlot[s] || []).map(d => formatTimeForInput(d)).join(', ');
+        const checkTitle = takenTimes ? 'Отмечено сегодня: ' + takenTimes : 'Сегодня приём отмечен';
         const check = takenToday
-          ? '<span class="slot-check" title="Сегодня приём отмечен">\u2713</span>'
+          ? '<span class="slot-check" title="' + escapeHtml(checkTitle) + '">\u2713</span>'
           : '';
         return '<span class="slot-tag' + extraClass + '">' + label + check + '</span>';
       })
@@ -480,6 +486,10 @@
     document.getElementById('intakeNotes').value = '';
     document.getElementById('intakeNotesCount').textContent = '0';
 
+    const dupWarn = document.getElementById('intakeDuplicateWarning');
+    if (dupWarn) { dupWarn.style.display = 'none'; dupWarn.innerHTML = ''; }
+    document.getElementById('btnSubmitIntake').disabled = false;
+
     if (prescriptionId) {
       select.value = String(prescriptionId);
       handleIntakePrescriptionChange(prescriptionId);
@@ -487,6 +497,87 @@
 
     clearFormErrors('formAddIntake');
     openModal('modalAddIntake');
+  }
+
+  function getPrescriptionById(id) {
+    return state.prescriptions.find(p => String(p.id) === String(id)) || null;
+  }
+
+  // Сколько приёмов в слот предусмотрено расписанием
+  // (для 4-6 раз в день слот может повторяться)
+  function slotExpectedCounts(schedule) {
+    const counts = {};
+    (schedule || []).forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+    return counts;
+  }
+
+  // Приёмы, сгруппированные по слоту: { morning: [Date, ...], ... }
+  function groupIntakesBySlot(intakes) {
+    const bySlot = {};
+    (intakes || []).forEach(ti => {
+      if (!ti.slot) return;
+      const d = new Date(ti.intake_datetime);
+      if (isNaN(d.getTime())) return;
+      (bySlot[ti.slot] = bySlot[ti.slot] || []).push(d);
+    });
+    return bySlot;
+  }
+
+  function isIntakeDateToday() {
+    return parseDateToApi(document.getElementById('intakeDate').value)
+      === parseDateToApi(formatDateForInput(new Date()));
+  }
+
+  // Плашка «вы уже отмечали приём …» + блокировка кнопки для закрытого слота
+  function updateIntakeDuplicateState() {
+    const banner    = document.getElementById('intakeDuplicateWarning');
+    const submitBtn = document.getElementById('btnSubmitIntake');
+    if (!banner || !submitBtn) return;
+
+    banner.style.display = 'none';
+    banner.innerHTML     = '';
+    submitBtn.disabled   = false;
+
+    const p = getPrescriptionById(document.getElementById('intakeSelectPrescription').value);
+    if (!p || !isIntakeDateToday()) return;
+
+    const expected = slotExpectedCounts(p.intake_schedule);
+    const bySlot   = groupIntakesBySlot(p.today_intakes || []);
+    const fmt      = times => times.map(d => formatTimeForInput(d)).join(', ');
+
+    const selectedSlot = document.getElementById('intakeSlot').value;
+
+    if (selectedSlot) {
+      const taken = bySlot[selectedSlot] || [];
+      if (taken.length >= (expected[selectedSlot] || 1)) {
+        const lbl = SLOTS[selectedSlot] ? SLOTS[selectedSlot].label : selectedSlot;
+        banner.innerHTML =
+          '⚠ Вы уже отмечали приём «' +
+          escapeHtml(p.medication_name) + '» (' + escapeHtml(lbl) +
+          ') сегодня в ' + escapeHtml(fmt(taken)) +
+          '. Повторно отмечать не нужно.';
+        banner.style.display = 'block';
+        submitBtn.disabled   = true;
+      }
+      return;
+    }
+
+    // слот ещё не выбран: подсказываем, если все приёмы на сегодня уже закрыты
+    const slots = Object.keys(expected);
+    const allDone = slots.length > 0 &&
+      slots.every(s => (bySlot[s] || []).length >= expected[s]);
+    if (allDone) {
+      const parts = slots.map(s => {
+        const lbl = SLOTS[s] ? SLOTS[s].label : s;
+        return escapeHtml(lbl) + ' (' + escapeHtml(fmt(bySlot[s] || [])) + ')';
+      });
+      banner.innerHTML =
+        '⚠ Все приёмы «' +
+        escapeHtml(p.medication_name) +
+        '» на сегодня уже отмечены: ' +
+        parts.join(', ') + '.';
+      banner.style.display = 'block';
+    }
   }
 
   function handleIntakePrescriptionChange(prescriptionId) {
@@ -499,23 +590,26 @@
       document.getElementById('intakeActualDose').value = '';
       document.getElementById('intakeDoseUnit').textContent = '\u2014';
       document.getElementById('intakePrescribedHint').textContent = 'Назначено: \u2014';
+      updateIntakeDuplicateState();
       return;
     }
 
     const dose     = parseFloat(opt.dataset.dose);
     const unit     = opt.dataset.unit;
     const schedule = JSON.parse(opt.dataset.schedule || '[]');
+    const p        = getPrescriptionById(prescriptionId);
 
     document.getElementById('intakeActualDose').value     = dose;
     document.getElementById('intakeDoseUnit').textContent = unit;
     document.getElementById('intakePrescribedHint').textContent = 'Назначено: ' + dose + ' ' + unit;
     document.getElementById('intakeDoseWarning').style.display = 'none';
 
-    renderIntakeSlotPicker(schedule);
+    renderIntakeSlotPicker(schedule, p ? (p.today_intakes || []) : []);
     slotGrp.style.display = schedule.length > 0 ? 'block' : 'none';
+    updateIntakeDuplicateState();
   }
 
-  function renderIntakeSlotPicker(schedule) {
+  function renderIntakeSlotPicker(schedule, todayIntakes) {
     const picker = document.getElementById('intakeSlotPicker');
     picker.innerHTML = '';
     document.getElementById('intakeSlot').value = '';
@@ -523,18 +617,29 @@
     const counts = {};
     schedule.forEach(s => counts[s] = (counts[s] || 0) + 1);
 
+    const takenBySlot = groupIntakesBySlot(todayIntakes || []);
+
     Object.entries(counts).forEach(([slot, count]) => {
+      const takenTimes = takenBySlot[slot] || [];
+      const isDone     = takenTimes.length >= count;
+
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'slot-btn';
+      btn.className = 'slot-btn' + (isDone ? ' slot-btn-taken' : '');
       btn.dataset.slot = slot;
+      if (isDone) {
+        btn.title = '\u0423\u0436\u0435 \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043e \u0441\u0435\u0433\u043e\u0434\u043d\u044f: ' +
+          takenTimes.map(d => formatTimeForInput(d)).join(', ');
+      }
       btn.innerHTML =
         '<span class="slot-icon">' + (SLOTS[slot] ? SLOTS[slot].icon : '') + '</span>' +
-        '<span class="slot-label">' + (SLOTS[slot] ? SLOTS[slot].label : escapeHtml(slot)) + (count > 1 ? ' \u00d7' + count : '') + '</span>';
+        '<span class="slot-label">' + (SLOTS[slot] ? SLOTS[slot].label : escapeHtml(slot)) +
+        (count > 1 ? ' \u00d7' + count : '') + (isDone ? ' \u2713' : '') + '</span>';
       btn.addEventListener('click', () => {
         picker.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('intakeSlot').value = slot;
+        updateIntakeDuplicateState();
       });
       picker.appendChild(btn);
     });
@@ -575,6 +680,10 @@
       return;
     }
     if (isNaN(dose) || dose <= 0) { setFieldError('errorIntakeDose', 'Введите корректную дозу'); return; }
+
+    // приём в этот слот на сегодня уже отмечен — плашка показана, не отправляем
+    updateIntakeDuplicateState();
+    if (document.getElementById('btnSubmitIntake').disabled) return;
 
     const btn = document.getElementById('btnSubmitIntake');
     btn.disabled    = true;
@@ -917,6 +1026,8 @@
 
     document.getElementById('intakeSelectPrescription')
       ?.addEventListener('change', e => handleIntakePrescriptionChange(e.target.value));
+    document.getElementById('intakeDate')
+      ?.addEventListener('input', updateIntakeDuplicateState);
     document.getElementById('intakeActualDose')
       ?.addEventListener('input', validateIntakeDose);
     document.getElementById('intakeNotes')

@@ -68,6 +68,15 @@ class PrescriptionUpdate(PrescriptionCreate):
     pass
 
 
+class TodayIntakeInfo(BaseModel):
+    """Приём, зафиксированный сегодня — для плашки «вы уже отмечали приём»."""
+
+    slot: Optional[str] = None
+    intake_datetime: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PrescriptionResponse(BaseModel):
     id: int
     patient_id: int
@@ -85,6 +94,7 @@ class PrescriptionResponse(BaseModel):
     prescribed_by: Optional[int]
     adherence_rate: float
     today_taken_slots: list[str] = Field(default_factory=list)
+    today_intakes: list[TodayIntakeInfo] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

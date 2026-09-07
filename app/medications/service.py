@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.medications.models import MedicationIntake, MedicationPrescription
 
+SLOT_LABELS_RU = {"morning": "утро", "afternoon": "день", "evening": "вечер"}
+
 
 # --- Adherence Rate ---
 
@@ -190,6 +192,41 @@ async def get_intake(
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
+
+def find_slot_duplicate(
+    prescription: MedicationPrescription,
+    intakes: Sequence[MedicationIntake],
+    *,
+    intake_slot: str | None,
+    intake_datetime: datetime,
+) -> MedicationIntake | None:
+    """
+    Возвращает самый поздний приём того же препарата в тот же слот в тот же
+    календарный день, если приёмов в этот слот уже не меньше, чем предусмотрено
+    расписанием (`intake_schedule`). Иначе — None.
+
+    Для назначений без слота (`intake_slot is None`) не применяется — там
+    работает только оконная проверка `check_duplicate_intake`.
+    Для расписаний с повтором слота (например 4×/день: morning, morning, ...)
+    допускается ровно столько приёмов в слот, сколько раз он встречается.
+    """
+    if not intake_slot:
+        return None
+    allowed = list(prescription.intake_schedule or []).count(intake_slot) or 1
+    target_date = intake_datetime.date()
+    same_slot_same_day = sorted(
+        (
+            i
+            for i in intakes
+            if i.intake_slot == intake_slot and i.intake_datetime.date() == target_date
+        ),
+        key=lambda i: i.intake_datetime,
+        reverse=True,
+    )
+    if len(same_slot_same_day) >= allowed:
+        return same_slot_same_day[0]
+    return None
 
 
 async def check_duplicate_intake(

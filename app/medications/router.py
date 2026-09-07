@@ -14,12 +14,14 @@ from app.auth.dependencies import get_current_user
 from app.medications import schemas
 from app.notifications.badge_service import check_tracker_badges
 from app.medications.service import (
+    SLOT_LABELS_RU,
     calculate_adherence_rate,
     check_duplicate_intake,
     create_intake,
     create_prescription,
     delete_intake,
     delete_prescription,
+    find_slot_duplicate,
     get_intake,
     get_intakes_for_prescription,
     get_prescription,
@@ -34,72 +36,13 @@ from core.db.session import get_async_session
 router = APIRouter(prefix="/patient/medications", tags=["medications"])
 
 
-# ── Prescriptions ─────────────────────────────────────────────────
-
-
-@router.get("/prescriptions", response_model=list[schemas.PrescriptionResponse])
-async def get_prescriptions(
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
-    status: str = Query("active", description="active | inactive | all"),
-):
-    """Список назначений текущего пациента с adherence_rate и слотами приёма за сегодня."""
-    prescriptions = await list_prescriptions(session, patient_id=user.id, status=status)
-    result = []
-    today = date.today()
-    for p in prescriptions:
-        intakes = await get_intakes_for_prescription(session, p.id)
-        rate = calculate_adherence_rate(p, intakes)
-        today_slots = sorted(
-            {
-                i.intake_slot
-                for i in intakes
-                if i.intake_slot is not None and i.intake_datetime.date() == today
-            }
-        )
-        resp = schemas.PrescriptionResponse(
-            id=p.id,
-            patient_id=p.patient_id,
-            medication_name=p.medication_name,
-            dose=p.dose,
-            dose_unit=p.dose_unit,
-            frequency_times_per_day=p.frequency_times_per_day,
-            intake_schedule=p.intake_schedule,
-            route=p.route,
-            start_date=p.start_date,
-            end_date=p.end_date,
-            indication=p.indication,
-            instructions=p.instructions,
-            status=p.status,
-            prescribed_by=p.prescribed_by,
-            adherence_rate=rate,
-             today_taken_slots=today_slots,
-            created_at=p.created_at,
-            updated_at=p.updated_at,
-        )
-        result.append(resp)
-    return result
-
-
-@router.get("/prescriptions/{prescription_id}", response_model=schemas.PrescriptionResponse)
-async def get_prescription_endpoint(
-    prescription_id: int,
-    user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
-):
-    """Детали одного назначения с adherence_rate и слотами приёма за сегодня."""
-    p = await get_prescription(session, prescription_id, patient_id=user.id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="Назначение не найдено")
-    intakes = await get_intakes_for_prescription(session, p.id)
+def _build_prescription_response(p, intakes) -> schemas.PrescriptionResponse:
+    """Собрать ответ по назначению: adherence + приёмы за сегодня (для плашки дублей)."""
     rate = calculate_adherence_rate(p, intakes)
     today = date.today()
-    today_slots = sorted(
-        {
-            i.intake_slot
-            for i in intakes
-            if i.intake_slot is not None and i.intake_datetime.date() == today
-        }
+    todays = sorted(
+        (i for i in intakes if i.intake_datetime.date() == today),
+        key=lambda i: i.intake_datetime,
     )
     return schemas.PrescriptionResponse(
         id=p.id,
@@ -117,10 +60,46 @@ async def get_prescription_endpoint(
         status=p.status,
         prescribed_by=p.prescribed_by,
         adherence_rate=rate,
-        today_taken_slots=today_slots,
+        today_taken_slots=sorted({i.intake_slot for i in todays if i.intake_slot is not None}),
+        today_intakes=[
+            schemas.TodayIntakeInfo(slot=i.intake_slot, intake_datetime=i.intake_datetime)
+            for i in todays
+        ],
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
+
+
+# ── Prescriptions ─────────────────────────────────────────────────
+
+
+@router.get("/prescriptions", response_model=list[schemas.PrescriptionResponse])
+async def get_prescriptions(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+    status: str = Query("active", description="active | inactive | all"),
+):
+    """Список назначений текущего пациента с adherence_rate и слотами приёма за сегодня."""
+    prescriptions = await list_prescriptions(session, patient_id=user.id, status=status)
+    result = []
+    for p in prescriptions:
+        intakes = await get_intakes_for_prescription(session, p.id)
+        result.append(_build_prescription_response(p, intakes))
+    return result
+
+
+@router.get("/prescriptions/{prescription_id}", response_model=schemas.PrescriptionResponse)
+async def get_prescription_endpoint(
+    prescription_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Детали одного назначения с adherence_rate и слотами приёма за сегодня."""
+    p = await get_prescription(session, prescription_id, patient_id=user.id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Назначение не найдено")
+    intakes = await get_intakes_for_prescription(session, p.id)
+    return _build_prescription_response(p, intakes)
 
 
 @router.post(
@@ -137,26 +116,7 @@ async def create_prescription_endpoint(
     p = await create_prescription(session, patient_id=user.id, payload=payload)
     await session.commit()
     await session.refresh(p)
-    return schemas.PrescriptionResponse(
-        id=p.id,
-        patient_id=p.patient_id,
-        medication_name=p.medication_name,
-        dose=p.dose,
-        dose_unit=p.dose_unit,
-        frequency_times_per_day=p.frequency_times_per_day,
-        intake_schedule=p.intake_schedule,
-        route=p.route,
-        start_date=p.start_date,
-        end_date=p.end_date,
-        indication=p.indication,
-        instructions=p.instructions,
-        status=p.status,
-        prescribed_by=p.prescribed_by,
-        adherence_rate=0.0,
-        today_taken_slots=[],
-        created_at=p.created_at,
-        updated_at=p.updated_at,
-    )
+    return _build_prescription_response(p, [])
 
 
 @router.put("/prescriptions/{prescription_id}", response_model=schemas.PrescriptionResponse)
@@ -179,35 +139,7 @@ async def update_prescription_endpoint(
     await session.commit()
     await session.refresh(p)
     intakes = await get_intakes_for_prescription(session, p.id)
-    rate = calculate_adherence_rate(p, intakes)
-    today = date.today()
-    today_slots = sorted(
-        {
-            i.intake_slot
-            for i in intakes
-            if i.intake_slot is not None and i.intake_datetime.date() == today
-        }
-    )
-    return schemas.PrescriptionResponse(
-        id=p.id,
-        patient_id=p.patient_id,
-        medication_name=p.medication_name,
-        dose=p.dose,
-        dose_unit=p.dose_unit,
-        frequency_times_per_day=p.frequency_times_per_day,
-        intake_schedule=p.intake_schedule,
-        route=p.route,
-        start_date=p.start_date,
-        end_date=p.end_date,
-        indication=p.indication,
-        instructions=p.instructions,
-        status=p.status,
-        prescribed_by=p.prescribed_by,
-        adherence_rate=rate,
-        today_taken_slots=today_slots,
-        created_at=p.created_at,
-        updated_at=p.updated_at,
-    )
+    return _build_prescription_response(p, intakes)
 
 
 @router.delete("/prescriptions/{prescription_id}", status_code=204)
@@ -275,6 +207,7 @@ async def create_intake_endpoint(
     - is_retrospective = true если intake_datetime < now() - 30 мин
     - intake_datetime не позже now()
     - intake_datetime не раньше now() - 24h
+    - 409 если приём в этот слот на эту дату уже отмечен (по расписанию)
     - 409 если уже есть приём для этого prescription_id с |diff| < 5 минут
     """
     now = datetime.now(timezone.utc)
@@ -296,6 +229,25 @@ async def create_intake_endpoint(
         raise HTTPException(
             status_code=400,
             detail="Нельзя отметить приём старше 24 часов",
+        )
+
+    existing_intakes = await get_intakes_for_prescription(session, p.id)
+
+    # Проверка дубликата слота: приём в этот слот на эту дату уже отмечен
+    slot_dup = find_slot_duplicate(
+        p,
+        existing_intakes,
+        intake_slot=payload.intake_slot,
+        intake_datetime=payload.intake_datetime,
+    )
+    if slot_dup is not None:
+        slot_label = SLOT_LABELS_RU.get(payload.intake_slot, payload.intake_slot)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Вы уже отмечали приём «{p.medication_name}» ({slot_label}) "
+                f"на эту дату. Повторно отмечать не нужно."
+            ),
         )
 
     # Проверка дубликата (|diff| < 5 мин)
