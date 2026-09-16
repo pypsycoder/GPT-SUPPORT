@@ -206,8 +206,12 @@
   - **`on_login.run_login_proactive`** → `run_proactive_coordination(trigger="login")`,
     `allow_llm=False` (генерацию в момент входа не запускаем);
   - старые `deliver_morning_message` / `deliver_proactive_messages` /
-    `deliver_motivator_messages` / `*_bg` **пока не удалены** — снести после
-    smoke на staging;
+    `deliver_motivator_messages` / `*_bg` **удалены 2026-09-16** (вместе с
+    осиротевшими `ensure_morning_message`(_bg) и `generate_daily_queue`, у
+    которых после удаления обёрток не осталось вызывающих — только
+    собственные тесты). Сделано раньше staging-smoke, по прямому запросу;
+    риск низкий — код был без единого живого вызова (grep по `app/`
+    подтвердил), 586 тестов зелёные после удаления;
   - тесты: `test_proactive_coordinator.py` (12), обновлены `test_on_login.py`,
     `test_proactive.py`. Проверено на dev-БД (login: morning+motivator, cron:
     +доменный нудж; повторный вход — no-op).
@@ -588,9 +592,9 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
 ## Спринт 3 — предварительно
 
 - [ ] Staging-smoke Фаз 1–2 (флаг → логин → координатор → дайджест; cron-проходы;
-  дедуп). После — удалить `deliver_morning_message` / `deliver_proactive_messages`
-  / `deliver_motivator_messages` / `ensure_morning_message_bg` /
-  `deliver_motivator_messages_bg` и их тесты.
+  дедуп).
+- [x] ~~После — удалить старые deliver_*~~ — сделано 2026-09-16, раньше
+  staging-smoke (см. Фаза 2 выше).
 - [ ] Снять флаг `LLM_SAFETY_LLM` после живой проверки классификатора.
 - [x] ~~Фаза 4 остаток: `crisis_semantic`, миграция `account_id`~~ — закрыто
   2026-08-31…09-02 (слой удалён + LLM-классификатор; `account_id` применена).

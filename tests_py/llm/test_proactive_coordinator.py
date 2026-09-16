@@ -9,7 +9,9 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.llm import proactive_coordinator as pc
+from app.llm import proactive, proactive_coordinator as pc
+from app.llm.anomaly import AnomalyAlert
+from app.llm.router import ModelTier, RequestType
 from app.models.llm import ChatMessage, ProactiveDelivery
 from tests_py.sqlite_schema import create_tables
 
@@ -65,6 +67,24 @@ def test_skips_keys_already_sent_today():
         already_sent_keys={"morning"}, cap=3,
     )
     assert [c.dedup_key for c in picked] == ["idle:sleep"]
+
+
+# --------------------------------------------------------------------------- #
+# proactive._make_anomaly_message — сырьё для _anomaly_candidates
+# --------------------------------------------------------------------------- #
+
+def _alert(sev: str, typ: str = "systolic_bp", value: float = 190, domain: str = "vitals") -> AnomalyAlert:
+    return AnomalyAlert(type=typ, value=value, threshold=180, severity=sev, domain_hint=domain)
+
+
+def test_critical_anomaly_is_safety_pro_warning_is_proactive_lite():
+    crit = proactive._make_anomaly_message(1, _alert("CRITICAL"))
+    warn = proactive._make_anomaly_message(1, _alert("WARNING"))
+
+    assert crit.router_result.request_type == RequestType.SAFETY
+    assert crit.router_result.model_tier == ModelTier.PRO
+    assert warn.router_result.request_type == RequestType.PROACTIVE
+    assert warn.router_result.model_tier == ModelTier.LITE
 
 
 def test_one_candidate_per_domain():

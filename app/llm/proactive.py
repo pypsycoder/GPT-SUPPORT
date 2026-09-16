@@ -1,29 +1,24 @@
 """
-Proactive Message Generator — генератор проактивных сообщений.
+Proactive Message Generator — построение отдельных проактивных сообщений.
 
-generate_daily_queue(patient_id, db) -> list[ProactiveMessage]
-  Формирует очередь до 3 сообщений на день.
-  Приоритет: CRITICAL аномалии → WARNING аномалии → домены с худшим score.
+Сбор кандидатов, ранжирование, потолок и доставка — за
+``app/llm/proactive_coordinator.py``. Этот модуль даёт ему сырьё:
 
-deliver_proactive_messages(patient_id, db)
-  Генерирует и сохраняет проактивные сообщения в chat_messages.
-  Проверяет дубли: не отправляет, если proactive-сообщение уже было за 6 часов.
+_make_anomaly_message(patient_id, alert) -> ProactiveMessage
+  Текст+router_result под одну аномалию (CRITICAL → SAFETY/PRO, иначе PROACTIVE/LITE).
+
+_make_domain_message(patient_id, domain, score) -> ProactiveMessage
+  Текст+router_result под домен с плохим score.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.llm.errors import LLMError
-from app.llm.anomaly import AnomalyAlert, check_anomalies
-from app.llm.pipeline import LLMPipeline, LLMRequest
+from app.llm.anomaly import AnomalyAlert
+from app.llm.pipeline import LLMPipeline
 from app.llm.router import ModelTier, RequestType, RouterResult
 
 logger = logging.getLogger("gpt-support-llm.proactive")
@@ -60,70 +55,9 @@ class ProactiveMessage:
 
 
 # ---------------------------------------------------------------------------
-# Формирование очереди
+# Построение отдельных сообщений — используется координатором
+# (app/llm/proactive_coordinator.py: _anomaly_candidates/_domain_score_candidates)
 # ---------------------------------------------------------------------------
-
-
-async def generate_daily_queue(
-    patient_id: int,
-    db: AsyncSession,
-) -> list[ProactiveMessage]:
-    """
-    Формирует список проактивных сообщений (не более 3).
-
-    Приоритет:
-      1. CRITICAL аномалии (request_type=SAFETY, model=PRO)
-      2. WARNING аномалии  (request_type=PROACTIVE, model=LITE)
-      3. Домены с худшим score < 0.5 (request_type=PROACTIVE, model=LITE)
-    """
-    from app.llm.domain_scorer import (
-        calculate_domain_scores,
-        get_priority_domains,
-        has_tracked_data as _has_tracked_data,
-    )
-
-    messages: list[ProactiveMessage] = []
-
-    # --- Аномалии ---
-    anomalies = await check_anomalies(patient_id, db)
-    critical = [a for a in anomalies if a.severity == "CRITICAL"]
-    warnings = [a for a in anomalies if a.severity == "WARNING"]
-
-    for alert in critical:
-        if len(messages) >= 3:
-            break
-        messages.append(_make_anomaly_message(patient_id, alert))
-
-    for alert in warnings:
-        if len(messages) >= 3:
-            break
-        messages.append(_make_anomaly_message(patient_id, alert))
-
-    # --- Домены с плохим score ---
-    # Холодный старт: без данных доменные сообщения «из ничего» не шлём
-    # (аномалии выше — им и так нужны свежие измерения).
-    if len(messages) < 3 and await _has_tracked_data(patient_id, db):
-        try:
-            scores = await calculate_domain_scores(patient_id, db)
-            logger.info(
-                "[proactive] domain scores patient=%d: %s", patient_id, scores
-            )
-            priority_domains = get_priority_domains(scores)
-            for domain in priority_domains:
-                if len(messages) >= 3:
-                    break
-                # Не дублируем домен, уже охваченный аномалией
-                if any(m.domain_hint == domain for m in messages):
-                    continue
-                score = scores[domain]
-                if score is not None and score < 0.5:
-                    messages.append(_make_domain_message(patient_id, domain, score))
-        except (SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
-            logger.warning(
-                "[proactive] domain scoring failed patient=%d: %s", patient_id, exc
-            )
-
-    return messages
 
 
 def _make_anomaly_message(patient_id: int, alert: AnomalyAlert) -> ProactiveMessage:
@@ -198,85 +132,3 @@ def _load_prompt(filename: str) -> str | None:
         return path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return None
-
-
-# ---------------------------------------------------------------------------
-# Доставка сообщений
-# ---------------------------------------------------------------------------
-
-
-async def deliver_proactive_messages(patient_id: int, db: AsyncSession) -> None:
-    """
-    Генерирует и сохраняет проактивные сообщения для пациента.
-
-    Пропускает доставку, если proactive-сообщение уже было за последние 6 часов
-    (защита от дублей при рестарте сервера).
-
-    Сохраняет assistant-сообщения в llm.chat_messages с request_type="proactive".
-    """
-    from app.models.llm import ChatMessage
-
-    # --- Проверка дублей (6 часов) ---
-    since_6h = datetime.utcnow() - timedelta(hours=6)
-    dup_result = await db.execute(
-        select(ChatMessage)
-        .where(
-            ChatMessage.patient_id == patient_id,
-            ChatMessage.role == "assistant",
-            ChatMessage.request_type == "proactive",
-            ChatMessage.created_at >= since_6h,
-        )
-        .limit(1)
-    )
-    if dup_result.scalar_one_or_none() is not None:
-        logger.info(
-            "[proactive] пропуск patient=%d — proactive уже было за последние 6ч",
-            patient_id,
-        )
-        return
-
-    # --- Формируем очередь ---
-    queue = await generate_daily_queue(patient_id, db)
-    if not queue:
-        logger.info("[proactive] patient=%d — нет сообщений для отправки", patient_id)
-        return
-
-    # --- Генерируем ответы и сохраняем ---
-    for msg in queue:
-        try:
-            llm_response = await _llm_pipeline.process(
-                LLMRequest(
-                    patient_id=patient_id,
-                    user_input=msg.user_input,
-                    source="system",
-                    router_result=msg.router_result,
-                    db=db,
-                )
-            )
-            assistant_msg = ChatMessage(
-                patient_id=patient_id,
-                role="assistant",
-                content=llm_response.response,
-                tokens_used=llm_response.tokens_input + llm_response.tokens_output,
-                model_used=llm_response.model,
-                domain=llm_response.domain,
-                request_type="proactive",
-                is_read=False,
-            )
-            db.add(assistant_msg)
-            await db.flush()
-            logger.info(
-                "[proactive] patient=%d domain=%s trigger=%s",
-                patient_id,
-                msg.domain_hint,
-                msg.trigger_reason,
-            )
-        except (LLMError, SQLAlchemyError, ValueError, TypeError, KeyError) as exc:
-            logger.error(
-                "[proactive] Ошибка генерации patient=%d domain=%s: %s",
-                patient_id,
-                msg.domain_hint,
-                exc,
-            )
-
-    await db.commit()

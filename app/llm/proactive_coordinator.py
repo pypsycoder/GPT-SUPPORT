@@ -253,8 +253,8 @@ async def _morning_candidate(patient_id: int, db: AsyncSession) -> list[Proactiv
 
     today = _today()
     # Второй дедуп поверх леджера: «утро сегодня уже отправлено» по
-    # patient_daily_context.message_sent — ловит и случай, когда старый путь
-    # (deliver_morning_message) ещё где-то остался, и рассинхрон леджера.
+    # patient_daily_context.message_sent — ловит рассинхрон леджера, даже
+    # если что-то записало сообщение мимо координатора.
     if await _is_morning_sent_today(patient_id, today, db):
         return []
 
