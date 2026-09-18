@@ -6,7 +6,7 @@
 """Pydantic schemas for researcher module."""
 
 from pydantic import BaseModel, ConfigDict
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -106,6 +106,9 @@ class ChatLogItem(BaseModel):
     success: bool = True
     error_message: Optional[str] = None
     diagnostics_json: Optional[dict] = None
+    response_source: Optional[str] = None
+    technique_id: Optional[str] = None
+    safety_level: Optional[str] = None
 
 
 class ChatLogsResponse(BaseModel):
@@ -171,6 +174,86 @@ class LlmProviderStatus(BaseModel):
 
 class LlmProviderUpdate(BaseModel):
     provider: str               # sber | cloudru
+
+
+# ---------------------------------------------------------------------------
+# Фаза 5 Track A — статистика/экспорт трекеров и шкал
+# (docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md)
+# ---------------------------------------------------------------------------
+
+class ScaleItemResponseOut(BaseModel):
+    id: str
+    patient_id: int
+    result_id: str
+    scale_code: str
+    scale_version: Optional[str] = None
+    question_id: str
+    answer_value: Optional[str] = None
+    measured_at: datetime
+
+
+class MedicationAdherenceOut(BaseModel):
+    patient_id: int
+    day: str
+    expected_total: int
+    actual_total: int
+    adherence_pct: Optional[float] = None
+
+
+class PracticeCompletionOut(BaseModel):
+    patient_id: int
+    source: str  # standalone | lesson
+    practice_id: str
+    practice_title: Optional[str] = None
+    completed_at: datetime
+    mood_after: Optional[int] = None
+    success: Optional[bool] = None
+    effect_rating: Optional[int] = None
+
+
+class EducationTestResultOut(BaseModel):
+    patient_id: int
+    test_code: str
+    test_title: str
+    created_at: datetime
+    score: float
+    max_score: float
+    passed: bool
+    question_id: Optional[str] = None
+    chosen_option: Optional[int] = None
+    is_correct: Optional[bool] = None
+
+
+class SleepRecordOut(BaseModel):
+    id: str
+    patient_id: int
+    sleep_date: date
+    sleep_onset: str
+    wake_time: str
+    tib_minutes: int
+    tst_minutes: int
+    sleep_efficiency_pct: float
+    night_awakenings: str
+    sleep_latency: str
+    morning_wellbeing: str
+    daytime_nap: Optional[str] = None
+    sleep_disturbances: Optional[List[str]] = None
+    late_entry: bool = False
+    retrospective_days: Optional[int] = None
+
+
+class VitalRecordOut(BaseModel):
+    id: str
+    patient_id: int
+    measured_at: datetime
+    context: str
+    systolic: Optional[int] = None
+    diastolic: Optional[int] = None
+    pulse: Optional[int] = None
+    bpm: Optional[int] = None
+    weight: Optional[float] = None
+    volume_ml: Optional[int] = None
+    liquid_type: Optional[str] = None
 
 
 class ResearcherChatDebugResponse(BaseModel):

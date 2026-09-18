@@ -329,6 +329,105 @@ def test_profile_update_validation_errors_use_common_api_shape():
     asyncio.run(runner())
 
 
+# ---------------------------------------------------------------------------
+# Фаза 5 Track C — consent-гейт (docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md)
+# ---------------------------------------------------------------------------
+
+async def seed_unconsented_patient(session: AsyncSession) -> User:
+    user = User(
+        telegram_id="patient-unconsented",
+        full_name="Patient No Consent",
+        consent_personal_data=False,
+        consent_bot_use=False,
+        patient_number=1002,
+        pin_hash=hash_pin("1234"),
+        is_onboarded=False,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+def test_unconsented_patient_gets_403_on_protected_route():
+    async def runner():
+        async with auth_session_ctx() as seed_session:
+            await seed_unconsented_patient(seed_session)
+            session_factory = async_sessionmaker(seed_session.bind, expire_on_commit=False)
+            app = build_test_app(session_factory)
+            client = TestClient(app)
+
+            client.post(
+                "/api/v1/auth/patient/login",
+                json={"patient_number": 1002, "pin": "1234"},
+            )
+
+            resp = client.get("/api/v1/probe/patient")
+            assert resp.status_code == 403
+            payload = resp.json()
+            # detail — строка (не dict): общий exception handler теряет
+            # структурные detail, поэтому тип согласия кодируется префиксом.
+            assert payload["detail"] == "consent_required:personal_data"
+
+    asyncio.run(runner())
+
+
+def test_patient_me_works_without_consent():
+    """/auth/patient/me — исключение из гейта: иначе фронт не узнает свой
+    consent_personal_data, чтобы решить, вести ли на /consent (onboarding.js)."""
+
+    async def runner():
+        async with auth_session_ctx() as seed_session:
+            await seed_unconsented_patient(seed_session)
+            session_factory = async_sessionmaker(seed_session.bind, expire_on_commit=False)
+            app = build_test_app(session_factory)
+            client = TestClient(app)
+
+            client.post(
+                "/api/v1/auth/patient/login",
+                json={"patient_number": 1002, "pin": "1234"},
+            )
+
+            resp = client.get("/api/v1/auth/patient/me")
+            assert resp.status_code == 200
+            assert resp.json()["consent_personal_data"] is False
+
+    asyncio.run(runner())
+
+
+def test_consent_status_and_accept_work_without_prior_consent():
+    """/consent/* — тоже исключение: иначе пациент не может ни увидеть свой
+    статус, ни дать согласие в первый раз."""
+
+    async def runner():
+        async with auth_session_ctx() as seed_session:
+            await seed_unconsented_patient(seed_session)
+            session_factory = async_sessionmaker(seed_session.bind, expire_on_commit=False)
+            app = build_test_app(session_factory)
+            client = TestClient(app)
+
+            client.post(
+                "/api/v1/auth/patient/login",
+                json={"patient_number": 1002, "pin": "1234"},
+            )
+
+            status_resp = client.get("/api/v1/consent/status")
+            assert status_resp.status_code == 200
+
+            accept_resp = client.post(
+                "/api/v1/consent/accept",
+                json={"consent_personal_data": True, "consent_bot_use": True},
+            )
+            assert accept_resp.status_code == 200
+            assert accept_resp.json()["consent_personal_data"] is True
+
+            # согласие дано — protected route теперь доступен
+            probe_resp = client.get("/api/v1/probe/patient")
+            assert probe_resp.status_code == 200
+
+    asyncio.run(runner())
+
+
 def test_main_registers_v1_and_legacy_routes_for_migration():
     app = create_app()
     paths = {route.path for route in app.routes}

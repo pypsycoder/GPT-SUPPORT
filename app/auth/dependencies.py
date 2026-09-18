@@ -54,14 +54,62 @@ async def get_current_user_optional(
     return result.scalar_one_or_none()
 
 
-async def get_current_user(
+# Фаза 5 Track C (docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md): сайт и
+# чат недоступны без согласия. 403 приходит строкой (не dict/list) — общий
+# exception handler (app/api_errors.py) для нестроковых `detail` подставляет
+# generic "Request failed", теряя причину; префикс "consent_required:" даёт
+# фронту различить тип согласия по exc.detail / body.detail.
+CONSENT_REQUIRED_PERSONAL_DATA = "consent_required:personal_data"
+CONSENT_REQUIRED_BOT_USE = "consent_required:bot_use"
+
+
+async def get_current_user_raw(
     user: Optional[User] = Depends(get_current_user_optional),
 ) -> User:
-    """Return the authenticated patient or raise 401."""
+    """Return the authenticated patient or raise 401 — БЕЗ проверки consent.
+
+    Только для маршрутов, которые пациент обязан пройти ДО согласия: узнать
+    свой статус (`GET /auth/patient/me`) и дать/отозвать согласие
+    (`/consent/*`). Everywhere else use `get_current_user`.
+    """
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Не авторизован",
+        )
+    return user
+
+
+async def get_current_user(
+    user: User = Depends(get_current_user_raw),
+) -> User:
+    """Return the authenticated + consented patient, or raise 401/403.
+
+    Гейтит практически все защищённые роуты пациента разом (на этот dependency
+    завязаны 12+ модулей) — 403 `consent_required:personal_data`, пока
+    `consent_personal_data` не дано.
+    """
+    if not user.consent_personal_data:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=CONSENT_REQUIRED_PERSONAL_DATA,
+        )
+    return user
+
+
+async def get_current_user_with_bot_consent(
+    user: User = Depends(get_current_user),
+) -> User:
+    """Как `get_current_user`, плюс отдельное согласие на использование чата.
+
+    Используется только в `app/routers/chat.py` — общий сайт и чат с
+    ассистентом гейтятся разными согласиями (`consent_personal_data` vs
+    `consent_bot_use`).
+    """
+    if not user.consent_bot_use:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=CONSENT_REQUIRED_BOT_USE,
         )
     return user
 

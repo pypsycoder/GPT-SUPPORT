@@ -29,9 +29,13 @@
 > 24 PASS / 1 WARN / 4 FAIL, остатки не блокеры. Цена посчитана
 > (`docs/agent/CLOUDRU_COST_ESTIMATE.md`). Хвост: Сбер на `api.giga.chat`
 > (заблокировано с dev), решение о прод-cutover.
+> **Фаза 5 (2026-09-18): закрыта по коду** — статистика/экспорт трекеров и
+> шкал по вопросам (Track A), diagnostics_json + safety_level/technique_id на
+> каждый ход диалогового пайплайна (Track B), серверный consent-гейт (Track C).
+> Миграции `20260917_01`, `20260918_01` применены к `hemo_db`. Детали —
+> `docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md`.
 > **Открыто:** staging-smoke Фаз 1–2 → снести старые `deliver_*`; снять флаг
-> `LLM_SAFETY_LLM`; Фаза 6 хвост (Сбер-endpoint, прод-cutover); Фаза 5 (нужна
-> постановка исследователя).
+> `LLM_SAFETY_LLM`; Фаза 6 хвост (Сбер-endpoint, прод-cutover).
 > Детали — по фазам ниже (✅ готово · 🟡 код готов, ждёт staging · ⬜ не начато).
 
 ## Оглавление
@@ -69,6 +73,7 @@
 | `docs/agent/MIGRATION_1NN_REPORT.md` | Миграция контента к схеме id 1NN/2NN/3NN — разведка, решения, `20260830_01` |
 | `docs/agent/TASK_migration_content_ids.md` | Исходная постановка задачи по миграции id |
 | `ALEMBIC_RUNBOOK.md` (корень) | Порядок запуска миграций, верификация revision, правила `stamp` |
+| `docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md` | ТЗ Фазы 5: статистика/экспорт трекеров и шкал по вопросам, инструментация решений диалогового пайплайна, серверный consent-гейт |
 
 ## Контекст
 
@@ -343,12 +348,61 @@
 
 **Под заявленную цель платформы** («сбор данных для исследователя»).
 
-- [ ] Что research-панель достаёт из диалогов кроме сырых логов чата.
-- [ ] Метрики динамики по пациенту: тональность, темы, вовлечённость, использование
-  техник — по времени.
-- [ ] Экспорт для анализа.
+**ТЗ согласовано с Дмитрием 2026-09-17** →
+`docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md`. Три трека:
 
-**Оценка:** 1–2 спринта. Требует постановки от исследователя.
+- [x] **Track A — статистика/экспорт трекеров и шкал** *(2026-09-18)*. Новая
+  таблица `scales.scale_item_responses` (ответы по каждому вопросу
+  HADS/KOP-25A/PSQI/PSS-10/WCQ, по образцу `kdqol_responses`, пишется
+  параллельно с `answers_json`, миграция `20260917_01` применена); adherence
+  по медикаментам (простая метрика: приёмы/день vs `frequency_times_per_day`,
+  raw SQL с `generate_series`); объединённая статистика практик
+  (`practices.practice_completions` UNION `education.practice_logs`, источник
+  тегом); экспорт уроков/тестов (по вопросам)/сна/витальных. Новый
+  `app/researchers/service.py` (бизнес-логика была только в роутере —
+  отклонение от паттерна модуля, закрыто новым кодом, старое не трогали).
+  12 эндпоинтов (`/researcher/{scales/items,medications/adherence,
+  practices/completions,education/test-results,sleep/records,vitals/records}`
+  + `/export` на каждый) — CSV/JSON-экспорт в панели + read-only paginated
+  JSON API. Тесты: `tests_py/researchers/test_track_a_*.py` (14, sqlite для
+  ORM-запросов + реальный `hemo_db` с rollback-изоляцией для Postgres-only SQL
+  адгеренса/практик).
+- [x] **Track B — инструментация решений диалогового пайплайна** *(2026-09-18)*.
+  Реализовано проще исходного плана: не новая таблица, а `llm.llm_request_logs`
+  (уже писалась раз на ход, `diagnostics_json` существовала, но не
+  заполнялась) — `LLMPipeline._log_to_database` теперь пишет туда весь
+  `context.diagnostics` + 3 новые колонки (`response_source`, `technique_id`,
+  `safety_level`) для быстрой фильтрации. Покрывает оба пути (реактивный чат +
+  LLM-проактив) бесплатно — оба идут через один `LLMPipeline.process()`.
+  Миграция `20260918_01` применена. `/researcher/chat-logs` и
+  `/chat-logs/export` расширены. Не сделано (сознательно, отдельный риск):
+  `tool_calls` (агент их нигде не персистит, только счётчик `tool_hops`),
+  `cache_hit` на уровне хода (есть только per-call в `llm_call_log`). Детали и
+  обоснование отклонения от плана — в спеке. Тесты:
+  `tests_py/llm/test_pipeline_logging.py` (+2, включая регрессию на баг:
+  `diagnostics["boundary_guard"]["level"]` отсутствует на L0-кризисном пути,
+  реальный источник — `context.l0.safety_level`).
+- [x] **Track C — серверный consent-гейт** *(2026-09-18)*. `get_current_user`
+  (`app/auth/dependencies.py`) теперь требует `consent_personal_data` — правка
+  в одном месте гейтит разом 12+ модулей, которые на неё завязаны. Новая
+  `get_current_user_raw` (без проверки) — только под `/auth/patient/me` и
+  `/consent/*` (иначе пациент не узнает свой статус и не сможет дать согласие
+  в первый раз). Новая `get_current_user_with_bot_consent` (требует ещё и
+  `consent_bot_use`) — под всеми эндпоинтами `app/routers/chat.py`. Отказ —
+  403, `detail` строкой `"consent_required:personal_data"` /
+  `"...:bot_use"` (не dict — общий exception handler в `app/api_errors.py`
+  теряет структуру non-string detail). Фронт не трогали: `login.js` уже
+  редиректит на `/consent` сразу после входа при `needs_consent`, штатная
+  навигация до гейта не доходит; `consent.js` всегда шлёт оба согласия одним
+  запросом, так что комбинация personal_data=true/bot_use=false недостижима
+  через UI — 403 это защита от прямых вызовов API, не основной UX-путь.
+
+Ретроспектива/backfill не нужны — в чате пока только тестовые пациенты.
+
+**Фаза 5 закрыта по коду** 2026-09-18 — все три трека реализованы, применены
+к `hemo_db`, полный прогон тестов зелёный (606 passed, 2 skipped). Детали и
+отклонения от исходного плана (Track B проще, Track C — контракт ошибки
+строкой) — `docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md`.
 
 ### Фаза 6 — LLM-провайдер: два источника (Cloud.ru + Сбер), переключение флагом
 
@@ -604,7 +658,9 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
   (`1729e7d`..`e035ef9`), миграция `20260903_01` применена. Хвост: Сбер на
   `api.giga.chat` (заблокировано с dev), прод-cutover флагом/кнопкой (решение
   исследователя).
-- [ ] Фаза 5: инструментирование под исследование (нужна постановка).
+- [x] ~~Фаза 5: инструментирование под исследование~~ — закрыто по коду
+  2026-09-18 (`docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md`), Track
+  A/B/C реализованы и применены к `hemo_db`.
 
 ## Приложение — связь с находками аудита
 
@@ -629,7 +685,7 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
 | ✅ | Рейт-лимита на `/api/chat/message` нет | 4 — `app/llm/rate_limit.py` (2026-08-30) |
 | ✅ | STRUCTURE.md отстал (4 стадии vs 5) | 4 — обновлён 2026-08-29 (5 стадий, `DataEntryStage`, вх. контракт, замер кэша) + daily_context 2026-08-30 |
 | ✅ | отсутствует `prompts/proactive_anomaly.txt` | 4 — создан 2026-08-30 |
-| ⬜ | Research-инструментирование диалогов | 5 |
+| ✅ | Research-инструментирование диалогов | 5 — **закрыто по коду 2026-09-18** (`docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md`): статистика/экспорт трекеров и шкал по вопросам, diagnostics_json + safety_level/technique_id на каждый ход пайплайна, серверный consent-гейт |
 
 ---
 

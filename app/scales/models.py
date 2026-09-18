@@ -53,6 +53,42 @@ class ScaleResult(Base):
     )
 
 
+class ScaleItemResponse(Base):
+    """Ответ на отдельный вопрос шкалы (HADS/KOP-25A/PSQI/PSS-10/WCQ).
+
+    Нормализованная копия того, что уже лежит в ScaleResult.answers_json —
+    пишется параллельно с ним (см. save_scale_result), не заменяет его.
+    KDQOL-SF сюда не попадает — у неё уже есть kdqol.kdqol_responses.
+    Фаза 5 (docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md), Track A.
+    """
+
+    __tablename__ = "scale_item_responses"
+    __table_args__ = (
+        Index("ix_scale_item_responses_user_id", "user_id"),
+        Index("ix_scale_item_responses_result_id", "result_id"),
+        Index("ix_scale_item_responses_scale_code", "scale_code"),
+        {"schema": "scales"},
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    result_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("scales.scale_results.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scale_code = Column(String(length=32), nullable=False)
+    scale_version = Column(String(length=16), nullable=True)
+    question_id = Column(String(length=64), nullable=False)
+    answer_value = Column(String(length=255), nullable=True)
+    measured_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 # ============================================================
 # KDQOL-SF 1.3: measurement points + responses + subscale scores
 # ============================================================

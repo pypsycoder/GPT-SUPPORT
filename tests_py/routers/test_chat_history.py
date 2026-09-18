@@ -35,7 +35,12 @@ async def _ctx() -> AsyncSession:
 def test_history_returns_buttons_json_so_frontend_can_re_render_them():
     async def runner():
         async with _ctx() as seed:
-            patient = User(full_name="Patient Hist", patient_number=4100)
+            patient = User(
+                full_name="Patient Hist",
+                patient_number=4100,
+                consent_personal_data=True,
+                consent_bot_use=True,
+            )
             seed.add(patient)
             await seed.commit()
             await seed.refresh(patient)

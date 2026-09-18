@@ -186,6 +186,30 @@ class LLMRequestLog(Base):
         comment="Pipeline diagnostics: stage status, fallbacks, context sizes, and RAG/provider signals.",
     )
 
+    # Фаза 5 Track A/B (docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md):
+    # плоские колонки поверх diagnostics_json для быстрой фильтрации/статистики
+    # исследователем — сам diagnostics_json остаётся источником полной картины.
+    response_source: Mapped[str | None] = mapped_column(
+        sa.String(40),
+        nullable=True,
+        comment="Какая стадия дала ответ: supervisor | boundary_guard_* | data_entry | error_fallback",
+    )
+
+    technique_id: Mapped[str | None] = mapped_column(
+        sa.String(64),
+        nullable=True,
+        comment="Психотехника агента на этом ходу (diagnostics.supervisor.agent.technique_id)",
+    )
+
+    safety_level: Mapped[str | None] = mapped_column(
+        sa.String(16),
+        nullable=True,
+        comment=(
+            "Итоговый safety-уровень хода: safety_net.agent_level если ход дошёл до "
+            "супервизора, иначе boundary_guard.level"
+        ),
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime,
         nullable=False,

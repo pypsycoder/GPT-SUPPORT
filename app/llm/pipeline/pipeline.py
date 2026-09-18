@@ -223,6 +223,17 @@ class LLMPipeline:
                     or ((context.early_response_source or "UNKNOWN").upper() if context.early_response else "UNKNOWN")
                 )
             )
+            diagnostics = context.diagnostics or {}
+            supervisor_diag = diagnostics.get("supervisor") or {}
+            safety_net = supervisor_diag.get("safety_net") or {}
+            response_diag = diagnostics.get("response") or {}
+            # context.l0.safety_level — не diagnostics["boundary_guard"]["level"]:
+            # тот ключ есть только в ветке LLM-классификатора (см. boundary_guard.py),
+            # а L0-urgent (самый частый кризисный путь) диагностику пишет без "level"
+            # вовсе — l0.safety_level же выставлен всегда и уже включает bump от
+            # классификатора (_raise_l0_concern мутирует то же decision-поле).
+            l0_safety_level = getattr(context.l0, "safety_level", None) if context.l0 is not None else None
+
             log = LLMRequestLog(
                 patient_id=request.patient_id,
                 # account_id — VARCHAR(64) в БД (ревизия 20260901_01). Для настоящих
@@ -242,6 +253,13 @@ class LLMPipeline:
                 request_type=request_type,
                 success=error is None,
                 error_message=None if error is None else f"{error.__class__.__name__}: {error}",
+                diagnostics_json=diagnostics or None,
+                response_source=response_diag.get("source"),
+                technique_id=supervisor_diag.get("agent", {}).get("technique_id"),
+                # safety_net.agent_level — итог после safety-net (ход дошёл до
+                # супервизора и агент дал вердикт); иначе — l0.safety_level
+                # (ранний ответ/плашка/hint, супервизор не запускался).
+                safety_level=safety_net.get("agent_level") or l0_safety_level,
             )
 
             request.db.add(log)

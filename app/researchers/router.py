@@ -13,7 +13,7 @@ import io
 import json
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -51,13 +51,19 @@ from app.researchers.schemas import (
     ChatStatsResponse,
     TokensByDate,
     CohortItem,
+    EducationTestResultOut,
     HumanTraceSection,
     LlmProviderStatus,
     LlmProviderUpdate,
+    MedicationAdherenceOut,
+    PracticeCompletionOut,
     ResearcherChatDebugRequest,
     ResearcherChatDebugResponse,
+    ScaleItemResponseOut,
+    SleepRecordOut,
+    VitalRecordOut,
 )
-from app.researchers import crud
+from app.researchers import crud, service
 
 router = APIRouter(prefix="/researcher", tags=["researcher"])
 _llm_pipeline = LLMPipeline()
@@ -390,6 +396,9 @@ _CHAT_LOG_SQL = """
         lrl.success,
         lrl.error_message,
         lrl.diagnostics_json,
+        lrl.response_source,
+        lrl.technique_id,
+        lrl.safety_level,
         cm_asst.domain                              AS domain,
         LEFT(cm_user.content, 300)                  AS user_content,
         LEFT(cm_asst.content, 300)                  AS assistant_content
@@ -530,6 +539,9 @@ async def get_chat_logs(
             success=bool(row["success"]),
             error_message=row["error_message"],
             diagnostics_json=row["diagnostics_json"],
+            response_source=row["response_source"],
+            technique_id=row["technique_id"],
+            safety_level=row["safety_level"],
         )
         for row in rows
     ]
@@ -995,6 +1007,10 @@ _EXPORT_SQL = """
         lrl.tokens_output,
         lrl.response_time_ms,
         lrl.success,
+        lrl.response_source,
+        lrl.technique_id,
+        lrl.safety_level,
+        lrl.diagnostics_json,
         LEFT(cm_user.content, 200)                  AS question_preview,
         LEFT(cm_asst.content, 200)                  AS answer_preview
     FROM llm.llm_request_logs lrl
@@ -1027,13 +1043,15 @@ _EXPORT_CSV_COLUMNS = [
     "id", "patient_id", "center_id", "created_at",
     "domain", "request_type", "model_tier",
     "tokens_input", "tokens_output", "response_time_ms", "success",
-    "question_preview", "answer_preview",
+    "response_source", "technique_id", "safety_level",
+    "question_preview", "answer_preview", "diagnostics_json",
 ]
 
 _EXPORT_CSV_COLUMNS_META = [
     "id", "patient_id", "center_id", "created_at",
     "domain", "request_type", "model_tier",
     "tokens_input", "tokens_output", "response_time_ms", "success",
+    "response_source", "technique_id", "safety_level",
 ]
 
 
@@ -1124,10 +1142,16 @@ async def export_chat_logs(
         for row in rows:
             buf.seek(0)
             buf.truncate()
-            writer.writerow([
-                row.get(c, "") if row.get(c) is not None else ""
-                for c in columns
-            ])
+
+            def _cell(c: str):
+                value = row.get(c)
+                if value is None:
+                    return ""
+                if isinstance(value, dict):
+                    return json.dumps(value, ensure_ascii=False)
+                return value
+
+            writer.writerow([_cell(c) for c in columns])
             yield buf.getvalue()
 
     return StreamingResponse(
@@ -1137,5 +1161,257 @@ async def export_chat_logs(
             "Content-Disposition": f'attachment; filename="chat_logs_{timestamp}.csv"'
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Фаза 5 Track A — статистика/экспорт трекеров и шкал
+# (docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md)
+# ---------------------------------------------------------------------------
+
+@router.get("/scales/items", response_model=List[ScaleItemResponseOut])
+async def list_scale_items(
+    patient_id: Optional[int] = None,
+    scale_code: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = 500,
+    offset: int = 0,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Ответы по каждому вопросу шкал (HADS/KOP-25A/PSQI/PSS-10/WCQ). KDQOL-SF —
+    см. /researcher/kdqol-export и /researcher/patients/{id}/kdqol-scores."""
+    return await service.get_scale_item_responses(
+        session,
+        patient_id=patient_id,
+        scale_code=scale_code,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/scales/items/export")
+async def export_scale_items(
+    patient_id: Optional[int] = None,
+    scale_code: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    format: str = "csv",
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    rows = await service.get_scale_item_responses(
+        session,
+        patient_id=patient_id,
+        scale_code=scale_code,
+        date_from=date_from,
+        date_to=date_to,
+        limit=None,
+    )
+    columns = ["patient_id", "scale_code", "scale_version", "question_id", "answer_value", "measured_at"]
+    return service.build_export_response(rows, columns, format=format, filename_prefix="scale_items")
+
+
+@router.get("/medications/adherence", response_model=List[MedicationAdherenceOut])
+async def list_medication_adherence(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Adherence по дням: приёмы vs frequency_times_per_day активных назначений."""
+    return await service.get_medication_adherence(
+        session, patient_id=patient_id, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get("/medications/adherence/export")
+async def export_medication_adherence(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    format: str = "csv",
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    rows = await service.get_medication_adherence(
+        session, patient_id=patient_id, date_from=date_from, date_to=date_to
+    )
+    columns = ["patient_id", "day", "expected_total", "actual_total", "adherence_pct"]
+    return service.build_export_response(rows, columns, format=format, filename_prefix="medication_adherence")
+
+
+@router.get("/practices/completions", response_model=List[PracticeCompletionOut])
+async def list_practice_completions(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = 500,
+    offset: int = 0,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Объединённая статистика практик — standalone (practices.*) + внутри
+    уроков (education.practice_logs), помечено полем source."""
+    return await service.get_practice_completions(
+        session,
+        patient_id=patient_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/practices/completions/export")
+async def export_practice_completions(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    format: str = "csv",
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    rows = await service.get_practice_completions(
+        session, patient_id=patient_id, date_from=date_from, date_to=date_to, limit=None
+    )
+    columns = [
+        "patient_id", "source", "practice_id", "practice_title",
+        "completed_at", "mood_after", "success", "effect_rating",
+    ]
+    return service.build_export_response(rows, columns, format=format, filename_prefix="practice_completions")
+
+
+@router.get("/education/test-results", response_model=List[EducationTestResultOut])
+async def list_education_test_results(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = 500,
+    offset: int = 0,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Результаты тестов уроков — по каждому вопросу, не только итоговый балл."""
+    return await service.get_education_test_results(
+        session,
+        patient_id=patient_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/education/test-results/export")
+async def export_education_test_results(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    format: str = "csv",
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    rows = await service.get_education_test_results(
+        session, patient_id=patient_id, date_from=date_from, date_to=date_to, limit=None
+    )
+    columns = [
+        "patient_id", "test_code", "test_title", "created_at", "score", "max_score",
+        "passed", "question_id", "chosen_option", "is_correct",
+    ]
+    return service.build_export_response(rows, columns, format=format, filename_prefix="education_test_results")
+
+
+@router.get("/sleep/records", response_model=List[SleepRecordOut])
+async def list_sleep_records(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = 500,
+    offset: int = 0,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await service.get_sleep_records(
+        session,
+        patient_id=patient_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/sleep/records/export")
+async def export_sleep_records(
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    format: str = "csv",
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    rows = await service.get_sleep_records(
+        session, patient_id=patient_id, date_from=date_from, date_to=date_to, limit=None
+    )
+    columns = [
+        "patient_id", "sleep_date", "sleep_onset", "wake_time", "tib_minutes", "tst_minutes",
+        "sleep_efficiency_pct", "night_awakenings", "sleep_latency", "morning_wellbeing",
+        "daytime_nap", "sleep_disturbances", "late_entry", "retrospective_days",
+    ]
+    return service.build_export_response(rows, columns, format=format, filename_prefix="sleep_records")
+
+
+@router.get("/vitals/records", response_model=List[VitalRecordOut])
+async def list_vitals_records(
+    vital_type: Literal["bp", "pulse", "weight", "water"],
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = 500,
+    offset: int = 0,
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await service.get_vitals_records(
+        session,
+        vital_type=vital_type,
+        patient_id=patient_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/vitals/records/export")
+async def export_vitals_records(
+    vital_type: Literal["bp", "pulse", "weight", "water"],
+    patient_id: Optional[int] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    format: str = "csv",
+    _researcher: Researcher = Depends(get_current_researcher),
+    session: AsyncSession = Depends(get_async_session),
+):
+    rows = await service.get_vitals_records(
+        session,
+        vital_type=vital_type,
+        patient_id=patient_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=None,
+    )
+    columns_by_type = {
+        "bp": ["patient_id", "measured_at", "context", "systolic", "diastolic", "pulse"],
+        "pulse": ["patient_id", "measured_at", "context", "bpm"],
+        "weight": ["patient_id", "measured_at", "context", "weight"],
+        "water": ["patient_id", "measured_at", "context", "volume_ml", "liquid_type"],
+    }
+    columns = columns_by_type[vital_type]
+    return service.build_export_response(rows, columns, format=format, filename_prefix=f"vitals_{vital_type}")
 
 

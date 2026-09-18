@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.auth.dependencies import get_current_user
+from app.api_errors import register_api_exception_handlers
+from app.auth.dependencies import get_current_user, get_current_user_optional
 from app.models.llm import ChatMessage, ChatSupervisorState
 from app.routers.chat import router as chat_router
 from app.users.models import User
@@ -34,8 +35,18 @@ async def chat_session_ctx() -> AsyncSession:
 def test_mark_read_clears_only_current_patient_assistant_messages():
     async def runner():
         async with chat_session_ctx() as seed_session:
-            patient = User(full_name="Patient MarkRead", patient_number=3001)
-            other = User(full_name="Other Patient", patient_number=3002)
+            patient = User(
+                full_name="Patient MarkRead",
+                patient_number=3001,
+                consent_personal_data=True,
+                consent_bot_use=True,
+            )
+            other = User(
+                full_name="Other Patient",
+                patient_number=3002,
+                consent_personal_data=True,
+                consent_bot_use=True,
+            )
             seed_session.add_all([patient, other])
             await seed_session.commit()
             await seed_session.refresh(patient)
@@ -115,5 +126,48 @@ def test_mark_read_clears_only_current_patient_assistant_messages():
             assert by_content["привет"].is_read is False
             # чужой пациент не затронут
             assert by_content["чужой дайджест"].is_read is False
+
+    asyncio.run(runner())
+
+
+def test_mark_read_requires_bot_use_consent():
+    """Фаза 5 Track C: get_current_user_with_bot_consent гейтит весь chat_router
+    отдельным согласием — даже когда consent_personal_data уже дано.
+
+    Оверрайдим только get_current_user_optional (кто это), а не get_current_user
+    (проверка согласия) — иначе гейт, который и проверяем, просто обошёл бы себя."""
+
+    async def runner():
+        async with chat_session_ctx() as seed_session:
+            patient = User(
+                full_name="Patient No Bot Consent",
+                patient_number=3010,
+                consent_personal_data=True,
+                consent_bot_use=False,
+            )
+            seed_session.add(patient)
+            await seed_session.commit()
+            await seed_session.refresh(patient)
+
+            session_factory = async_sessionmaker(seed_session.bind, expire_on_commit=False)
+            app = FastAPI()
+            register_api_exception_handlers(app)
+            app.include_router(chat_router, prefix="/api/chat")
+
+            async def override_session() -> AsyncSession:
+                async with session_factory() as session:
+                    yield session
+
+            async def override_user_optional() -> User:
+                return patient
+
+            app.dependency_overrides[get_async_session] = override_session
+            app.dependency_overrides[get_current_user_optional] = override_user_optional
+
+            with TestClient(app) as client:
+                resp = client.post("/api/chat/mark-read")
+
+            assert resp.status_code == 403
+            assert resp.json()["detail"] == "consent_required:bot_use"
 
     asyncio.run(runner())

@@ -11,6 +11,7 @@ import io
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
@@ -32,6 +33,7 @@ from app.scales.models import (
     KdqolResponse,
     KdqolSubscaleScore,
     MeasurementPoint,
+    ScaleItemResponse,
     ScaleResult,
 )
 from app.scales.registry import get_scale_calculator
@@ -102,11 +104,14 @@ async def save_scale_result(
         user_id, scale_code,
     )
 
+    measured_at = datetime.now(timezone.utc)
+    result_id = uuid4()
     scale_result = ScaleResult(
+        id=result_id,
         user_id=user_id,
         scale_code=scale_code,
         scale_version=scale_version,
-        measured_at=datetime.now(timezone.utc),
+        measured_at=measured_at,
         result_json=result_json,
         answers_json=answers_log,
     )
@@ -114,6 +119,23 @@ async def save_scale_result(
     try:
         session.add(scale_result)
         logger.info("[scales] session.add() — OK")
+
+        for entry in answers_log:
+            question_id = entry.get("question_id")
+            if question_id is None:
+                continue
+            raw_answer = entry.get("option_id", entry.get("value"))
+            session.add(
+                ScaleItemResponse(
+                    user_id=user_id,
+                    result_id=result_id,
+                    scale_code=scale_code,
+                    scale_version=scale_version,
+                    question_id=str(question_id),
+                    answer_value=str(raw_answer) if raw_answer is not None else None,
+                    measured_at=measured_at,
+                )
+            )
 
         await session.flush()
         logger.info("[scales] session.flush() — OK, id=%s", scale_result.id)

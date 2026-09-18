@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user_with_bot_consent
 from app.llm.pipeline import LLMPipeline, LLMRequest
 from app.llm.pool import pool
 from app.llm import memory_store, rate_limit, vitals_writer
@@ -151,7 +151,7 @@ class UndoVitalsResponse(BaseModel):
 @router.post("/undo-vitals", response_model=UndoVitalsResponse)
 async def undo_vitals(
     body: UndoVitalsRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_bot_consent),
     db: AsyncSession = Depends(get_async_session),
 ) -> UndoVitalsResponse:
     """Убрать показатели, записанные последним ходом чата.
@@ -174,7 +174,7 @@ async def undo_vitals(
 async def send_message(
     body: MessageRequest,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_bot_consent),
     db: AsyncSession = Depends(get_async_session),
 ) -> MessageResponse:
     if current_user.id != body.patient_id:
@@ -267,7 +267,7 @@ async def get_history(
     patient_id: int,
     background_tasks: BackgroundTasks,
     limit: int = 20,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_bot_consent),
     db: AsyncSession = Depends(get_async_session),
 ) -> list[ChatMessageOut]:
     if current_user.id != patient_id:
@@ -312,7 +312,7 @@ class MarkReadResponse(BaseModel):
 
 @router.post("/mark-read", response_model=MarkReadResponse)
 async def mark_read(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_bot_consent),
     db: AsyncSession = Depends(get_async_session),
 ) -> MarkReadResponse:
     """Отметить все сообщения ассистента прочитанными.
@@ -342,7 +342,7 @@ class ConfirmVitalsRequest(BaseModel):
 @router.post("/confirm-vitals", status_code=200)
 async def confirm_vitals(
     body: ConfirmVitalsRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_bot_consent),
     db: AsyncSession = Depends(get_async_session),
 ) -> dict:
     if not body.confirmed:
@@ -381,7 +381,7 @@ async def confirm_vitals(
 
 @router.post("/reset-session", status_code=200)
 async def reset_session(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_bot_consent),
     db: AsyncSession = Depends(get_async_session),
 ) -> dict:
     result = await db.execute(
@@ -398,5 +398,5 @@ async def reset_session(
 
 
 @router.get("/pool/stats")
-async def get_pool_stats(current_user: User = Depends(get_current_user)) -> dict:
+async def get_pool_stats(current_user: User = Depends(get_current_user_with_bot_consent)) -> dict:
     return pool.get_stats()

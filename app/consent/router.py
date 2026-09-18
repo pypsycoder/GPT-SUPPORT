@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.csrf import require_csrf
 from core.db.session import get_async_session
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user_raw
 from app.consent.schemas import ConsentStatus, ConsentAcceptRequest, ConsentRevokeRequest
 from app.consent.service import get_consent_status, accept_consent, revoke_consent
 from app.users.models import User
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/consent", tags=["consent"])
 
 
 @router.get("/status", response_model=ConsentStatus)
-async def consent_status(user: User = Depends(get_current_user)):
+async def consent_status(user: User = Depends(get_current_user_raw)):
     """Return current consent status for the authenticated patient."""
     return await get_consent_status(user)
 
@@ -30,7 +30,7 @@ async def consent_status(user: User = Depends(get_current_user)):
 async def consent_accept(
     body: ConsentAcceptRequest,
     _csrf: None = Depends(require_csrf),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_raw),
     session: AsyncSession = Depends(get_async_session),
 ):
     """Accept consent for the authenticated patient."""
@@ -53,7 +53,7 @@ async def consent_accept(
 async def consent_revoke(
     body: ConsentRevokeRequest,
     _csrf: None = Depends(require_csrf),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_raw),
     session: AsyncSession = Depends(get_async_session),
 ):
     """Отозвать согласия для авторизованного пациента."""

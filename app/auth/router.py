@@ -33,6 +33,7 @@ from app.auth.session_crud import (
 )
 from app.auth.dependencies import (
     get_current_user,
+    get_current_user_raw,
     get_current_researcher,
 )
 from app.auth.session_policy import (
@@ -182,8 +183,12 @@ async def patient_logout(
 
 
 @router.get("/patient/me")
-async def patient_me(user: User = Depends(get_current_user)):
-    """Return current patient info."""
+async def patient_me(user: User = Depends(get_current_user_raw)):
+    """Return current patient info.
+
+    Без consent-гейта: это то, через что фронт узнаёт consent_personal_data,
+    чтобы решить, вести ли пациента на /consent (см. onboarding.js).
+    """
     return {
         "id": user.id,
         "full_name": user.full_name,

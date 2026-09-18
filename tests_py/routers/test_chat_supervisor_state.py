@@ -35,7 +35,12 @@ async def chat_session_ctx() -> AsyncSession:
 def test_patient_chat_persists_supervisor_state_between_messages(monkeypatch):
     async def runner():
         async with chat_session_ctx() as seed_session:
-            patient = User(full_name="Patient State", patient_number=2001)
+            patient = User(
+                full_name="Patient State",
+                patient_number=2001,
+                consent_personal_data=True,
+                consent_bot_use=True,
+            )
             seed_session.add(patient)
             await seed_session.commit()
             await seed_session.refresh(patient)
