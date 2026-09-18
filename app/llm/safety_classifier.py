@@ -23,7 +23,6 @@ test-сплит не трогать — см. `docs/agent/SAFETY_LLM_INTEGRATION
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -35,8 +34,6 @@ from app.llm.structured import JSON_ONLY_INSTRUCTION
 
 logger = logging.getLogger("gpt-support-llm.safety_classifier")
 
-ENV_FLAG = "LLM_SAFETY_LLM"
-_TRUTHY = frozenset({"1", "true", "yes", "on"})
 SHARED_SESSION_ID = "safety-classifier-shared"
 
 Level = Literal[
@@ -59,11 +56,6 @@ _HIGH = frozenset({"ideation_active", "plan_or_imminent"})
 
 _PROMPT_FILE = Path(__file__).with_name("prompts") / "safety_classifier.txt"
 _SYSTEM_PROMPT = _PROMPT_FILE.read_text(encoding="utf-8").strip() + "\n\n" + JSON_ONLY_INSTRUCTION
-
-
-def enabled() -> bool:
-    # default ON: флаг задаётся явно только чтобы выключить (kill-switch).
-    return str(os.getenv(ENV_FLAG, "true")).strip().lower() in _TRUTHY
 
 
 _SUBJECT_VALUES = frozenset({"self", "other", "abstract"})

@@ -91,15 +91,6 @@ async def test_classify_empty_text_short_circuits(monkeypatch):
     assert not a.available
 
 
-async def test_enabled_default_on_and_kill_switch(monkeypatch):
-    monkeypatch.delenv(safety_classifier.ENV_FLAG, raising=False)
-    assert safety_classifier.enabled() is True
-    monkeypatch.setenv(safety_classifier.ENV_FLAG, "false")
-    assert safety_classifier.enabled() is False
-    monkeypatch.setenv(safety_classifier.ENV_FLAG, "1")
-    assert safety_classifier.enabled() is True
-
-
 # --------------------------------------------------------------------------- #
 # Ветка в BoundaryGuardStage
 # --------------------------------------------------------------------------- #
@@ -189,15 +180,3 @@ async def test_boundary_guard_data_entry_skips_classifier(monkeypatch):
     await BoundaryGuardStage().process(_ctx("давление 130 на 85"))
     assert called["n"] == 0
 
-
-async def test_boundary_guard_disabled_flag_skips_classifier(monkeypatch):
-    monkeypatch.setenv("LLM_SAFETY_LLM", "false")
-    called = {"n": 0}
-
-    async def _fake(text, context=None):
-        called["n"] += 1
-        return SafetyAssessment(available=False)
-
-    monkeypatch.setattr("app.llm.pipeline.stages.boundary_guard.safety_classifier.classify", _fake)
-    await BoundaryGuardStage().process(_ctx("обычное сообщение"))
-    assert called["n"] == 0

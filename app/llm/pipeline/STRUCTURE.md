@@ -43,8 +43,9 @@
 - L0 (`app/llm/router_l0.py`) детерминированно ловит кризис/острое медицинское
   состояние и может завершить pipeline через `early_response`;
 - 2-й эшелон суицид-риска — LLM-классификатор `app/llm/safety_classifier.py`
-  (GigaChat-2 Lite, рубрика `prompts/safety_classifier.txt`, флаг `LLM_SAFETY_LLM`
-  default ON). Зовётся, если L0 не дал `urgent` и это не запись показателей.
+  (GigaChat-2 Lite, рубрика `prompts/safety_classifier.txt`, всегда включён —
+  kill-switch `LLM_SAFETY_LLM` снят 2026-09-18). Зовётся, если L0 не дал
+  `urgent` и это не запись показателей.
   Градация: `plan_or_imminent` → обрыв (`early_response`); `ideation_active` →
   агент отвечает + жёсткая плашка (`context.safety_footer`); `ideation_passive` →
   агент + мягкая плашка + `concern`-тир; `distress` → `concern`-тир (подсказка

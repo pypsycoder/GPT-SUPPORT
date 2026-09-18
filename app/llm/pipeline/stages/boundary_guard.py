@@ -209,10 +209,7 @@ class BoundaryGuardStage(PipelineStage):
         #   ideation_active   → агент отвечает + жёсткая плашка в конец
         #   ideation_passive  → агент отвечает + мягкая плашка + concern-тир
         #   distress          → concern-тир (подсказка агенту), без плашки
-        if (
-            safety_classifier.enabled()
-            and getattr(decision, "intent", None) not in _SKIP_SAFETY_LLM_INTENTS
-        ):
+        if getattr(decision, "intent", None) not in _SKIP_SAFETY_LLM_INTENTS:
             ctx_turns = await _recent_bot_turns(context.request)
             assessment = await safety_classifier.classify(user_input, context=ctx_turns)
             diag = {

@@ -70,7 +70,6 @@ $env:GIGACHAT_ALLOW_INSECURE_SSL="true"; uvicorn app.main:app --reload
 
 Полный и актуальный список — в `.env.example` (с комментариями). Ключевые
 блоки: `DATABASE_URL`; `SCHEDULER_ENABLED` (проактивный планировщик, off по
-умолчанию); `LLM_SAFETY_LLM` (LLM-классификатор суицид-риска, on по
 умолчанию); `LLM_PROVIDER` (`sber` default | `cloudru`); `GIGACHAT_KEY_<id>`
 (один или несколько аккаунтов Сбера — N ключей = N параллельных потоков);
 `CLOUD_RU_KEY`/`CLOUD_RU_MODEL*` (Cloud.ru); `CHAT_RATE_LIMIT_*`.
@@ -198,8 +197,8 @@ Frontend (patient / researcher / doctor — статика)
 1. `boundary_guard` — режет prompt-injection; L0 (`router_l0.py`, regex,
    детерминированно) ловит кризис/острое медицинское состояние; второй
    эшелон суицид-риска — LLM-классификатор `safety_classifier.py` (рубрика
-   `prompts/safety_classifier.txt`, флаг `LLM_SAFETY_LLM` default ON),
-   градация `plan_or_imminent` (обрыв) / `ideation_active` (жёсткая плашка) /
+   `prompts/safety_classifier.txt`, всегда включён), градация
+   `plan_or_imminent` (обрыв) / `ideation_active` (жёсткая плашка) /
    `ideation_passive` (мягкая плашка) / `distress` (concern-подсказка
    агенту).
 2. `classification` — каскад L0 → L1 (kNN по эмбеддингам прототипов) → L2

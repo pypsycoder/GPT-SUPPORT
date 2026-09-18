@@ -34,8 +34,15 @@
 > каждый ход диалогового пайплайна (Track B), серверный consent-гейт (Track C).
 > Миграции `20260917_01`, `20260918_01` применены к `hemo_db`. Детали —
 > `docs/agent/PHASE5_RESEARCH_INSTRUMENTATION_SPEC.md`.
-> **Открыто:** staging-smoke Фаз 1–2 → снести старые `deliver_*`; снять флаг
-> `LLM_SAFETY_LLM`; Фаза 6 хвост (Сбер-endpoint, прод-cutover).
+> **Флаг `LLM_SAFETY_LLM` снят 2026-09-18** — LLM-классификатор суицид-риска
+> всегда включён, kill-switch убран из кода и `.env.example`.
+> **Staging-smoke Фаз 1–2 сделан 2026-09-18** — живой `uvicorn` +
+> `SCHEDULER_ENABLED=true` против `hemo_db`: планировщик стартует в lifespan
+> (advisory-lock, 3 daily pass), логин → `morning`-сообщение, повтор без
+> дубля, `mark-read` гасит бейдж, дедуп-леджер пишется корректно. Старые
+> `deliver_*` уже снесены раньше (2026-09-16).
+> **Открыто:** Фаза 6 хвост (Сбер-endpoint, прод-cutover) — единственный
+> оставшийся пункт.
 > Детали — по фазам ниже (✅ готово · 🟡 код готов, ждёт staging · ⬜ не начато).
 
 ## Оглавление
@@ -155,7 +162,8 @@
   *(2026-08-29 — lock-хелперы → `app/llm/scheduler.py` (общие с `worker.py`);
   lifespan берёт lock → `start_scheduler()`, на shutdown снимает; `worker.py`
   ужат до запасного пути; `.env.example` создан. Локальный smoke прошёл;
-  multi-instance smoke на staging — при закрытии спринта.)*
+  staging-smoke сделан 2026-09-18 — лифспан поднимает планировщик и берёт
+  advisory-lock под живым HTTP.)*
 - [x] Триггер `ensure_morning_message(patient_id)` из `patient_login` через
   `BackgroundTasks` + ленивый вызов из `GET /api/chat/history` при первом за
   день открытии. Функция уже идемпотентна (advisory-lock +
@@ -163,8 +171,8 @@
   для тех, кто не заходил.
   *(2026-08-29 — `ensure_morning_message_bg()` (своя сессия, не пробрасывает) в
   `morning_service.py`; оба хука гейтятся на `is_onboarded && consent_personal_data`.
-  Юнит-тесты + живая проверка идемпотентности на dev-Postgres. E2E на staging —
-  при закрытии спринта.)*
+  Юнит-тесты + живая проверка идемпотентности на dev-Postgres. E2E на
+  staging-smoke 2026-09-18: логин → `morning`-сообщение, повтор без дубля.)*
 - [x] `motivator` — ленивый вызов при входе. *(2026-08-29 —
   `deliver_motivator_messages_bg()`; единая точка `app/llm/on_login.py`
   `run_login_proactive()` = утро + мотиватор, вызывается из `patient_login` и
@@ -248,7 +256,8 @@
   Утро/день/вечер разнесены на 08:00 / 14:00 / 20:00, cron-страховки нет —
   вход обслуживает координатор напрямую.
 
-**Оценка:** 1–2 спринта. — Фаза 2 закрыта по коду 2026-08-30, ждёт staging-smoke.
+**Оценка:** 1–2 спринта. — **Фаза 2 закрыта полностью** 2026-08-30 (код) /
+2026-09-18 (staging-smoke).
 
 ### Фаза 3 — ~~внешний канал доставки~~ снята
 
@@ -313,8 +322,12 @@
       other/abstract 24% — те же строки L0 по слову-теме). Только текст
       `prompts/safety_classifier.txt`, кода не трогали. NB: цифры Cloud.ru
       (3.5 Ultra, holdout 98%) — на старой рубрике, переверить перед свитчем.
-    - [ ] Снять флаг `LLM_SAFETY_LLM` (как `2316a40`) — решение Дмитрия; цифры на
-      holdout позволяют.
+    - [x] **Снять флаг `LLM_SAFETY_LLM`** *(2026-09-18)* — как `2316a40`.
+      `ENV_FLAG`/`enabled()` убраны из `safety_classifier.py`, ветка в
+      `boundary_guard.py` больше не проверяет флаг, классификатор всегда
+      вызывается (кроме `_SKIP_SAFETY_LLM_INTENTS`). `.env.example`/`Readme.md`/
+      `STRUCTURE.md` обновлены. 2 теста на флаг удалены (тестировали убранный
+      kill-switch). 604 теста зелёные.
   - [x] Всё выше **закоммичено и запушено** 2026-09-02: `73daf2c` (safety-слой),
     `29a0820`/`e1edb89`/`704f210`/`196f94d`/`b97be3f` — ветка `feat/agents-rework`.
 - [x] **Гигиена.**
@@ -341,8 +354,8 @@
     `pipeline.py` убраны — тег источника раннего ответа пишется целиком.
     `docs/agent/PLAN_TOMORROW.md` §A7.
 
-**Оценка:** 1–2 спринта, задачи независимы. — Фаза 4 закрыта по коду, кроме снятия
-флага `LLM_SAFETY_LLM`.
+**Оценка:** 1–2 спринта, задачи независимы. — **Фаза 4 закрыта по коду полностью**
+(флаг `LLM_SAFETY_LLM` снят 2026-09-18).
 
 ### Фаза 5 — Инструментирование под исследование
 
@@ -591,31 +604,37 @@
 реально работает агент и окупается ли префиксный кэш.
 
 **Итог (2026-08-29):** весь код и тесты готовы (тестовый прогон — 441 passed),
-investigation-отчёты приложены (`SPRINT1_INVESTIGATIONS.md`). Открыто одно:
-smoke на staging для #4 (планировщик под `--workers`) и #5 (E2E логин → дайджест).
-Локально оба пути проверены (планировщик поднимается за флагом, `ensure_morning_message`
-идемпотентен на dev-Postgres).
+investigation-отчёты приложены (`SPRINT1_INVESTIGATIONS.md`). **Staging-smoke
+для #4/#5 закрыт 2026-09-18** — см. Definition of done ниже.
 
-Статус: ✅ готово · 🟡 код готов, ждёт staging-smoke · ⬜ не начато.
+Статус: ✅ готово · ⬜ не начато.
 
 | # | ✔ | Тип | Задача | Оц., дн |
 |---|---|---|---|---|
 | 1 | ✅ | invest. | Аудит аккаунта GigaChat → `SPRINT1_INVESTIGATIONS.md` §1. Pro/Max работают; лимит потоков = 1 на ключ. *(2026-09-02: заказчик добавил 2-й ключ `GIGACHAT_KEY_L1`; пул обобщён под N ключей, конкурентность = 2)* | 0.5 |
 | 2 | ✅ | invest. | Замер `cache_hit` → `SPRINT1_INVESTIGATIONS.md` §2. Тёплый ход 80 %, префикс стабилен | 0.5 |
 | 3 | ✅ | fix | `POST /api/chat/mark-read` + `proactive.py` → `is_read=False`. Тесты | 0.5 |
-| 4 | 🟡 | feat | Планировщик в lifespan `app/main.py` за `SCHEDULER_ENABLED`; advisory-lock из `worker.py` туда же; `SCHEDULER_ENABLED` + `LLM_CRISIS_SEMANTIC` в `.env.example`; smoke в staging | 1.0 |
-| 5 | 🟡 | feat | Триггер `ensure_morning_message` из `patient_login` (`BackgroundTasks`) + ленивый из `GET /api/chat/history`. Тест идемпотентности | 1.5 |
+| 4 | ✅ | feat | Планировщик в lifespan `app/main.py` за `SCHEDULER_ENABLED`; advisory-lock из `worker.py` туда же; `SCHEDULER_ENABLED` + `LLM_CRISIS_SEMANTIC` в `.env.example`; smoke в staging | 1.0 |
+| 5 | ✅ | feat | Триггер `ensure_morning_message` из `patient_login` (`BackgroundTasks`) + ленивый из `GET /api/chat/history`. Тест идемпотентности | 1.5 |
 | 6 | ✅ | fix *(stretch)* | Сон из чата: SLEEP убран из `router_l0.parse_vitals` + `data_entry`. Не обещаем запись, которой нет. Тесты | 0.5 |
 
 **Итого:** ~4.5 дня основного + 0.5 stretch.
 
 **Definition of done:**
 
-- [ ] На staging: включённый флаг → при логине тестового пациента в
-  `llm.chat_messages` появляется сообщение `request_type='morning'`; повторный
-  логин в тот же день дубля не создаёт.
-- [ ] Открытие чата → `mark-read` → бейдж `assistant` в сайдбаре гаснет.
-  *(эндпоинт готов, проверка на staging — при закрытии спринта)*
+- [x] **Staging-smoke сделан 2026-09-18** (отдельного staging-контура в
+  проекте нет — прогнан живой `uvicorn` с `SCHEDULER_ENABLED=true` против
+  реального `hemo_db`, HTTP): лифспан поднял планировщик, взял advisory-lock,
+  зарегистрировал 3 daily pass (`_run_coordinator_job` × morning/afternoon/
+  evening). Логин тестового пациента через `POST /auth/patient/login` →
+  `llm.chat_messages` получил сообщение `request_type='morning'` (id 429);
+  повторный логин в тот же день — дубля нет (`SELECT ... WHERE request_type=
+  'morning'` вернул 1 строку). `llm.proactive_deliveries` содержит
+  соответствующую строку дедупа (`kind=praise, dedup_key=morning,
+  trigger=login`, привязана к `message_id`).
+- [x] **Открытие чата → `mark-read` → бейдж гаснет — подтверждено.**
+  `POST /api/chat/mark-read` вернул `{"updated": 1}`, `chat_messages.is_read`
+  флипнулся в `True`.
 - [x] Отчёты по задачам 1–2 приложены к спринту — `SPRINT1_INVESTIGATIONS.md`.
   Вывод по #1: Pro/Max работают. *(2026-09-02: заказчик добавил 2-й ключ
   `GIGACHAT_KEY_L1`; `AccountPool` обобщён под N ключей, конкурентность = 2 —
@@ -641,15 +660,22 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
 - [x] Cutover координатора *(2026-08-30)*: `scheduler` (5 → 3 джобы) и
   `on_login` переведены; `domain_scorer` подключён; `get_daily_context_for_llm`
   в супервизоре; холодный старт; лимит GigaChat (семафор + 429-backoff).
-  **Фаза 2 закрыта по коду.** Осталось: staging-smoke → снести старые `deliver_*`.
+  **Фаза 2 закрыта полностью** — код 2026-08-30, старые `deliver_*` снесены
+  2026-09-16, staging-smoke 2026-09-18.
 
 ## Спринт 3 — предварительно
 
-- [ ] Staging-smoke Фаз 1–2 (флаг → логин → координатор → дайджест; cron-проходы;
-  дедуп).
+- [x] ~~Staging-smoke Фаз 1–2 (флаг → логин → координатор → дайджест;
+  cron-проходы; дедуп)~~ — сделано 2026-09-18 (детали и цифры — Спринт 1 DoD
+  выше). Координатор напрямую прогнан на `trigger=cron_afternoon` дважды за
+  один день (0 кандидатов оба раза — ожидаемо, у смок-пациента нет трекнутых
+  данных, cold-start гейт `has_tracked_data` отсекает idle/domain-поводы; сам
+  дедуп подтверждён через `morning`-ключ при повторном логине +
+  `proactive_deliveries`). Смок-пациент и его данные удалены после проверки.
 - [x] ~~После — удалить старые deliver_*~~ — сделано 2026-09-16, раньше
   staging-smoke (см. Фаза 2 выше).
-- [ ] Снять флаг `LLM_SAFETY_LLM` после живой проверки классификатора.
+- [x] ~~Снять флаг `LLM_SAFETY_LLM` после живой проверки классификатора~~ —
+  снят 2026-09-18, holdout recall 100% это оправдывает.
 - [x] ~~Фаза 4 остаток: `crisis_semantic`, миграция `account_id`~~ — закрыто
   2026-08-31…09-02 (слой удалён + LLM-классификатор; `account_id` применена).
 - [x] ~~Фаза 6: два LLM-провайдера (Cloud.ru + Сбер) в `app/llm/pool.py`, флаг
@@ -666,8 +692,8 @@ smoke на staging для #4 (планировщик под `--workers`) и #5 (
 
 | ✔ | Находка аудита | Фаза |
 |---|---|---|
-| 🟡 | Проактив не запущен (`SCHEDULER_ENABLED`) | 1 |
-| 🟡 | Нет триггера «при первом входе» | 1 |
+| ✅ | Проактив не запущен (`SCHEDULER_ENABLED`) | 1 — staging-smoke 2026-09-18 подтвердил: планировщик стартует в lifespan, advisory-lock, 3 daily pass |
+| ✅ | Нет триггера «при первом входе» | 1 — staging-smoke 2026-09-18: логин пишет `morning`-сообщение, повтор в тот же день без дубля |
 | ✅ | `/api/chat/mark-read` отсутствует, бейдж не сбрасывается | 1 |
 | ✅ | Пул GigaChat: один ключ в 3 тира, конкурентность = 1 | 0 — диагностирован; +2-й ключ Сбера (2026-09-02); стратегически → Cloud.ru (Фаза 6) |
 | 🟡 | LLM-провайдер: два источника (Cloud.ru + Сбер), флаг + кнопка в админке | 6 — **код готов 2026-09-03** (`1729e7d`..`e035ef9`): Cloud.ru-клиент, флаг `LLM_PROVIDER` (default `sber`), переключатель в researcher-панели, миграция `20260903_01` применена; safety-классификатор + реактивный агент работают на 3.5 Ultra. Бенч: recall safety 0.78 → 0.97. Хвост: Сбер-endpoint, прод-cutover |
