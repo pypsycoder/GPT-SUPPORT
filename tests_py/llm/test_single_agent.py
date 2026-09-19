@@ -696,3 +696,29 @@ def test_safety_kind_offers_the_right_values():
     props = structured.json_schema_for(AgentReply)["properties"]
 
     assert props["safety_kind"]["enum"] == ["psychological", "medical", "none"]
+
+
+# --------------------------------------------------------------------------- #
+# alcohol_mention — подсказка агенту про клинику алкоголя на диализе, не ЗОЖ
+# --------------------------------------------------------------------------- #
+
+from app.llm import router_l0  # noqa: E402
+from app.llm.pipeline.stages.supervisor import _l0_note  # noqa: E402
+
+
+def test_l0_note_gives_dialysis_specific_alcohol_guidance():
+    decision = router_l0.classify("вчера выпил водки")
+    assert decision.rule == "alcohol_mention"  # предпосылка теста
+
+    note = _l0_note(decision)
+
+    assert "диализ" in note
+    # клиническая специфика, а не общие слова про ЗОЖ:
+    assert any(word in note for word in ("давлен", "препарат", "калий", "баланс"))
+
+
+def test_l0_note_empty_without_alcohol_signal():
+    decision = router_l0.classify("сегодня хорошее настроение")
+    note = _l0_note(decision)
+
+    assert "алкогол" not in note

@@ -244,6 +244,26 @@ _CONCERN_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_p(r"\bникому\s+не\s+нужен\b"), "isolation"),
 )
 
+# Алкоголь на диализе — не «тема ЗОЖ», а клинический риск (скачки/провалы АД,
+# нагрузка на сосудистый доступ, взаимодействие с гипотензивными и другими
+# препаратами, нарушение водно-электролитного баланса и калия, маскировка
+# симптомов осложнений). Раньше это уходило в модель без разметки и часто
+# получало общий ответ «алкоголь вреден» без специфики диализа. Оба слова
+# нужны вместе (вещество + глагол употребления), чтобы не ловить нейтральные
+# упоминания («нельзя ли алкоголь при подготовке к анализам») — они всё равно
+# дойдут до модели, просто без этой пометки.
+_ALCOHOL_SUBSTANCE_RE = _p(
+    r"\b(водк\w*|пив[ао]\w*|вин[оа]\w*|коньяк\w*|виски\w*|шампанск\w*|"
+    r"алкогол\w*|спиртн\w*)\b"
+)
+_ALCOHOL_VERB_RE = _p(
+    r"\b((?:вы)?пил[аои]?|напил\w*|бухн?ул\w*|приня[лт]\w*|хлопнул\w*|тяпнул\w*)\b"
+)
+
+
+def _mentions_alcohol_consumption(text: str) -> bool:
+    return bool(_ALCOHOL_SUBSTANCE_RE.search(text) and _ALCOHOL_VERB_RE.search(text))
+
 # Многодневный/нагрузочный фон при "breathing" — не то же самое, что острое
 # "не могу дышать прямо сейчас". У СН/ХБП-пациентов одышка при ходьбе —
 # рутинный симптом, requiring лечащую команду, а не скорую немедленно.
@@ -520,7 +540,9 @@ def classify(
 
     vitals = parse_vitals(message)
     alert = _bp_alert(vitals)
-    concern = _match(_CONCERN_PATTERNS, message)
+    concern = _match(_CONCERN_PATTERNS, message) or (
+        "alcohol_mention" if _mentions_alcohol_consumption(message) else None
+    )
 
     if _DATA_QUERY_RE.search(message):
         # «Какие у меня цифры за прошлую неделю» — чтение, а не запись.
@@ -595,7 +617,10 @@ def classify(
     if concern:
         # Уровень тревоги подняли, но интент не присвоили: пусть решает модель,
         # которая видит контекст. Стоп-слова работают только на повышение.
-        return L0Decision(rule=concern, safety_level="concern", safety_kind="psychological")
+        # alcohol_mention — не психологический риск, а клинический (взаимодействие
+        # с диализом), поэтому у него свой safety_kind.
+        kind = "medical" if concern == "alcohol_mention" else "psychological"
+        return L0Decision(rule=concern, safety_level="concern", safety_kind=kind)
 
     if has_pending_question and _is_short_answer(message):
         # «да», «давай», «более-менее» — намерение задано прошлым ходом.
